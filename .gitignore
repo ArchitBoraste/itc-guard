@@ -1,0 +1,38 @@
+# claude code
+CLAUDE.md
+.claude/
+
+# deps
+node_modules/
+.pnp.*
+
+# env & secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# build output
+dist/
+build/
+web/dist/
+
+# generated fixtures — reproducible via tools/generate-fixtures.js
+fixtures/
+
+# ml artifacts
+ml/*.csv
+ml/__pycache__/
+*.pkl
+
+# logs & local db
+*.log
+logs/
+*.sqlite
+*.sqlite3
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
