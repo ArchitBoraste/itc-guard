@@ -1,0 +1,63 @@
+services:
+  db:
+    image: mysql:8
+    container_name: itc_guard_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_dev_password}
+      MYSQL_DATABASE: ${DB_NAME:-itc_guard}
+      MYSQL_USER: ${DB_USER:-itc}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-itc_dev_password}
+    ports:
+      # Host 3306 is taken by a native MySQL install — expose on 3307 instead.
+      # Containers on this network still reach MySQL on 3306.
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_ROOT_PASSWORD:-root_dev_password}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  api:
+    build: ./api
+    container_name: itc_guard_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # In-network the db service listens on its own 3306 — the 3307 mapping
+      # is a host-side concern only.
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-itc}
+      DB_PASSWORD: ${DB_PASSWORD:-itc_dev_password}
+      DB_NAME: ${DB_NAME:-itc_guard}
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./api/src:/app/src
+      - ./docs:/app/docs:ro
+
+  web:
+    build: ./web
+    container_name: itc_guard_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Vite proxies /api here (see web/vite.config.js).
+      VITE_API_BASE: http://api:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web/src:/app/src
+      - ./web/index.html:/app/index.html
+
+volumes:
+  db_data:
