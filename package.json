@@ -1,0 +1,9 @@
+{
+  "name": "itc-guard",
+  "private": true,
+  "type": "module",
+  "description": "ITC Guard workspace root — dev tooling only. The app lives in api/ and web/.",
+  "scripts": {
+    "gen:fixtures": "node tools/generate-fixtures.js"
+  }
+}
