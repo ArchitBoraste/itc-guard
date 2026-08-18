@@ -1,1 +1,0 @@
-# PURE: no db, no fs, no network. Must not import from services/, routes/ or db/.
