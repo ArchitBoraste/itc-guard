@@ -13,12 +13,13 @@ describe('GET /health', () => {
   let downServer;
 
   beforeAll(async () => {
-    okServer = await listen(createApp({ pingDb: async () => true }));
+    okServer = await listen(createApp({ pingDb: async () => true, mountApi: false }));
     downServer = await listen(
       createApp({
         pingDb: async () => {
           throw new Error('ECONNREFUSED');
-        }
+        },
+        mountApi: false
       })
     );
   });

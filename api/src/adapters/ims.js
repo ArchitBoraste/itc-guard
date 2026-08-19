@@ -218,6 +218,20 @@ function toPortalRecord(record, sectionKey, index, options) {
   };
 }
 
+export const FORMAT_IMS_JSON = 'IMS_JSON';
+export const FORMAT_UNKNOWN = 'UNKNOWN';
+
+// Sniffs the download envelope. Lives here because imsDetails / imsDetailsErr are
+// portal field names, and those appear only inside adapters/.
+export function detectFormat(input) {
+  try {
+    const payload = parseJson(input);
+    return payload.imsDetails || payload.imsDetailsErr ? FORMAT_IMS_JSON : FORMAT_UNKNOWN;
+  } catch {
+    return FORMAT_UNKNOWN;
+  }
+}
+
 // parse(json, options?) -> PortalRecord[]
 //   options { orgId, taxPeriod }  taxPeriod overrides the MM-only rtnprd derivation
 export function parse(input, options = {}) {

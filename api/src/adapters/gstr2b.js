@@ -359,6 +359,19 @@ function readImportRecord(doc, sectionKey, index, ctx) {
 // Entry point
 // ---------------------------------------------------------------------------
 
+export const FORMAT_GSTR2B_JSON = 'GSTR2B_JSON';
+export const FORMAT_UNKNOWN = 'UNKNOWN';
+
+// Sniffs the 2B envelope. Lives here because docdata is a portal field name.
+export function detectFormat(input) {
+  try {
+    const payload = parseJson(input);
+    return payload.docdata ? FORMAT_GSTR2B_JSON : FORMAT_UNKNOWN;
+  } catch {
+    return FORMAT_UNKNOWN;
+  }
+}
+
 // parse(json, options?) -> PortalRecord[]
 //   options { orgId, taxPeriod }  taxPeriod overrides the envelope's rtnprd
 export function parse(input, options = {}) {

@@ -20,16 +20,24 @@ api/                       Express API (ESM, plain JS)
   src/config.js            env -> config
   src/app.js               express app factory (db ping injected)
   src/index.js             server entrypoint
-  src/routes/              HTTP routes
+  src/routes/api.js        the /api surface + stub auth
   src/services/            orchestration (db + IO allowed)
+    ingest.js              upload -> preview -> commit, idempotent upserts
+    reconcile.js           load a period, run the engine, persist the run
+    totals.js              run totals in paise, incl. credit-note signs
+    supplierStats.js       supplier master + per-period filing behaviour
+    imsActions.js          run -> IMS upload JSON
+    identity.js            idempotency keys for ingested rows
   src/adapters/            portal/PR parsers — the ONLY place portal field
                            names (ctin, inum, txval, srcfilstatus...) appear
   src/matching/            PURE matching engine — no db, no fs, no network
   src/db/pool.js           mysql2/promise pool
+  src/db/tx.js             transaction + chunked insert helpers
   src/db/migrate.js        migration runner
   src/db/migrations/       numbered .sql files
-  test/                    vitest
+  test/                    vitest (unit, accuracy, integration)
 web/                       React 18 + Vite front end
+tools/                     dev tooling (fixtures, weight sweep, demo seed)
 docs/                      IMS / 2B / purchase-register schemas, domain reference
 docker-compose.yml
 ```
@@ -84,10 +92,22 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 |---|---|---|
 | `api/` | `npm run dev` | API with `--watch` |
 | `api/` | `npm run migrate` | apply pending migrations |
-| `api/` | `npm test` | vitest |
+| `api/` | `npm test` | vitest (integration tests skip with no db) |
 | `web/` | `npm run dev` | Vite dev server on 5173 |
+| root | `npm run gen:fixtures` | regenerate `fixtures/` |
+| root | `npm run seed:demo` | load a fixture period end to end for org 1 |
+| root | `npm run sweep:weights` | grid-search matching weights vs ground truth |
 | root | `docker compose up --build` | all three services |
 | root | `docker compose down -v` | stop and drop the db volume |
+
+### Demo seed
+
+```bash
+npm run seed:demo -- 2026-03 --reset
+```
+
+Uploads, commits, reconciles and prints the bucket counts, the run totals in paise
+and rupees, and the identity check. `--all` does every fixture period.
 
 ## Health check
 
@@ -131,7 +151,83 @@ Read these before touching `api/src/adapters/**`:
 - [docs/purchase-register-schema.md](docs/purchase-register-schema.md) — both PR formats
 - [docs/gst-lifecycle-reference.md](docs/gst-lifecycle-reference.md) — domain background
 
+## API
+
+Stub auth: every request is org 1. No login yet.
+
+| Method | Path | Does |
+|---|---|---|
+| `POST` | `/api/uploads` | multipart `file` + `kind=PURCHASE_REGISTER\|IMS\|GSTR2B` |
+| `GET` | `/api/uploads/:id/preview` | detected format + first 20 canonical rows |
+| `POST` | `/api/uploads/:id/commit` | `{ columnMap? }` -> upsert rows |
+| `POST` | `/api/runs` | `{ taxPeriod, mode, asOfDate? }` -> run + summary |
+| `GET` | `/api/runs?taxPeriod=` | the current run for a period |
+| `GET` | `/api/runs/:id` | summary, bucket counts, totals |
+| `GET` | `/api/runs/:id/results` | `?bucket=&page=&pageSize=` |
+| `PATCH` | `/api/results/:id` | `{ confirmedAction }` |
+| `GET` | `/api/runs/:id/ims-actions.json` | the portal upload JSON |
+| `GET` | `/api/suppliers` | list with stats |
+| `GET` | `/api/suppliers/:gstin` | period history |
+
+`recommended_action` and `confirmed_action` are stored separately. The IMS action
+JSON emits `confirmed_action` where set, otherwise `recommended_action`.
+`PATCH /api/results/:id` returns 409 for an action the record's blocked flags
+forbid (e.g. `PENDING` where `ispendactblocked` is `Y`).
+
+## Money
+
+Integer paise end to end, `BIGINT` columns, no floats and no intermediate
+division. Formatting happens at the UI boundary only.
+
+**Credit notes reduce ITC.** Every source reports note amounts as positive
+numbers, so the sign is applied in `services/totals.js`. On the 2026-03 fixture,
+getting this wrong would inflate claimable ITC by ₹6,73,655.78.
+
+Run totals, and which buckets feed each:
+
+```
+claimable  = MATCHED + SUGGESTED confirmed as ACCEPT
+atRisk     = VALUE_MISMATCH + MISSING_IN_BOOKS + unconfirmed SUGGESTED
+             + MISSING_IN_PORTAL still inside the cut-off
+             + anything confirmed REJECT/PENDING
+deferred   = MISSING_IN_PORTAL after the cut-off
+ineligible = INELIGIBLE
+nonIms     = NON_IMS — informational, NOT part of expected
+```
+
+Two identities hold exactly, asserted in the integration test:
+
+```
+expectedTotalItc = claimable + atRisk + deferred + ineligible
+expectedTotalItc + nonIms = grandTotalItc
+```
+
+NON_IMS sits outside `expected` deliberately: reverse-charge credit is
+self-assessed rather than accepted in IMS, and ISD/import records have no
+purchase-register counterpart and no IMS action. It is reported separately so
+nothing goes missing.
+
+## Idempotency
+
+**Runs replace, they do not version.** One current run per `(org_id, tax_period)`,
+enforced by `uq_runs_org_period`. Re-running updates that row and rebuilds its
+`match_results` in one transaction, so row counts stay constant. A
+`confirmed_action` survives the rebuild.
+
+**Re-uploading a source updates rows.** `identity_key` is a sha256 over source,
+section, supplier GSTIN, doc type, normalised invoice number, invoice date, port
+code and an ordinal — deliberately excluding amounts, so an amended record is
+recognised as the same row with a changed `content_hash` (`CHANGED_AFTER_REVIEW`)
+rather than as a new document. The spec's proposed key without the date collides
+37 times across the fixtures, which would silently overwrite one of a duplicated
+invoice pair.
+
 ## Status
 
-Skeleton only — no business logic yet. Adapters, the matching engine, recommendations and
-the IMS export are not implemented.
+Phases 0-4 done: skeleton, fixtures, adapters, matching engine, persistence and
+API. The matching engine scores 100% macro precision/recall/F1 against
+`fixtures/ground_truth.json` across all six periods (2,461 documents).
+
+Not built yet: the web UI beyond a health check, supplier risk scoring
+(`supplier_risk` is migrated but unpopulated), and the WhatsApp/chase message
+generation.

@@ -11,7 +11,7 @@ export const DEFAULT_WEIGHTS = Object.freeze({
   invoiceNo: 0.4,
   taxableValue: 0.25,
   totalTax: 0.15,
-  invoiceDate: 0.15,
+  invoiceDate: 0.35,
   gstin: 0.05
 });
 
