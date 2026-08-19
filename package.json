@@ -4,6 +4,7 @@
   "type": "module",
   "description": "ITC Guard workspace root — dev tooling only. The app lives in api/ and web/.",
   "scripts": {
-    "gen:fixtures": "node tools/generate-fixtures.js"
+    "gen:fixtures": "node tools/generate-fixtures.js",
+    "sweep:weights": "node tools/sweep-weights.js"
   }
 }
