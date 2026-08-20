@@ -11,8 +11,11 @@
 //   matter how many times it runs. Versioning would be the better audit trail,
 //   but it makes "how many exceptions are open right now" a query over the latest
 //   run rather than a plain count, and for a prototype whose whole point is a
-//   clear action list, replace is the honest trade. Human decisions survive: a
-//   confirmed_action is carried across the rebuild by result identity.
+//   clear action list, replace is the honest trade.
+//
+//   Human decisions survive the rebuild — but only while they still apply. A
+//   confirmed_action is carried across by result identity AND revalidated against
+//   the portal content_hash and bucket it was made about; see carryForward().
 import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.js';
@@ -269,7 +272,7 @@ async function upsertRunRow(connection, {
 async function loadConfirmedActions(connection, orgId, runId) {
   const [rows] = await connection.query(
     `SELECT expected_invoice_id, portal_record_id, confirmed_action, confirmed_by,
-            confirmed_at, remarks
+            confirmed_at, confirmed_content_hash, confirmed_bucket, remarks
        FROM match_results
       WHERE org_id = ? AND run_id = ? AND confirmed_action IS NOT NULL`,
     [orgId, runId]
@@ -281,10 +284,32 @@ async function loadConfirmedActions(connection, orgId, runId) {
   return map;
 }
 
+// Flag added when a decision is dropped because the record it was about changed.
+export const CONFIRMATION_RESET = 'CONFIRMATION_RESET';
+
+// A confirmation survives the rebuild only if it is still a decision about the
+// SAME thing: same portal content, same bucket. A supplier who corrects a value
+// has produced a different record, and IMS resets the recipient's action in
+// exactly that situation — carrying a stale REJECT onto a now-clean match would
+// reject an invoice the trader already agreed with.
+function carryForward(previous, result) {
+  if (!previous) return { confirmation: null, stale: false };
+
+  const currentHash = result.portal?.contentHash ?? null;
+  const contentUnchanged = (previous.confirmed_content_hash ?? null) === currentHash;
+  const bucketUnchanged = (previous.confirmed_bucket ?? null) === result.bucket;
+
+  if (contentUnchanged && bucketUnchanged) return { confirmation: previous, stale: false };
+  return { confirmation: null, stale: true };
+}
+
 async function insertResults(connection, orgId, runId, totals, confirmed) {
   const rows = totals.perResult.map(({ result, signedItc, totalBucket }) => {
     const key = `${result.expected?.id ?? ''}:${result.portal?.id ?? ''}`;
-    const previous = confirmed.get(key);
+    const { confirmation, stale } = carryForward(confirmed.get(key), result);
+
+    const flags = [...(result.flags ?? [])];
+    if (stale && !flags.includes(CONFIRMATION_RESET)) flags.push(CONFIRMATION_RESET);
 
     return [
       orgId,
@@ -295,10 +320,12 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
       result.score,
       result.matchedVia,
       result.scoreBreakdown ? JSON.stringify(result.scoreBreakdown) : null,
-      JSON.stringify(result.flags ?? []),
+      JSON.stringify(flags),
       result.recommendedAction,
       result.recommendationReason,
-      previous?.remarks ?? result.remarks,
+      // Remarks follow the decision: a dropped confirmation reverts to the
+      // engine's own remark rather than keeping the one written for the old value.
+      confirmation?.remarks ?? result.remarks,
       result.deltaTaxableValue,
       result.deltaTotalTax,
       // itc_impact is the rupee consequence of this one result, signed so a credit
@@ -306,9 +333,11 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
       itcSign(result.expected?.docType ?? result.portal?.docType) * (result.itcAtRisk ?? 0),
       signedItc,
       totalBucket,
-      previous?.confirmed_action ?? null,
-      previous?.confirmed_by ?? null,
-      previous?.confirmed_at ?? null
+      confirmation?.confirmed_action ?? null,
+      confirmation?.confirmed_by ?? null,
+      confirmation?.confirmed_at ?? null,
+      confirmation?.confirmed_content_hash ?? null,
+      confirmation?.confirmed_bucket ?? null
     ];
   });
 
@@ -320,7 +349,7 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
         matched_via, score_breakdown, flags, recommended_action,
         recommendation_reason, remarks, delta_taxable_value, delta_total_tax,
         itc_impact, signed_itc, total_bucket, confirmed_action, confirmed_by,
-        confirmed_at)
+        confirmed_at, confirmed_content_hash, confirmed_bucket)
      VALUES ?`,
     rows
   );
@@ -354,6 +383,8 @@ export async function getRun(orgId, runId) {
     bucketItc[row.bucket] = Number(row.itc ?? 0);
   }
 
+  const totalsBreakdown = await runTotalsBreakdown(orgId, runId);
+
   return {
     id: run.id,
     taxPeriod: run.tax_period,
@@ -378,8 +409,60 @@ export async function getRun(orgId, runId) {
       nonImsItc: Number(run.non_ims_itc),
       grandTotalItc: Number(run.grand_total_itc)
     },
+    totalsBreakdown,
     summary: parseJsonColumn(run.summary)
   };
+}
+
+// Splits each run total by document type, so a NEGATIVE total is explicable
+// rather than alarming.
+//
+// 2026-04's deferred total is -Rs 5,577.37. That is not a broken number: it is a
+// credit note the supplier never reported, so a reduction the trader is already
+// carrying in their books has not yet reached the portal. Without this split the
+// UI can only render "Deferred: -Rs 5,577.37", which reads like a bug. With it,
+// the UI can say "1 unreported credit note" and show the reduction as pending.
+export async function runTotalsBreakdown(orgId, runId) {
+  const [rows] = await pool.query(
+    `SELECT mr.total_bucket AS total_bucket,
+            COALESCE(ei.doc_type, pr.doc_type) AS doc_type,
+            COUNT(*) AS n,
+            SUM(mr.signed_itc) AS itc
+       FROM match_results mr
+       LEFT JOIN expected_invoices ei ON ei.id = mr.expected_invoice_id
+       LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
+      WHERE mr.org_id = ? AND mr.run_id = ?
+      GROUP BY mr.total_bucket, COALESCE(ei.doc_type, pr.doc_type)`,
+    [orgId, runId]
+  );
+
+  const breakdown = {};
+  for (const row of rows) {
+    const key = row.total_bucket ?? 'UNASSIGNED';
+    const entry = (breakdown[key] ??= {
+      itc: 0,
+      count: 0,
+      creditNotes: { itc: 0, count: 0 },
+      otherDocuments: { itc: 0, count: 0 },
+      byDocType: {}
+    });
+
+    const itc = Number(row.itc ?? 0);
+    const count = Number(row.n);
+    const docType = row.doc_type ?? 'UNKNOWN';
+
+    entry.itc += itc;
+    entry.count += count;
+    entry.byDocType[docType] = { itc, count };
+
+    // Credit notes carry negative ITC by construction — see services/totals.js.
+    const side = docType === 'CREDIT_NOTE' || docType === 'ISD_CREDIT'
+      ? entry.creditNotes
+      : entry.otherDocuments;
+    side.itc += itc;
+    side.count += count;
+  }
+  return breakdown;
 }
 
 export async function getRunByPeriod(orgId, taxPeriod) {
@@ -521,7 +604,7 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
 
   const [rows] = await pool.query(
     `SELECT mr.id, mr.run_id, mr.bucket, mr.portal_record_id,
-            pr.pending_blocked, pr.remarks_blocked,
+            pr.pending_blocked, pr.remarks_blocked, pr.content_hash,
             pr.section, pr.source, pr.invoice_no
        FROM match_results mr
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
@@ -556,11 +639,14 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
     );
   }
 
+  // Record WHAT the decision was about, so a later rebuild can tell whether it
+  // still applies.
   await pool.query(
     `UPDATE match_results
-        SET confirmed_action = ?, confirmed_by = ?, confirmed_at = NOW()
+        SET confirmed_action = ?, confirmed_by = ?, confirmed_at = NOW(),
+            confirmed_content_hash = ?, confirmed_bucket = ?
       WHERE org_id = ? AND id = ?`,
-    [action, userId, orgId, resultId]
+    [action, userId, result.content_hash ?? null, result.bucket, orgId, resultId]
   );
 
   // A confirmation can move a result between claimable and at-risk, so the run

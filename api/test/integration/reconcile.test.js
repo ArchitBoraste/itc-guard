@@ -1,11 +1,20 @@
 // End-to-end integration: fixture files -> uploads -> commit -> run -> results
 // -> IMS action JSON, against a real MySQL.
 //
-// Skips itself when no database is reachable, so `npm test` still works without
-// Docker. Start one with: docker compose up -d db && npm run migrate
+// FAILS when no database is reachable. It does not skip: a green run with twenty
+// silent skips reads as "phase 4 verified" and is not. See requireDatabase().
+// Start one with: docker compose up -d db && cd api && npm run migrate
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { closePool, ping, pool } from '../../src/db/pool.js';
-import { commitUpload, createUpload, previewUpload } from '../../src/services/ingest.js';
+import { closePool, pool } from '../../src/db/pool.js';
+import { createUpload, previewUpload } from '../../src/services/ingest.js';
+import {
+  COUNTED_TABLES,
+  ensureOrg,
+  ingest as ingestFile,
+  requireDatabase,
+  resetOrg,
+  rowCounts as countRowsFor
+} from '../helpers/db.js';
 import {
   confirmResult,
   createRun,
@@ -28,86 +37,25 @@ const TRADER_GSTIN = '27AABCS1429F1Z8';
 // After 2B generation on the 14th, before GSTR-3B on the 20th: the reactive window.
 const AS_OF = '2026-04-16';
 
-let dbReachable = false;
-try {
-  dbReachable = await ping();
-} catch {
-  dbReachable = false;
-}
+const rowCounts = () => countRowsFor(ORG_ID, COUNTED_TABLES);
+const ingest = (kind, filename, period = PERIOD) => ingestFile(ORG_ID, kind, filename, period);
 
-const COUNTED_TABLES = [
-  'expected_invoices',
-  'expected_rate_lines',
-  'portal_records',
-  'portal_rate_lines',
-  'match_results',
-  'runs',
-  'supplier_periods'
-];
-
-async function rowCounts() {
-  const counts = {};
-  for (const table of COUNTED_TABLES) {
-    const [rows] = await pool.query(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id = ?`, [ORG_ID]);
-    counts[table] = Number(rows[0].n);
-  }
-  return counts;
-}
-
-async function resetOrg() {
-  const statements = [
-    'DELETE FROM match_results WHERE org_id = ?',
-    'DELETE FROM runs WHERE org_id = ?',
-    'DELETE FROM record_changes WHERE org_id = ?',
-    'DELETE FROM supplier_periods WHERE org_id = ?',
-    'DELETE FROM supplier_risk WHERE org_id = ?',
-    'DELETE FROM suppliers WHERE org_id = ?',
-    'DELETE FROM expected_rate_lines WHERE org_id = ?',
-    'DELETE FROM expected_invoices WHERE org_id = ?',
-    'DELETE FROM portal_rate_lines WHERE org_id = ?',
-    'DELETE FROM portal_records WHERE org_id = ?',
-    'DELETE FROM uploads WHERE org_id = ?'
-  ];
-  for (const sql of statements) await pool.query(sql, [ORG_ID]);
-}
-
-async function ensureOrg() {
-  await pool.query(
-    `INSERT INTO organizations (id, gstin, legal_name, trade_name, state_code)
-     VALUES (?, ?, 'Sharma Electronics Private Limited', 'Sharma Electronics', '27')
-     ON DUPLICATE KEY UPDATE gstin = VALUES(gstin)`,
-    [ORG_ID, TRADER_GSTIN]
+// Fixtures are generated and gitignored. Without them there is nothing to assert
+// against — also a broken environment, not something to quietly skip.
+if (!FIXTURES_PRESENT) {
+  throw new Error(
+    'fixtures/ is missing — run `npm run gen:fixtures` from the repo root first'
   );
 }
 
-async function ingest(kind, filename, period = PERIOD) {
-  const created = await createUpload({
-    orgId: ORG_ID,
-    kind,
-    filename,
-    buffer: readBuffer(period, filename),
-    taxPeriod: period
-  });
-  const committed = await commitUpload(ORG_ID, created.id);
-  return { uploadId: created.id, ...committed };
-}
-
-const runIntegration = dbReachable && FIXTURES_PRESENT ? describe : describe.skip;
-
-if (!dbReachable) {
-  console.log(
-    '\n[integration] skipped — no database reachable. ' +
-      'Start one with: docker compose up -d db && npm run migrate\n'
-  );
-}
-
-runIntegration('integration: fixture period through the whole stack', () => {
+describe('integration: fixture period through the whole stack', () => {
   let run;
   let truthBuckets;
 
   beforeAll(async () => {
-    await ensureOrg();
-    await resetOrg();
+    await requireDatabase();
+    await ensureOrg(ORG_ID, TRADER_GSTIN);
+    await resetOrg(ORG_ID);
 
     await ingest('PURCHASE_REGISTER', 'purchase_register.xlsx');
     await ingest('IMS', 'ims.json');

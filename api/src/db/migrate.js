@@ -5,7 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import mysql from 'mysql2/promise';
-import { config } from '../config.js';
+import { config, describeConnection } from '../config.js';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -35,6 +35,10 @@ export async function migrate({ log = console.log } = {}) {
   });
 
   try {
+    // The migration runner is the most dangerous place to be pointed at the wrong
+    // database: it CREATEs tables, so a stale DB_NAME in the shell silently
+    // installs this schema into somebody else's database. Always say where.
+    log(`[db] migrating ${describeConnection()}`);
     await conn.query(CREATE_LEDGER);
     const [applied] = await conn.query('SELECT filename, checksum FROM schema_migrations');
     const appliedBy = new Map(applied.map((r) => [r.filename, r.checksum]));

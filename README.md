@@ -92,7 +92,7 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 |---|---|---|
 | `api/` | `npm run dev` | API with `--watch` |
 | `api/` | `npm run migrate` | apply pending migrations |
-| `api/` | `npm test` | vitest (integration tests skip with no db) |
+| `api/` | `npm test` | vitest — integration tests FAIL without a db, see below |
 | `web/` | `npm run dev` | Vite dev server on 5173 |
 | root | `npm run gen:fixtures` | regenerate `fixtures/` |
 | root | `npm run seed:demo` | load a fixture period end to end for org 1 |
@@ -108,6 +108,62 @@ npm run seed:demo -- 2026-03 --reset
 
 Uploads, commits, reconciles and prints the bucket counts, the run totals in paise
 and rupees, and the identity check. `--all` does every fixture period.
+
+## Running the tests
+
+```bash
+cd api && npm test
+```
+
+Unit suites (adapters, matching, totals) need nothing. The **integration suites
+need a live MySQL and they FAIL rather than skip when one is missing** — a green
+run with twenty silent skips reads as "verified" and is not.
+
+```bash
+docker compose up -d db
+cd api && npm run migrate && npm test
+```
+
+### The environment variable trap
+
+`.env` is loaded by an absolute path derived from the module's own URL
+(`src/config.js`, and `test/setup/env.js` for vitest), so it resolves the same
+whether you run from the repo root, from `api/`, or from `/app` in the container.
+
+Loading uses **`override: false`**: a real environment variable beats the file.
+That is required — Docker Compose injects `DB_HOST=db` / `DB_PORT=3306` for the
+api container and must win over the host-facing values in the repo-root `.env`.
+
+The cost is that **any unrelated `DB_*` left in your shell also wins**, silently
+pointing the app at a different database. That is not hypothetical: a stale
+`DB_NAME` from another project redirected this app for an entire session, and
+`npm run migrate` then created this schema inside that other database.
+
+Every entry point therefore prints what it resolved, and where each value came
+from:
+
+```
+[test env] database itc@127.0.0.1:3307/itc_guard  [from env file]
+[db] connected itc@127.0.0.1:3307/itc_guard  [from env file]
+[db] migrating itc@127.0.0.1:3307/itc_guard  [from env file]
+```
+
+`[all from environment]` on a machine where you expected the file is the warning
+sign. Check with:
+
+```bash
+env | grep ^DB_
+```
+
+```powershell
+Get-ChildItem Env:DB_*
+```
+
+The integration suites go further: they verify the target actually holds the ITC
+Guard schema, so a reachable-but-wrong database fails with the target named in the
+message rather than producing confusing errors.
+
+Set `ITC_QUIET_ENV=1` to silence the per-run banner.
 
 ## Health check
 
@@ -141,6 +197,11 @@ Schema conventions:
 Tables: `organizations` `users` `uploads` `expected_invoices` `expected_rate_lines`
 `portal_records` `portal_rate_lines` `record_changes` `runs` `match_results` `suppliers`
 `supplier_periods` `supplier_risk`.
+
+`npm run migrate` prints the database it is about to modify before it touches
+anything. It is the one command that CREATEs tables, so being pointed at the wrong
+database by a stale `DB_NAME` is how this schema ends up somewhere it should not
+be.
 
 ## Reference docs
 
@@ -202,6 +263,13 @@ expectedTotalItc = claimable + atRisk + deferred + ineligible
 expectedTotalItc + nonIms = grandTotalItc
 ```
 
+**A total can legitimately be negative.** 2026-04 deferred is −₹5,577.37: an
+unreported credit note (−₹28,427.65) netted against an unreported invoice
+(+₹22,850.28). The net describes neither, so `GET /api/runs/:id` also returns
+`totalsBreakdown`, splitting every total into `creditNotes` / `otherDocuments` /
+`byDocType`. Render the components, not the net — and never take an absolute
+value to make a total look tidy, which would inflate the claim.
+
 NON_IMS sits outside `expected` deliberately: reverse-charge credit is
 self-assessed rather than accepted in IMS, and ISD/import records have no
 purchase-register counterpart and no IMS action. It is reported separately so
@@ -211,8 +279,19 @@ nothing goes missing.
 
 **Runs replace, they do not version.** One current run per `(org_id, tax_period)`,
 enforced by `uq_runs_org_period`. Re-running updates that row and rebuilds its
-`match_results` in one transaction, so row counts stay constant. A
-`confirmed_action` survives the rebuild.
+`match_results` in one transaction, so row counts stay constant.
+
+**A `confirmed_action` survives the rebuild only while it still applies.** It is
+revalidated against the portal `content_hash` and bucket it was made about. If the
+supplier corrects the value, a confirmed REJECT is dropped and the result is
+flagged `CONFIRMATION_RESET` — otherwise the upload would reject an invoice the
+trader now agrees with, costing them a month of credit. IMS behaves the same way:
+editing a saved record resets the recipient's action.
+
+**Ordinals are derived from the data, not from arrival order.** Two invoices that
+differ only in amount are separated by `identity_seq`, assigned after sorting by
+value — so re-uploading the same file with its rows shuffled produces the same
+keys and does not insert duplicates.
 
 **Re-uploading a source updates rows.** `identity_key` is a sha256 over source,
 section, supplier GSTIN, doc type, normalised invoice number, invoice date, port
