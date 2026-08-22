@@ -62,6 +62,10 @@ services:
       - ./web/index.html:/app/index.html
       # The proxy table lives here; without the mount an edit needs a rebuild.
       - ./web/vite.config.js:/app/vite.config.js
+      # Tests too, so `docker compose exec web npm test` picks up edits directly.
+      # package.json stays baked in: a dependency change needs a rebuild anyway.
+      - ./web/vitest.config.js:/app/vitest.config.js
+      - ./web/test:/app/test
 
 volumes:
   db_data:

@@ -144,8 +144,9 @@ function DropZone({ zone, state, onFile, onRetry }) {
 
 // --- column mapping (only when detection failed) ---------------------------
 
-function ColumnMapper({ columns, draft, onChange, onApply, onCancel, busy, error }) {
+function ColumnMapper({ columns, draft, guessed, onChange, onApply, onCancel, busy, error }) {
   const options = columns.headers;
+  const guessCount = Object.keys(guessed ?? {}).length;
 
   return (
     <section className="panel mapper" data-testid="column-mapper">
@@ -163,22 +164,43 @@ function ColumnMapper({ columns, draft, onChange, onApply, onCancel, busy, error
         </button>
       </header>
 
+      {guessCount ? (
+        <p className="mapper-guess-note" data-testid="guess-note">
+          <strong>{guessCount}</strong> {guessCount === 1 ? 'column was' : 'columns were'}{' '}
+          filled in from your own column titles. Guesses are marked{' '}
+          <span className="guess-chip">guessed</span> — check them before applying, and
+          change any that are wrong. The mark clears when you pick something else.
+        </p>
+      ) : null}
+
       <div className="mapper-grid">
         {columns.mappableFields.map((field) => {
           const required = columns.requiredFields.includes(field);
           const value = draft[field];
+          const guess = guessed?.[field];
+          const unset = value === '' || value === undefined;
           return (
             <label
               key={field}
-              className={`mapper-row ${required && (value === '' || value === undefined) ? 'is-missing' : ''}`}
+              className={`mapper-row ${required && unset ? 'is-missing' : ''} ${guess ? 'is-guessed' : ''}`}
+              data-testid={`maprow-${field}`}
             >
               <span className="mapper-field">
                 {FIELD_LABEL[field] ?? field}
                 {required ? <span className="req" title="required">*</span> : null}
+                {guess ? (
+                  <span
+                    className="guess-chip"
+                    data-testid={`guessed-${field}`}
+                    title={`Matched "${guess.header}" by name (${guess.confidence.toLowerCase()} confidence). Change it if that is wrong.`}
+                  >
+                    guessed
+                  </span>
+                ) : null}
               </span>
               <select
                 data-testid={`map-${field}`}
-                value={value === undefined || value === null ? '' : String(value)}
+                value={unset ? '' : String(value)}
                 onChange={(event) =>
                   onChange(field, event.target.value === '' ? '' : Number(event.target.value))
                 }
@@ -253,6 +275,18 @@ export function UploadScreen({ org, runs, onIngested }) {
     setZones((current) => ({ ...current, [kind]: { ...current[kind], ...patch } }));
   }, []);
 
+  // Deletes the key rather than setting it to undefined. `{...zones, IMS: undefined}`
+  // keeps IMS as an OWN key, so Object.entries still yields it and every consumer
+  // that reads `state.status` throws — which is what blanked the whole app when an
+  // upload error was dismissed.
+  const clearZone = useCallback((kind) => {
+    setZones((current) => {
+      const next = { ...current };
+      delete next[kind];
+      return next;
+    });
+  }, []);
+
   // Upload -> preview -> commit. The mapping step slots in between preview and
   // commit, and ONLY when detection came back UNKNOWN: a recognised template must
   // never make the trader answer questions the file already answers.
@@ -274,11 +308,21 @@ export function UploadScreen({ org, runs, onIngested }) {
               { code: 'unmappable_xlsx' }
             );
           }
+          // Exact aliases first, then the adapter's name-based guesses. Anything
+          // still unresolved stays blank rather than being filled with a bad
+          // guess — a wrong column silently mis-parses every row in the file.
           const draft = {};
+          const guessed = {};
           for (const field of columns.mappableFields) {
-            draft[field] = columns.mapped[field] ?? '';
+            if (field in columns.mapped) {
+              draft[field] = columns.mapped[field];
+              continue;
+            }
+            const guess = columns.suggested?.[field];
+            draft[field] = guess ? guess.index : '';
+            if (guess) guessed[field] = guess;
           }
-          setMapper({ kind, uploadId: upload.id, filename: file.name, columns, draft });
+          setMapper({ kind, uploadId: upload.id, filename: file.name, columns, draft, guessed });
           setMapperError(null);
           setZone(kind, { status: 'mapping', uploadId: upload.id, filename: file.name });
           return;
@@ -333,7 +377,7 @@ export function UploadScreen({ org, runs, onIngested }) {
     }
   }, [mapper, setZone]);
 
-  const committed = Object.entries(zones).filter(([, state]) => state.status === 'committed');
+  const committed = Object.entries(zones).filter(([, state]) => state?.status === 'committed');
   const committedPeriod = committed.map(([, state]) => state.taxPeriod).find(Boolean) ?? null;
   const hasBooks = zones.PURCHASE_REGISTER?.status === 'committed';
   const hasPortal =
@@ -459,7 +503,7 @@ export function UploadScreen({ org, runs, onIngested }) {
               zone={zone}
               state={zones[zone.kind]}
               onFile={handleFile}
-              onRetry={() => setZones((current) => ({ ...current, [zone.kind]: undefined }))}
+              onRetry={() => clearZone(zone.kind)}
             />
           ))}
         </div>
@@ -473,12 +517,18 @@ export function UploadScreen({ org, runs, onIngested }) {
           draft={mapper.draft}
           busy={mapperBusy}
           error={mapperError}
+          guessed={mapper.guessed}
           onChange={(field, value) =>
-            setMapper((current) => ({ ...current, draft: { ...current.draft, [field]: value } }))
+            setMapper((current) => {
+              // Once the user has ruled on a field it is their choice, not a guess.
+              const guessed = { ...current.guessed };
+              delete guessed[field];
+              return { ...current, draft: { ...current.draft, [field]: value }, guessed };
+            })
           }
           onApply={applyMapping}
           onCancel={() => {
-            setZones((current) => ({ ...current, [mapper.kind]: undefined }));
+            clearZone(mapper.kind);
             setMapper(null);
           }}
         />

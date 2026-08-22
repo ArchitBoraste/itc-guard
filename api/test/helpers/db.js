@@ -39,7 +39,24 @@ export async function requireDatabase() {
   );
 }
 
+// org 1 is the RUNNING APPLICATION's org: stubAuth hands every API request
+// org 1, tools/seed-demo.js seeds into it, and the "Load sample data" button
+// writes there. A suite that resets org 1 destroys whatever the user (or the
+// demo) had loaded, and leaves its own fixture periods behind looking like real
+// runs. Suites take an id from here instead; see APP_ORG_ID below.
+export const APP_ORG_ID = 1;
+
+// One id per suite. Kept in one place so adding a suite cannot silently collide
+// with another one — or with the app.
+export const TEST_ORGS = Object.freeze({
+  reconcile: 5,
+  ordinalStability: 2,
+  staleConfirmation: 3,
+  negativeTotals: 4
+});
+
 export async function ensureOrg(orgId, gstin) {
+  assertNotAppOrg(orgId, 'ensureOrg');
   await pool.query(
     `INSERT INTO organizations (id, gstin, legal_name, trade_name, state_code)
      VALUES (?, ?, 'Sharma Electronics Private Limited', 'Sharma Electronics', '27')
@@ -48,8 +65,22 @@ export async function ensureOrg(orgId, gstin) {
   );
 }
 
+// The guard that makes the reservation real rather than a convention in a comment.
+// Throwing here is the whole point: a suite that reaches for org 1 fails loudly on
+// its first setup call instead of quietly deleting the demo data.
+function assertNotAppOrg(orgId, fnName) {
+  if (Number(orgId) === APP_ORG_ID) {
+    throw new Error(
+      `${fnName}() refuses org ${APP_ORG_ID}: that is the running application's org ` +
+        '(stubAuth serves it, and npm run seed:demo writes to it). Take an id from ' +
+        'TEST_ORGS in test/helpers/db.js instead.'
+    );
+  }
+}
+
 // Child rows first — org FKs are RESTRICT, parent FKs are CASCADE.
 export async function resetOrg(orgId) {
+  assertNotAppOrg(orgId, 'resetOrg');
   const statements = [
     'DELETE FROM match_results WHERE org_id = ?',
     'DELETE FROM runs WHERE org_id = ?',

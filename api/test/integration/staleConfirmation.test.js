@@ -16,10 +16,17 @@ import { closePool, pool } from '../../src/db/pool.js';
 import { confirmResult, createRun, listResults } from '../../src/services/reconcile.js';
 import { buildRunImsActions } from '../../src/services/imsActions.js';
 import { UPLOAD_SECTIONS } from '../../src/adapters/imsActionWriter.js';
-import { ensureOrg, ingest, requireDatabase, resetOrg, rowCounts } from '../helpers/db.js';
+import {
+  TEST_ORGS,
+  ensureOrg,
+  ingest,
+  requireDatabase,
+  resetOrg,
+  rowCounts
+} from '../helpers/db.js';
 import { FIXTURES_PRESENT, readJson } from '../helpers/fixtures.js';
 
-const ORG_ID = 3;
+const ORG_ID = TEST_ORGS.staleConfirmation;
 const TRADER_GSTIN = '27AABCS1429F3Z6';
 const PERIOD = '2026-03';
 const AS_OF = '2026-04-16';

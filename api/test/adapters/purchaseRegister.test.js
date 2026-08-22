@@ -4,6 +4,8 @@ import {
   FORMAT_GSTR2_CSV,
   FORMAT_TEMPLATE_V24,
   FORMAT_UNKNOWN,
+  REQUIRED_FIELDS,
+  describeColumns,
   detectFormat,
   parse,
   parseWithMetadata
@@ -322,5 +324,99 @@ describe('purchase register — column mapping and failure modes', () => {
       'utf8'
     );
     expect(() => parse(buffer, { taxableValue: 'Nope' })).toThrow(/not in the file/);
+  });
+});
+
+describe('purchase register — fuzzy column suggestion', () => {
+  const csv = (headers) =>
+    Buffer.from([headers.join(','), headers.map(() => 'x').join(',')].join('\n'), 'utf8');
+
+  it('pre-matches a trader’s own column titles to the required fields', () => {
+    const described = describeColumns(csv(['Party GSTIN', 'Bill No', 'Bill Date', 'Net Amount']));
+
+    expect(described.format).toBe(FORMAT_UNKNOWN);
+    // Exact aliasing finds nothing here — that is the whole point.
+    expect(described.mapped).toEqual({});
+    expect(described.suggested.supplierGstin.index).toBe(0);
+    expect(described.suggested.invoiceNo.index).toBe(1);
+    expect(described.suggested.invoiceDate.index).toBe(2);
+    expect(described.suggested.taxableValue.index).toBe(3);
+    // Nothing required is left for the user to hunt down by hand.
+    expect(
+      described.requiredFields.filter((field) => !(field in described.suggested))
+    ).toEqual([]);
+  });
+
+  it('handles an abbreviated tally-style export', () => {
+    const described = describeColumns(
+      csv(['Party GSTIN', 'Party Name', 'Bill No', 'Bill Dt', 'Assessable Value', 'IGST Amt'])
+    );
+    expect(Object.fromEntries(
+      Object.entries(described.suggested).map(([field, hit]) => [field, hit.index])
+    )).toEqual({
+      supplierGstin: 0,
+      supplierName: 1,
+      invoiceNo: 2,
+      invoiceDate: 3,
+      taxableValue: 4,
+      igst: 5
+    });
+  });
+
+  it('assigns one to one, so a near-miss cannot steal a column from an exact hit', () => {
+    // 'Bill Date' scores for invoiceNo too, via the 'bill no' family. The greedy
+    // one-to-one pass must give it to invoiceDate, which matches it exactly.
+    const described = describeColumns(csv(['Bill No', 'Bill Date', 'Bill Value']));
+    expect(described.suggested.invoiceNo.index).toBe(0);
+    expect(described.suggested.invoiceDate.index).toBe(1);
+    expect(described.suggested.invoiceValue.index).toBe(2);
+
+    const columns = Object.values(described.suggested).map((hit) => hit.index);
+    expect(new Set(columns).size).toBe(columns.length);
+  });
+
+  it('guesses nothing rather than guessing wrong', () => {
+    const described = describeColumns(csv(['Col A', 'Col B', 'Col C']));
+    expect(described.suggested).toEqual({});
+    expect(described.missingFields).toEqual(REQUIRED_FIELDS);
+  });
+
+  it('never suggests over a column exact aliasing already claimed', () => {
+    const described = describeColumns(
+      csv(['GSTIN of Supplier', 'Invoice Number', 'Invoice date', 'Taxable Value'])
+    );
+    // A recognised template: everything resolves exactly, nothing is a guess.
+    expect(described.format).toBe(FORMAT_GSTR2_CSV);
+    expect(described.suggested).toEqual({});
+    expect(described.missingFields).toEqual([]);
+  });
+
+  it('does NOT let a fuzzy match make an unrecognised file look recognised', () => {
+    // detectFormat must stay driven by exact aliases only. If suggestions leaked
+    // into it, this file would be parsed as a template and every row misread.
+    const buffer = csv(['Party GSTIN', 'Bill No', 'Bill Date', 'Net Amount']);
+    expect(detectFormat(buffer)).toBe(FORMAT_UNKNOWN);
+    expect(() => parse(buffer)).toThrow(/unrecognised purchase-register format/);
+  });
+
+  it('parses once the suggested map is supplied', () => {
+    const buffer = Buffer.from(
+      [
+        'Party GSTIN,Bill No,Bill Date,Net Amount,IGST Amt',
+        '27AABCU9603R1ZM,B-99,3-Mar-26,"1,00,000","18,000"'
+      ].join('\n'),
+      'utf8'
+    );
+    const described = describeColumns(buffer);
+    const columnMap = Object.fromEntries(
+      Object.entries(described.suggested).map(([field, hit]) => [field, hit.index])
+    );
+
+    const invoices = parse(buffer, columnMap);
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0].supplierGstin).toBe('27AABCU9603R1ZM');
+    expect(invoices[0].taxableValue).toBe(10000000);
+    expect(invoices[0].igst).toBe(1800000);
+    expect(invoices[0].invoiceDate).toBe('2026-03-03');
   });
 });

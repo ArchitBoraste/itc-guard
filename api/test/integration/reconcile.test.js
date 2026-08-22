@@ -9,6 +9,7 @@ import { closePool, pool } from '../../src/db/pool.js';
 import { createUpload, previewUpload } from '../../src/services/ingest.js';
 import {
   COUNTED_TABLES,
+  TEST_ORGS,
   ensureOrg,
   ingest as ingestFile,
   requireDatabase,
@@ -24,7 +25,12 @@ import {
 import { rebuildSupplierPeriods, getSupplierHistory, listSuppliers } from '../../src/services/supplierStats.js';
 import { buildRunImsActions } from '../../src/services/imsActions.js';
 import { UPLOAD_SECTIONS } from '../../src/adapters/imsActionWriter.js';
-import { FIXTURES_PRESENT, groundTruth, readBuffer } from '../helpers/fixtures.js';
+import {
+  FIXTURES_PRESENT,
+  FIXTURE_TRADER_GSTIN,
+  groundTruth,
+  readBuffer
+} from '../helpers/fixtures.js';
 
 const PERIOD = '2026-03';
 // A neighbouring period is loaded too, on purpose. The engine's ±1 month blocking
@@ -32,8 +38,13 @@ const PERIOD = '2026-03';
 // reported them, every one of them would surface as a phantom MISSING_IN_BOOKS.
 // Seeding only one period would hide that entirely.
 const NEIGHBOUR_PERIOD = '2026-02';
-const ORG_ID = 1;
-const TRADER_GSTIN = '27AABCS1429F1Z8';
+// NOT org 1. That is the running application's org — resetOrg() refuses it, so
+// this constant cannot drift back without the suite failing on setup.
+const ORG_ID = TEST_ORGS.reconcile;
+// This suite's own filer, following the one-gstin-per-org convention. It is what
+// buildRunImsActions puts in `rtin`, and it is deliberately NOT the GSTIN the
+// fixture files were generated for — see FIXTURE_TRADER_GSTIN below.
+const TRADER_GSTIN = '27AABCS1429F5Z4';
 // After 2B generation on the 14th, before GSTR-3B on the 20th: the reactive window.
 const AS_OF = '2026-04-16';
 
@@ -424,7 +435,10 @@ describe('integration: fixture period through the whole stack', () => {
     expect(preview.taxPeriod).toBe(PERIOD);
     expect(preview.rows).toHaveLength(20);
     expect(preview.totalRows).toBeGreaterThan(20);
-    expect(preview.metadata.recipientGstin).toBe(TRADER_GSTIN);
+    // The header the generator wrote into the file — nothing to do with which
+    // organizations row exists. Asserting TRADER_GSTIN here would only pass while
+    // the suite's org happened to share the fixtures' GSTIN.
+    expect(preview.metadata.recipientGstin).toBe(FIXTURE_TRADER_GSTIN);
     // Preview must not write anything.
     expect(await rowCounts()).toEqual(before);
   });

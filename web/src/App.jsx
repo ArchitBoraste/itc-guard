@@ -5,6 +5,7 @@ import {
   ConfirmationResetBanner,
   DeemedAcceptanceBanner
 } from './components/DeemedAcceptanceBanner.jsx';
+import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { ErrorBox, Loading } from './components/States.jsx';
 import { UploadScreen } from './screens/Upload.jsx';
 import { SummaryScreen } from './screens/Summary.jsx';
@@ -218,6 +219,10 @@ export default function App() {
       ) : null}
 
       <main className="content">
+        {/* Keyed on the route and period so navigating away from a screen that threw
+            remounts the boundary and clears the error — the nav bar above stays
+            mounted throughout, so there is always a way out. */}
+        <ErrorBoundary key={`${route}:${period ?? ''}`} scope="This screen">
         {booting ? (
           <Loading label="Starting up" rows={4} />
         ) : bootError ? (
@@ -244,6 +249,7 @@ export default function App() {
         ) : (
           <SuppliersScreen run={run} />
         )}
+        </ErrorBoundary>
       </main>
 
       <footer className="footer">

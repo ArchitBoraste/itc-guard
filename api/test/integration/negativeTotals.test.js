@@ -20,10 +20,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, pool } from '../../src/db/pool.js';
 import { createRun, getRun, listResults } from '../../src/services/reconcile.js';
-import { ensureOrg, ingestPeriod, requireDatabase, resetOrg } from '../helpers/db.js';
+import {
+  TEST_ORGS,
+  ensureOrg,
+  ingestPeriod,
+  requireDatabase,
+  resetOrg
+} from '../helpers/db.js';
 import { FIXTURES_PRESENT } from '../helpers/fixtures.js';
 
-const ORG_ID = 4;
+const ORG_ID = TEST_ORGS.negativeTotals;
 const TRADER_GSTIN = '27AABCS1429F4Z5';
 // The period whose deferred total is negative.
 const PERIOD = '2026-04';

@@ -44,7 +44,9 @@ web/                       React 18 + Vite front end (plain JS, one stylesheet)
   src/lib/vocab.js         bucket/action codes -> plain English; action gating
   src/lib/calendar.js      cut-off, 2B generation and GSTR-3B dates
   src/components/          banners, side-by-side compare, score popover, states
+                           ErrorBoundary.jsx — the app's only class component
   src/screens/             Upload, Summary, Actions, Suppliers
+  test/                    vitest + jsdom + @testing-library/react
 tools/                     dev tooling (fixtures, weight sweep, demo seed)
 docs/                      IMS / 2B / purchase-register schemas, domain reference
 docker-compose.yml
@@ -119,6 +121,18 @@ and rupees, and the identity check. `--all` does every fixture period.
 
 ## Running the tests
 
+The front end has its own suite. It runs in the web container, which is where its
+node_modules live:
+
+```
+docker compose exec web npm test
+```
+
+It covers the upload panel (a rejected file can be dismissed without unmounting
+the app) and the error boundary. A dependency change needs `docker compose build
+web`; `test/` and `vitest.config.js` are bind-mounted, so test edits do not.
+
+
 ```bash
 cd api && npm test
 ```
@@ -172,6 +186,35 @@ Guard schema, so a reachable-but-wrong database fails with the target named in t
 message rather than producing confusing errors.
 
 Set `ITC_QUIET_ENV=1` to silence the per-run banner.
+
+### Test data isolation
+
+`stubAuth` serves every API request as **org 1**, and `npm run seed:demo` writes
+there. So org 1 is the running application's data, and no suite may touch it.
+
+Each DB-backed suite owns an id from `TEST_ORGS` in `api/test/helpers/db.js`:
+
+| Suite | org_id | GSTIN |
+|---|---|---|
+| the application | 1 | `27AABCS1429F1Z8` |
+| `ordinalStability.test.js` | 2 | `27AABCS1429F2Z7` |
+| `staleConfirmation.test.js` | 3 | `27AABCS1429F3Z6` |
+| `negativeTotals.test.js` | 4 | `27AABCS1429F4Z5` |
+| `reconcile.test.js` | 5 | `27AABCS1429F5Z4` |
+
+`ensureOrg()` and `resetOrg()` **throw** if handed org 1, so the reservation is
+enforced rather than merely documented — a suite that reaches for it fails on its
+first setup call instead of quietly deleting the demo.
+
+Note that a suite's own GSTIN is not the one the fixture files were generated for.
+Assertions about what an adapter read out of a file use `FIXTURE_TRADER_GSTIN`
+(from `ground_truth.json`), not the suite's org GSTIN; conflating the two makes a
+test pass by coincidence.
+
+DB-backed files run one at a time (`fileParallelism: false`). Separate org_ids stop
+them fighting over rows, but they bulk-insert into the same tables and InnoDB takes
+gap locks on shared indexes regardless of org_id — in parallel they deadlocked
+about one run in three, and the aborted suite took 7 real tests down with it.
 
 ## Health check
 
@@ -263,6 +306,19 @@ header at an unknown row and guessing wrong would read a data row as the titles.
 With nothing loaded, a **Load sample data** button seeds a fixture period through
 the real upload path, so the app is never a dead empty screen.
 
+The mapping form arrives pre-filled. `describeColumns` returns two things: `mapped`,
+which is exact and comes from the template alias table, and `suggested`, which
+matches the trader's own column titles against a synonym table (`Party GSTIN`,
+`Bill No`, `Bill Date`, `Net Amount`) after normalising away case, spacing and
+punctuation. Pairs are assigned one-to-one by score, so `Bill Date` goes to the
+document date rather than being stolen by the document number. Suggestions are
+labelled **guessed** in the form and the label clears when the user changes the
+field. Anything the matcher is not confident about is left unset rather than filled
+with a plausible wrong answer, because a mis-mapped column silently corrupts every
+row in the file. The two tables are kept apart deliberately: `detectFormat` reads
+only the exact one, so a fuzzy hit can never make an unrecognised file be parsed as
+a GSTN template.
+
 **Summary** — expected / claimable / at risk / deferred, plus a card per bucket.
 
 A total whose net HIDES its components leads with the components instead. 2026-04's
@@ -293,6 +349,12 @@ not recommend accepting (the real exposure). One number alone is either alarmist
 complacent. A second banner appears when migration 003 has dropped a confirmation
 because the supplier amended the record it was about — a decision the trader made
 has been invalidated, and that is not a row-level detail.
+
+**Error boundaries.** React unmounts the entire tree when a render throws, so one
+bad property access takes the whole page to white — and the nav bar with it, which
+leaves no way out. There are two boundaries: one around the routed screen, keyed on
+the route so navigating away remounts it and clears the error by itself, and one
+around the whole app as a backstop. Both show the actual message and offer a reload.
 
 Money arrives as integer paise and is formatted by integer arithmetic on paise and
 digit grouping on the decimal string, so no float ever reaches a rupee figure. Paise
@@ -373,6 +435,5 @@ and the web UI. The matching engine scores 100% macro precision/recall/F1 agains
 Not built yet: supplier risk scoring (`supplier_risk` is migrated but unpopulated)
 and the WhatsApp/chase message generation.
 
-Known sharp edge: `api/test/integration/reconcile.test.js` runs as **org 1**, the
-same org the app serves, and resets it. Running `npm test` therefore wipes whatever
-is loaded in the app — re-run `npm run seed:demo` afterwards.
+`npm test` is safe to run against a live demo: every DB-backed suite works in its
+own org and org 1 is reserved for the app. See **Test data isolation**.

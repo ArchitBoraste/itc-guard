@@ -10,7 +10,6 @@ import {
   NEEDS_ATTENTION,
   RECOMMENDED_TO_IMS,
   actionability,
-  effectiveAction,
   isOverride
 } from '../lib/vocab.js';
 import { Empty, ErrorBox } from '../components/States.jsx';
@@ -26,17 +25,37 @@ const PAGE_STEP = 25;
 function groupResults(results) {
   const groups = {};
   for (const action of ACTION_ORDER) {
-    groups[action] = { action, results: [], itc: 0, open: 0, overridden: 0 };
+    groups[action] = { action, results: [], itc: 0, open: 0 };
   }
   for (const result of results ?? []) {
     const group = groups[result.recommendedAction] ?? groups.NO_ACTION;
     group.results.push(result);
     group.itc += result.signedItc ?? 0;
     if (!result.confirmedAction && actionability(result).kind !== 'NOT_IN_IMS') group.open += 1;
-    if (isOverride(result)) group.overridden += 1;
   }
   return groups;
 }
+
+// The scope is a predicate over ROWS, not over groups.
+//
+// Selecting whole groups that merely CONTAINED a match was the bug: overriding one
+// row in Reject put all 8 Reject rows on screen under a header that said 8, while
+// the toggle correctly said 1. A group is now nothing more than the rows that
+// survived — if none survive, the group is not rendered at all.
+const SCOPES = {
+  ALL: () => true,
+
+  // Still waiting on a human. A row whose recommendation is a workflow state the
+  // trader has to resolve, that they have not resolved, and that IMS can actually
+  // be told something about.
+  ATTENTION: (result) =>
+    NEEDS_ATTENTION.has(result.recommendedAction) &&
+    !result.confirmedAction &&
+    actionability(result).kind !== 'NOT_IN_IMS',
+
+  // The trader chose something other than what the engine proposed.
+  OVERRIDDEN: (result) => isOverride(result)
+};
 
 function matchesQuery(result, query) {
   if (!query) return true;
@@ -67,7 +86,9 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
     [onConfirmed, onRefresh]
   );
 
-  const filtered = useMemo(
+  // Bucket + search first. Every scope count is measured against THIS set, so a
+  // toggle label never promises rows that the active search has already excluded.
+  const searched = useMemo(
     () =>
       (results ?? []).filter(
         (result) =>
@@ -76,7 +97,24 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
     [results, bucketFilter, query]
   );
 
-  const groups = useMemo(() => groupResults(filtered), [filtered]);
+  const visibleResults = useMemo(
+    () => searched.filter(SCOPES[scope] ?? SCOPES.ALL),
+    [searched, scope]
+  );
+
+  const scopeCounts = useMemo(
+    () => ({
+      ATTENTION: searched.filter(SCOPES.ATTENTION).length,
+      ALL: searched.length,
+      OVERRIDDEN: searched.filter(SCOPES.OVERRIDDEN).length
+    }),
+    [searched]
+  );
+
+  // Grouped from the surviving rows only, so every header count and rupee total
+  // describes exactly what is rendered beneath it.
+  const groups = useMemo(() => groupResults(visibleResults), [visibleResults]);
+  // The strip above the list is the period-wide picture and stays unfiltered.
   const allGroups = useMemo(() => groupResults(results), [results]);
 
   const confirmGroup = useCallback(
@@ -123,25 +161,33 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
     );
   }
 
-  const shown = ACTION_ORDER.filter((action) => {
-    if (!groups[action].results.length) return false;
-    if (scope === 'ATTENTION') return NEEDS_ATTENTION.has(action);
-    if (scope === 'OVERRIDDEN') return groups[action].overridden > 0;
-    return true;
-  });
+  const shown = ACTION_ORDER.filter((action) => groups[action].results.length > 0);
 
-  // Only the groups the ATTENTION scope actually shows. Counting ACCEPT's open
-  // rows here would put 386 on a toggle that reveals 31 — and those rows do not
-  // need a decision anyway: leaving them alone produces the recommended outcome,
-  // because no action in IMS IS acceptance.
-  const openTotal = ACTION_ORDER.filter((action) => NEEDS_ATTENTION.has(action)).reduce(
-    (sum, action) => sum + allGroups[action].open,
-    0
-  );
-  const overriddenTotal = ACTION_ORDER.reduce(
-    (sum, action) => sum + allGroups[action].overridden,
-    0
-  );
+  // Why the list is empty depends on which filter emptied it. Telling someone
+  // "every confirmed row matches the recommendation" when in fact their bucket
+  // filter excluded the overrides is a wrong answer to the question they asked.
+  const narrowed = Boolean(query.trim() || bucketFilter);
+  const emptyState = narrowed && scopeCounts[scope] === 0 && scopeCounts.ALL !== results.length
+    ? {
+        title: 'Nothing matches both filters',
+        body:
+          'No row satisfies the search or verdict filter AND this tab at the same time. ' +
+          'Widen one of them.'
+      }
+    : scope === 'ATTENTION'
+      ? {
+          title: 'Nothing is waiting on you',
+          body: 'Every record that needs a human decision has one. Download the IMS file below.'
+        }
+      : scope === 'OVERRIDDEN'
+        ? {
+            title: 'You have not overridden anything',
+            body: 'Every confirmed row matches what the engine recommended.'
+          }
+        : {
+            title: 'No rows match this filter',
+            body: 'Try a different supplier, invoice number or verdict.'
+          };
 
   return (
     <div className="screen screen-actions">
@@ -157,9 +203,9 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
           </div>
           <div className="scope-toggle" role="group" aria-label="Which rows to show">
             {[
-              ['ATTENTION', `Needs a decision (${openTotal})`],
-              ['ALL', `All (${results.length})`],
-              ['OVERRIDDEN', `Overridden (${overriddenTotal})`]
+              ['ATTENTION', `Needs a decision (${scopeCounts.ATTENTION})`],
+              ['ALL', `All (${scopeCounts.ALL})`],
+              ['OVERRIDDEN', `Overridden (${scopeCounts.OVERRIDDEN})`]
             ].map(([value, label]) => (
               <button
                 key={value}
@@ -229,8 +275,8 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
               clear
             </button>
           )}
-          <span className="muted small">
-            {filtered.length} of {results.length} shown
+          <span className="muted small" data-testid="shown-count">
+            {visibleResults.length} of {results.length} shown
           </span>
         </div>
 
@@ -239,27 +285,32 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
 
       {shown.length === 0 ? (
         <Empty
-          title={
-            scope === 'ATTENTION'
-              ? 'Nothing is waiting on you'
-              : scope === 'OVERRIDDEN'
-                ? 'You have not overridden anything'
-                : 'No rows match this filter'
-          }
+          title={emptyState.title}
           testId="empty-groups"
           action={
-            scope !== 'ALL' ? (
-              <button type="button" className="btn" onClick={() => setScope('ALL')}>
-                Show all {results.length}
-              </button>
-            ) : null
+            <div className="empty-actions">
+              {narrowed ? (
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid="clear-filters"
+                  onClick={() => {
+                    setQuery('');
+                    setBucketFilter('');
+                  }}
+                >
+                  Clear the filter
+                </button>
+              ) : null}
+              {scope !== 'ALL' ? (
+                <button type="button" className="btn" onClick={() => setScope('ALL')}>
+                  Show all {scopeCounts.ALL}
+                </button>
+              ) : null}
+            </div>
           }
         >
-          {scope === 'ATTENTION'
-            ? 'Every record that needs a human decision has one. Download the IMS file below.'
-            : scope === 'OVERRIDDEN'
-              ? 'Every confirmed row matches what the engine recommended.'
-              : 'Try a different supplier, invoice number or verdict.'}
+          {emptyState.body}
         </Empty>
       ) : (
         shown.map((action) => {
@@ -328,6 +379,3 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
     </div>
   );
 }
-
-// Exported for the summary strip and any future test that wants the same counts.
-export { groupResults, effectiveAction };

@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, pool } from '../../src/db/pool.js';
 import {
+  TEST_ORGS,
   ensureOrg,
   ingest,
   requireDatabase,
@@ -22,7 +23,7 @@ import {
 } from '../helpers/db.js';
 import { FIXTURES_PRESENT, readBuffer, readJson } from '../helpers/fixtures.js';
 
-const ORG_ID = 2;
+const ORG_ID = TEST_ORGS.ordinalStability;
 // Distinct GSTIN: organizations is UNIQUE on gstin, so sharing one would make
 // ensureOrg update org 1 instead of creating this suite's own org.
 const TRADER_GSTIN = '27AABCS1429F2Z7';

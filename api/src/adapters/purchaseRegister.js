@@ -79,6 +79,147 @@ const REQUIRED_FIELDS = ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableVa
 // should offer them. Derived from the alias table so the two cannot drift.
 export const MAPPABLE_FIELDS = Object.freeze([...new Set(HEADER_ALIASES.values())]);
 
+// ---------------------------------------------------------------------------
+// Fuzzy header suggestion
+// ---------------------------------------------------------------------------
+//
+// HEADER_ALIASES above is EXACT and drives detectFormat — it must only ever
+// contain spellings the two documented templates actually use, or an arbitrary
+// spreadsheet starts being detected as a GSTN template and parsed with the wrong
+// row offsets.
+//
+// This table is the opposite: the vocabulary real traders use in their own
+// exports. It never touches detection. It only pre-fills the mapping form, and
+// every value it produces is shown as a guess the user can correct. That
+// separation is the whole reason it is a second table rather than more aliases.
+const HEADER_SYNONYMS = Object.freeze({
+  supplierGstin: [
+    'gstin', 'gstin no', 'gstin number', 'party gstin', 'supplier gstin',
+    'vendor gstin', 'gstin of supplier', 'gstin of supplier/eco', 'party gst',
+    'supplier gst', 'vendor gst', 'gst no', 'gst number', 'gstin/uin'
+  ],
+  supplierName: [
+    'party name', 'supplier name', 'vendor name', 'trade name', 'legal name',
+    'trade/legal name', 'party', 'supplier', 'vendor', 'name of supplier'
+  ],
+  supplyType: ['type of inward supplies', 'invoice type', 'supply type', 'nature of supply'],
+  docType: ['document type', 'doc type', 'voucher type', 'type'],
+  invoiceNo: [
+    'bill no', 'bill number', 'invoice no', 'invoice number', 'invoice num',
+    'document number', 'document no', 'doc no', 'doc number', 'voucher no',
+    'voucher number', 'inv no', 'inv number', 'reference no'
+  ],
+  invoiceDate: [
+    'bill date', 'bill dt', 'invoice date', 'invoice dt', 'document date',
+    'document dt', 'doc date', 'inv date', 'date'
+  ],
+  invoiceValue: [
+    'invoice value', 'bill value', 'document value', 'gross amount', 'gross value',
+    'invoice amount', 'bill amount', 'total amount', 'total invoice value'
+  ],
+  placeOfSupply: ['place of supply', 'pos', 'supply state', 'state of supply'],
+  reverseCharge: ['reverse charge', 'rcm', 'reverse charge applicable', 'is rcm'],
+  rate: ['rate', 'tax rate', 'gst rate', 'rate percent'],
+  taxableValue: [
+    'taxable value', 'taxable amount', 'net amount', 'net value', 'assessable value',
+    'base amount', 'basic amount', 'taxable', 'value of supply'
+  ],
+  igst: ['igst', 'igst amt', 'igst amount', 'integrated tax', 'integrated tax paid', 'igst tax'],
+  cgst: ['cgst', 'cgst amt', 'cgst amount', 'central tax', 'central tax paid', 'cgst tax'],
+  sgst: [
+    'sgst', 'sgst amt', 'sgst amount', 'state tax', 'state/ut tax', 'state ut tax',
+    'state/ut tax paid', 'utgst', 'sgst/utgst'
+  ],
+  cess: ['cess', 'cess amt', 'cess amount', 'cess paid'],
+  itcEligibility: ['eligibility for itc', 'itc eligibility', 'itc eligible', 'eligibility'],
+  originalInvoiceNo: [
+    'original invoice number', 'original invoice no', 'original document number',
+    'invoice/advance payment voucher number', 'against invoice no'
+  ],
+  originalInvoiceDate: [
+    'original invoice date', 'original document date',
+    'invoice/advance payment voucher date', 'against invoice date'
+  ]
+});
+
+// Lowercase, drop every non-alphanumeric character. 'Bill Dt' -> 'billdt', so
+// spacing, punctuation and casing stop mattering entirely.
+function compactHeader(text) {
+  return String(text ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// 1.00 exact - 0.80 the synonym is a prefix or suffix of the header - 0.65 it
+// appears somewhere inside (or the header inside it) - 0 otherwise.
+//
+// Prefix/suffix outranks loose containment because that is where the real signal
+// is: 'Party GSTIN' ENDS in the synonym, whereas 'Bill Date' merely contains the
+// invoiceNo synonym 'bill'.
+function synonymScore(headerCompact, synonymCompact) {
+  if (!headerCompact || !synonymCompact) return 0;
+  if (headerCompact === synonymCompact) return 1;
+  if (headerCompact.startsWith(synonymCompact) || headerCompact.endsWith(synonymCompact)) {
+    return 0.8;
+  }
+  if (headerCompact.includes(synonymCompact) || synonymCompact.includes(headerCompact)) {
+    return 0.65;
+  }
+  return 0;
+}
+
+const SUGGESTION_FLOOR = 0.65;
+
+// suggestColumns(headerCells) -> { field: { index, header, score, confidence } }
+//
+// One-to-one: pairs are scored, sorted by score descending, then taken greedily
+// while consuming both the field and the column. Without that, 'Bill Date' would
+// be claimed by invoiceNo (0.65, via 'bill') as readily as by invoiceDate (1.00),
+// and two fields would end up pointing at the same column.
+export function suggestColumns(headerCells = []) {
+  const headers = headerCells.map((cell, index) => ({
+    index,
+    text: isBlank(cell) ? '' : String(cell).trim(),
+    compact: compactHeader(cell)
+  }));
+
+  const pairs = [];
+  for (const [field, synonyms] of Object.entries(HEADER_SYNONYMS)) {
+    for (const header of headers) {
+      if (!header.compact) continue;
+      let best = 0;
+      for (const synonym of synonyms) {
+        const score = synonymScore(header.compact, compactHeader(synonym));
+        if (score > best) best = score;
+      }
+      if (best >= SUGGESTION_FLOOR) pairs.push({ field, header, score: best });
+    }
+  }
+
+  // Deterministic: score desc, then field order, then column order.
+  const fieldRank = (field) => MAPPABLE_FIELDS.indexOf(field);
+  pairs.sort(
+    (a, b) =>
+      b.score - a.score ||
+      fieldRank(a.field) - fieldRank(b.field) ||
+      a.header.index - b.header.index
+  );
+
+  const suggested = {};
+  const takenFields = new Set();
+  const takenColumns = new Set();
+  for (const pair of pairs) {
+    if (takenFields.has(pair.field) || takenColumns.has(pair.header.index)) continue;
+    takenFields.add(pair.field);
+    takenColumns.add(pair.header.index);
+    suggested[pair.field] = {
+      index: pair.header.index,
+      header: pair.header.text,
+      score: pair.score,
+      confidence: pair.score === 1 ? 'HIGH' : pair.score >= 0.8 ? 'MEDIUM' : 'LOW'
+    };
+  }
+  return suggested;
+}
+
 export { REQUIRED_FIELDS };
 
 // 'Type of inward supplies' (v2.4) and 'Invoice Type' (GSTR-2 CSV) are different
@@ -527,10 +668,24 @@ export function describeColumns(input) {
       text: isBlank(cell) ? '' : String(cell).trim()
     })),
     mapped,
+    // Guesses for whatever exact aliasing did not already resolve. Kept under a
+    // separate key so the caller can tell a certainty from a suggestion and label
+    // it accordingly — never merged into `mapped`.
+    suggested: suggestForUnmapped(headerCells, mapped),
     mappableFields: MAPPABLE_FIELDS,
     requiredFields: REQUIRED_FIELDS,
     missingFields: REQUIRED_FIELDS.filter((field) => !(field in mapped))
   };
+}
+
+// Columns an exact alias already claimed are off the table for guessing, as both
+// fields and columns.
+function suggestForUnmapped(headerCells, mapped) {
+  const usedColumns = new Set(Object.values(mapped));
+  const blanked = headerCells.map((cell, index) => (usedColumns.has(index) ? '' : cell));
+  const suggested = suggestColumns(blanked);
+  for (const field of Object.keys(mapped)) delete suggested[field];
+  return suggested;
 }
 
 function xlsxHeaderCells(buffer) {

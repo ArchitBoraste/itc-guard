@@ -8,9 +8,17 @@ export const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../..
 // `node tools/generate-fixtures.js` from the repo root.
 export const FIXTURES_PRESENT = existsSync(join(FIXTURES_DIR, 'ground_truth.json'));
 
-export const PERIODS = FIXTURES_PRESENT
-  ? JSON.parse(readFileSync(join(FIXTURES_DIR, 'ground_truth.json'), 'utf8')).periods
-  : [];
+const MANIFEST = FIXTURES_PRESENT
+  ? JSON.parse(readFileSync(join(FIXTURES_DIR, 'ground_truth.json'), 'utf8'))
+  : {};
+
+export const PERIODS = MANIFEST.periods ?? [];
+
+// The recipient GSTIN written into the purchase-register header rows by the
+// generator. This is a fact about the FILES, not about any organizations row —
+// keep the two apart, or a test that means "the adapter read the header" quietly
+// turns into "the org row happens to match".
+export const FIXTURE_TRADER_GSTIN = MANIFEST.trader ?? null;
 
 export function periodDir(period) {
   return join(FIXTURES_DIR, period);
