@@ -75,6 +75,12 @@ const HEADER_ALIASES = new Map(
 
 const REQUIRED_FIELDS = ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue'];
 
+// Every canonical field a columnMap may point at, in the order a mapping UI
+// should offer them. Derived from the alias table so the two cannot drift.
+export const MAPPABLE_FIELDS = Object.freeze([...new Set(HEADER_ALIASES.values())]);
+
+export { REQUIRED_FIELDS };
+
 // 'Type of inward supplies' (v2.4) and 'Invoice Type' (GSTR-2 CSV) are different
 // vocabularies for the same canonical supplyType.
 const SUPPLY_TYPES = new Map(
@@ -440,25 +446,49 @@ function rateLineOf(parts) {
 // Entry points
 // ---------------------------------------------------------------------------
 
+// Which parser to run.
+//
+// A columnMap is the trader naming their own columns, so detection failing is the
+// expected case rather than a fatal one — refusing the file anyway would make the
+// whole columnMap parameter unreachable. The fallback is limited to CSV on
+// purpose: a CSV header is row 1 by definition, whereas an arbitrary .xlsx puts
+// its header at an unknown row and guessing wrong would silently read a data row
+// as the titles. Without a columnMap, an unrecognised file is still refused.
+function resolveFormat(buffer, columnMap, options) {
+  if (options.format) return options.format;
+  const detected = detectFormat(buffer);
+  if (detected !== FORMAT_UNKNOWN) return detected;
+  if (columnMap && !looksLikeZip(buffer)) return FORMAT_GSTR2_CSV;
+  return FORMAT_UNKNOWN;
+}
+
+function refuse(buffer) {
+  return new AdapterError(
+    looksLikeZip(buffer)
+      ? 'unrecognised purchase-register format — this .xlsx is not the v2.4 template, and ' +
+        'a spreadsheet’s header row cannot be located reliably. Export it as CSV and map the ' +
+        'columns, or use the GSTN template.'
+      : 'unrecognised purchase-register format — expected the v2.4 .xlsx template or a GSTR-2 CSV'
+  );
+}
+
 // parse(buffer, columnMap?, options?) -> ExpectedInvoice[]
 //   columnMap  { canonicalField: headerText | columnIndex } for non-template files
 //   options    { taxPeriod, orgId, format }
 export function parse(input, columnMap = null, options = {}) {
   const buffer = asBuffer(input);
-  const format = options.format ?? detectFormat(buffer);
+  const format = resolveFormat(buffer, columnMap, options);
 
   if (format === FORMAT_TEMPLATE_V24) return parseTemplateV24(buffer, columnMap, options).invoices;
   if (format === FORMAT_GSTR2_CSV) return parseGstr2Csv(buffer, columnMap, options).invoices;
 
-  throw new AdapterError(
-    'unrecognised purchase-register format — expected the v2.4 .xlsx template or a GSTR-2 CSV'
-  );
+  throw refuse(buffer);
 }
 
 // Same parse, plus the file-level metadata the header rows carry.
 export function parseWithMetadata(input, columnMap = null, options = {}) {
   const buffer = asBuffer(input);
-  const format = options.format ?? detectFormat(buffer);
+  const format = resolveFormat(buffer, columnMap, options);
 
   if (format === FORMAT_TEMPLATE_V24) {
     return { format, ...parseTemplateV24(buffer, columnMap, options) };
@@ -466,7 +496,56 @@ export function parseWithMetadata(input, columnMap = null, options = {}) {
   if (format === FORMAT_GSTR2_CSV) {
     return { format, ...parseGstr2Csv(buffer, columnMap, options) };
   }
-  throw new AdapterError(
-    'unrecognised purchase-register format — expected the v2.4 .xlsx template or a GSTR-2 CSV'
-  );
+  throw refuse(buffer);
+}
+
+// describeColumns(buffer) -> { format, layout, mappable, headerRow, headers[],
+//                              mapped, mappableFields, requiredFields, missingFields }
+//
+// Reads ONLY the header row, and never throws on an unrecognised file — which is
+// exactly the case it exists for. When detectFormat returns UNKNOWN the caller
+// needs the trader's own column titles in order to ask which is which, and
+// parse() cannot supply them because it refuses to run at all.
+export function describeColumns(input) {
+  const buffer = asBuffer(input);
+  const isXlsx = looksLikeZip(buffer);
+  const headerCells = isXlsx ? xlsxHeaderCells(buffer) : csvHeaderCells(buffer);
+  const mapped = mapHeaderRow(headerCells);
+
+  const format = detectFormat(buffer);
+
+  return {
+    format,
+    layout: isXlsx ? 'XLSX' : 'CSV',
+    // Whether a columnMap can rescue this file. See resolveFormat: a spreadsheet
+    // that is not the template has no locatable header row.
+    mappable: format !== FORMAT_UNKNOWN || !isXlsx,
+    // 1-based, to match what the trader sees in their spreadsheet.
+    headerRow: isXlsx ? HEADER_ROW : 1,
+    headers: headerCells.map((cell, index) => ({
+      index,
+      text: isBlank(cell) ? '' : String(cell).trim()
+    })),
+    mapped,
+    mappableFields: MAPPABLE_FIELDS,
+    requiredFields: REQUIRED_FIELDS,
+    missingFields: REQUIRED_FIELDS.filter((field) => !(field in mapped))
+  };
+}
+
+function xlsxHeaderCells(buffer) {
+  try {
+    const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: HEADER_ROW + 1 });
+    const sheet = wb.Sheets[SHEET_NAME] ?? wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) return [];
+    return sheetRows(sheet, HEADER_ROW + 1)[HEADER_ROW - 1] ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function csvHeaderCells(buffer) {
+  const text = stripBom(buffer.toString('utf8'));
+  const firstLine = text.split('\n')[0].replace(/\r$/, '');
+  return Papa.parse(firstLine).data[0] ?? [];
 }

@@ -11,6 +11,10 @@ const REPO_ROOT = join(API_DIR, '..');
 
 export const ENV_FILES = [join(API_DIR, '.env'), join(REPO_ROOT, '.env')];
 
+// Fixture bundle used by the demo seed. Mounted at /app/fixtures in the container,
+// sitting at <repo>/fixtures when the api runs on the host.
+const FIXTURE_CANDIDATES = [join(API_DIR, 'fixtures'), join(REPO_ROOT, 'fixtures')];
+
 // Snapshot before loading so we can tell where each value actually came from.
 const preexisting = new Set(Object.keys(process.env));
 
@@ -47,7 +51,9 @@ export const config = {
     user: process.env.DB_USER ?? 'itc',
     password: process.env.DB_PASSWORD ?? '',
     database: process.env.DB_NAME ?? 'itc_guard'
-  }
+  },
+  fixturesDir:
+    process.env.FIXTURES_DIR ?? FIXTURE_CANDIDATES.find((path) => existsSync(path)) ?? null
 };
 
 // user@host:port/database — never the password.

@@ -309,7 +309,14 @@ export async function listSuppliers(orgId, { limit = 200 } = {}) {
             SUM(sp.mismatch_count) AS mismatch_count,
             AVG(sp.days_late) AS avg_days_late,
             SUM(sp.observed_total_tax) AS observed_total_tax,
-            SUM(sp.expected_total_tax) AS expected_total_tax
+            SUM(sp.expected_total_tax) AS expected_total_tax,
+            -- The days-late trend, inline. The supplier table renders one sparkline
+            -- per row; fetching each supplier's periods separately would be one
+            -- request per row for a list that is already a single query.
+            GROUP_CONCAT(
+              CONCAT_WS(':', sp.tax_period, COALESCE(sp.days_late, ''))
+              ORDER BY sp.tax_period SEPARATOR ','
+            ) AS days_late_series
        FROM suppliers s
        LEFT JOIN supplier_periods sp ON sp.supplier_id = s.id AND sp.org_id = s.org_id
       WHERE s.org_id = ?
@@ -338,9 +345,25 @@ export async function listSuppliers(orgId, { limit = 200 } = {}) {
       mismatchCount: Number(row.mismatch_count ?? 0),
       avgDaysLate: row.avg_days_late === null ? null : Number(row.avg_days_late),
       observedTotalTax: Number(row.observed_total_tax ?? 0),
-      expectedTotalTax: Number(row.expected_total_tax ?? 0)
+      expectedTotalTax: Number(row.expected_total_tax ?? 0),
+      trend: parseTrend(row.days_late_series)
     }
   }));
+}
+
+// '2026-03:2,2026-04:,2026-05:-3' -> [{ taxPeriod, daysLate }]. An empty segment
+// is a period with no observed filing date, which is not the same as zero days
+// late and must not be plotted as one.
+function parseTrend(series) {
+  if (!series) return [];
+  return String(series)
+    .split(',')
+    .map((entry) => {
+      const [taxPeriod, days] = entry.split(':');
+      if (!taxPeriod) return null;
+      return { taxPeriod, daysLate: days === '' || days === undefined ? null : Number(days) };
+    })
+    .filter(Boolean);
 }
 
 export async function getSupplierHistory(orgId, gstinValue) {

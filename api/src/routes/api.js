@@ -5,6 +5,7 @@ import {
   UPLOAD_KINDS,
   commitUpload,
   createUpload,
+  getUpload,
   listUploads,
   previewUpload
 } from '../services/ingest.js';
@@ -13,8 +14,12 @@ import {
   createRun,
   getRun,
   getRunByPeriod,
-  listResults
+  listResults,
+  listRuns
 } from '../services/reconcile.js';
+import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
+import { describeColumns } from '../adapters/purchaseRegister.js';
+import { pool } from '../db/pool.js';
 import { rebuildSupplierPeriods, getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
@@ -41,6 +46,52 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
 export function apiRouter() {
   const router = Router();
   router.use(stubAuth);
+
+  // --- who this is ---------------------------------------------------------
+
+  // The trader's own identity. It goes on every screen and into the IMS upload as
+  // rtin, so the UI has to be able to show which GSTIN it is about to file for.
+  router.get('/org', wrap(async (req, res) => {
+    const [rows] = await pool.query(
+      'SELECT id, gstin, legal_name, trade_name, state_code, filer_type FROM organizations WHERE id = ?',
+      [req.orgId]
+    );
+    res.json({
+      org: rows.length
+        ? {
+            id: rows[0].id,
+            gstin: rows[0].gstin,
+            legalName: rows[0].legal_name,
+            tradeName: rows[0].trade_name,
+            stateCode: rows[0].state_code,
+            filerType: rows[0].filer_type
+          }
+        : null,
+      demoPeriods: availableDemoPeriods(),
+      defaultDemoPeriod: DEMO_PERIOD
+    });
+  }));
+
+  // --- demo ----------------------------------------------------------------
+
+  // Seeds one fixture period through the real ingest path. The only route that
+  // writes data the user did not upload, so it says exactly what it loaded.
+  router.post('/demo/seed', wrap(async (req, res) => {
+    const seeded = await seedDemoPeriod(req.orgId, {
+      taxPeriod: req.body?.taxPeriod ?? DEMO_PERIOD,
+      asOfDate: req.body?.asOfDate ?? null
+    });
+    res.status(201).json({
+      taxPeriod: seeded.taxPeriod,
+      runId: seeded.runId,
+      run: seeded.run,
+      uploads: seeded.uploads.map((upload) => ({
+        kind: upload.kind,
+        filename: upload.filename,
+        rows: upload.parsed
+      }))
+    });
+  }));
 
   // --- uploads -------------------------------------------------------------
 
@@ -72,6 +123,18 @@ export function apiRouter() {
     res.json(preview);
   }));
 
+  // The header row as it actually is, plus what auto-mapped. Needed precisely
+  // when detection FAILED — preview refuses to parse an unrecognised file, so it
+  // cannot be the thing that tells the trader which columns exist.
+  router.get('/uploads/:id/columns', wrap(async (req, res) => {
+    const upload = await getUpload(req.orgId, Number(req.params.id), { withBytes: true });
+    if (upload.kind !== 'PURCHASE_REGISTER') {
+      throw new ServiceError('column mapping applies to the purchase register only', 409, 'conflict');
+    }
+    if (!upload.raw_bytes) throw new ServiceError('upload has no stored bytes', 409, 'conflict');
+    res.json({ uploadId: upload.id, ...describeColumns(upload.raw_bytes) });
+  }));
+
   router.post('/uploads/:id/commit', wrap(async (req, res) => {
     const result = await commitUpload(req.orgId, Number(req.params.id), {
       columnMap: req.body?.columnMap ?? null
@@ -100,7 +163,7 @@ export function apiRouter() {
       const run = await getRunByPeriod(req.orgId, String(req.query.taxPeriod));
       return res.json({ run });
     }
-    throw new ServiceError('taxPeriod query parameter is required');
+    res.json({ runs: await listRuns(req.orgId, { limit: req.query.limit ?? 36 }) });
   }));
 
   router.get('/runs/:id', wrap(async (req, res) => {

@@ -36,7 +36,15 @@ api/                       Express API (ESM, plain JS)
   src/db/migrate.js        migration runner
   src/db/migrations/       numbered .sql files
   test/                    vitest (unit, accuracy, integration)
-web/                       React 18 + Vite front end
+web/                       React 18 + Vite front end (plain JS, one stylesheet)
+  src/App.jsx              shell, hash routing, run + results state
+  src/api.js               fetch wrapper; ApiError carries status + code
+  src/index.css            the whole stylesheet — no component library
+  src/lib/money.js         integer paise -> Indian-grouped rupees
+  src/lib/vocab.js         bucket/action codes -> plain English; action gating
+  src/lib/calendar.js      cut-off, 2B generation and GSTR-3B dates
+  src/components/          banners, side-by-side compare, score popover, states
+  src/screens/             Upload, Summary, Actions, Suppliers
 tools/                     dev tooling (fixtures, weight sweep, demo seed)
 docs/                      IMS / 2B / purchase-register schemas, domain reference
 docker-compose.yml
@@ -218,15 +226,20 @@ Stub auth: every request is org 1. No login yet.
 
 | Method | Path | Does |
 |---|---|---|
+| `GET` | `/api/org` | the trader's own GSTIN, plus which sample periods exist |
+| `POST` | `/api/demo/seed` | `{ taxPeriod? }` -> loads a fixture period end to end |
 | `POST` | `/api/uploads` | multipart `file` + `kind=PURCHASE_REGISTER\|IMS\|GSTR2B` |
 | `GET` | `/api/uploads/:id/preview` | detected format + first 20 canonical rows |
+| `GET` | `/api/uploads/:id/columns` | header row + auto-mapping, for unrecognised files |
 | `POST` | `/api/uploads/:id/commit` | `{ columnMap? }` -> upsert rows |
 | `POST` | `/api/runs` | `{ taxPeriod, mode, asOfDate? }` -> run + summary |
+| `GET` | `/api/runs` | every reconciled period, newest first |
 | `GET` | `/api/runs?taxPeriod=` | the current run for a period |
 | `GET` | `/api/runs/:id` | summary, bucket counts, totals |
 | `GET` | `/api/runs/:id/results` | `?bucket=&page=&pageSize=` |
 | `PATCH` | `/api/results/:id` | `{ confirmedAction }` |
 | `GET` | `/api/runs/:id/ims-actions.json` | the portal upload JSON |
+| `GET` | `/api/runs/:id/ims-actions-summary` | what is in that file, before downloading it |
 | `GET` | `/api/suppliers` | list with stats |
 | `GET` | `/api/suppliers/:gstin` | period history |
 
@@ -234,6 +247,56 @@ Stub auth: every request is org 1. No login yet.
 JSON emits `confirmed_action` where set, otherwise `recommended_action`.
 `PATCH /api/results/:id` returns 409 for an action the record's blocked flags
 forbid (e.g. `PENDING` where `ispendactblocked` is `Y`).
+
+## Web UI
+
+`http://localhost:5173`. Vite proxies `/api` and `/health` to the API container;
+the `/api` prefix is passed through rather than stripped, because the API mounts
+its router at `/api`.
+
+Four screens, plus one banner that never leaves the top of the page.
+
+**Upload** — three drop zones. Each shows the detected format and row count once
+committed. The column-mapping step appears **only** when detection fails, and only
+for CSV: a CSV header is row 1 by definition, whereas an arbitrary `.xlsx` puts its
+header at an unknown row and guessing wrong would read a data row as the titles.
+With nothing loaded, a **Load sample data** button seeds a fixture period through
+the real upload path, so the app is never a dead empty screen.
+
+**Summary** — expected / claimable / at risk / deferred, plus a card per bucket.
+
+A total whose net HIDES its components leads with the components instead. 2026-04's
+deferred total nets to −₹5,577 out of an unreported credit note of −₹28,428 and an
+unreported invoice of +₹22,850; shown as one small negative number it reads like a
+rounding artefact and the trader misses two real problems worth ₹51,278 between
+them. The split takes over when the net has gone negative or collapsed to less than
+half the larger side — not merely whenever credit notes exist, or every card would
+cry wolf.
+
+**Actions** — the core screen. Grouped by recommended action, with both sides of
+every document side by side and the differing fields marked. The score breakdown is
+a click away in a popover. Every row can be overridden, and an overridden row says
+so; rows left as recommended say that too.
+
+Controls are gated so the API's 409s are unreachable: `PENDING` is disabled where
+the portal blocks it (with the reason on hover), and a record that never entered
+IMS — reverse charge, ISD, imports — gets no action buttons at all, because there
+is nothing there to accept or reject. Rejecting a whole group takes a second click.
+
+**Suppliers** — filing history per supplier with a days-late sparkline, drawn
+against *that supplier's* own cut-off (the 11th monthly, the 13th for QRMP).
+
+**The deemed-acceptance banner** is sticky on every screen. It shows days to
+GSTR-3B and two numbers that are deliberately not merged: everything unactioned in
+IMS (what deemed acceptance will actually claim) and the slice of it the engine does
+not recommend accepting (the real exposure). One number alone is either alarmist or
+complacent. A second banner appears when migration 003 has dropped a confirmation
+because the supplier amended the record it was about — a decision the trader made
+has been invalidated, and that is not a row-level detail.
+
+Money arrives as integer paise and is formatted by integer arithmetic on paise and
+digit grouping on the decimal string, so no float ever reaches a rupee figure. Paise
+are never displayed.
 
 ## Money
 
@@ -303,10 +366,13 @@ invoice pair.
 
 ## Status
 
-Phases 0-4 done: skeleton, fixtures, adapters, matching engine, persistence and
-API. The matching engine scores 100% macro precision/recall/F1 against
+Phases 0-5 done: skeleton, fixtures, adapters, matching engine, persistence, API
+and the web UI. The matching engine scores 100% macro precision/recall/F1 against
 `fixtures/ground_truth.json` across all six periods (2,461 documents).
 
-Not built yet: the web UI beyond a health check, supplier risk scoring
-(`supplier_risk` is migrated but unpopulated), and the WhatsApp/chase message
-generation.
+Not built yet: supplier risk scoring (`supplier_risk` is migrated but unpopulated)
+and the WhatsApp/chase message generation.
+
+Known sharp edge: `api/test/integration/reconcile.test.js` runs as **org 1**, the
+same org the app serves, and resets it. Running `npm test` therefore wipes whatever
+is loaded in the app — re-run `npm run seed:demo` afterwards.

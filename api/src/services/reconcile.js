@@ -465,6 +465,39 @@ export async function runTotalsBreakdown(orgId, runId) {
   return breakdown;
 }
 
+// Every period that has been reconciled, newest first. The period switcher needs
+// this: without it the UI can only guess which periods have runs by probing.
+export async function listRuns(orgId, { limit = 36 } = {}) {
+  const [rows] = await pool.query(
+    `SELECT id, tax_period, mode, as_of_date, filing_scheme, cut_off_date, status,
+            expected_total_itc, claimable_itc, at_risk_itc, deferred_itc,
+            ineligible_itc, non_ims_itc, grand_total_itc, finished_at
+       FROM runs WHERE org_id = ?
+      ORDER BY tax_period DESC
+      LIMIT ?`,
+    [orgId, Math.min(Math.max(Number(limit) || 36, 1), 200)]
+  );
+  return rows.map((run) => ({
+    id: run.id,
+    taxPeriod: run.tax_period,
+    mode: run.mode,
+    asOfDate: run.as_of_date,
+    filingScheme: run.filing_scheme,
+    cutOffDate: run.cut_off_date,
+    status: run.status,
+    finishedAt: run.finished_at,
+    totals: {
+      expectedTotalItc: Number(run.expected_total_itc),
+      claimableItc: Number(run.claimable_itc),
+      atRiskItc: Number(run.at_risk_itc),
+      deferredItc: Number(run.deferred_itc),
+      ineligibleItc: Number(run.ineligible_itc),
+      nonImsItc: Number(run.non_ims_itc),
+      grandTotalItc: Number(run.grand_total_itc)
+    }
+  }));
+}
+
 export async function getRunByPeriod(orgId, taxPeriod) {
   const [rows] = await pool.query(
     'SELECT id FROM runs WHERE org_id = ? AND tax_period = ?',

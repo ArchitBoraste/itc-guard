@@ -43,6 +43,8 @@ services:
     volumes:
       - ./api/src:/app/src
       - ./docs:/app/docs:ro
+      # Read-only: the "Load sample data" button seeds from these.
+      - ./fixtures:/app/fixtures:ro
 
   web:
     build: ./web
@@ -58,6 +60,8 @@ services:
     volumes:
       - ./web/src:/app/src
       - ./web/index.html:/app/index.html
+      # The proxy table lives here; without the mount an edit needs a rebuild.
+      - ./web/vite.config.js:/app/vite.config.js
 
 volumes:
   db_data:
