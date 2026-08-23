@@ -15,6 +15,7 @@ import {
 import { Empty, ErrorBox } from '../components/States.jsx';
 import { GroupConfirm, ResultRow } from '../components/ResultRow.jsx';
 import { ImsDownload } from '../components/ImsDownload.jsx';
+import { ChangeFeed } from '../components/ChangeFeed.jsx';
 
 const PAGE_STEP = 25;
 
@@ -31,7 +32,14 @@ function groupResults(results) {
     const group = groups[result.recommendedAction] ?? groups.NO_ACTION;
     group.results.push(result);
     group.itc += result.signedItc ?? 0;
-    if (!result.confirmedAction && actionability(result).kind !== 'NOT_IN_IMS') group.open += 1;
+    if (
+      !result.confirmedAction &&
+      !result.stale &&
+      !result.withdrawn &&
+      actionability(result).kind !== 'NOT_IN_IMS'
+    ) {
+      group.open += 1;
+    }
   }
   return groups;
 }
@@ -69,6 +77,67 @@ function matchesQuery(result, query) {
   );
 }
 
+// A run whose data has moved underneath it. Everything below is still rendered —
+// the trader needs to SEE what changed — but nothing in it can be acted on until
+// the verdicts are recomputed, and the API refuses anyway.
+function StaleRunBanner({ run, staleRows, onRerun, busy, error }) {
+  const staleness = run?.staleness;
+  if (!staleness?.isStale) return null;
+
+  return (
+    <section className="panel stale-banner" role="alert" data-testid="stale-run-banner">
+      <header className="panel-head">
+        <div>
+          <h2>
+            {staleness.staleResults > 0 || staleness.unseenRecords > 0
+              ? 'This run is out of date'
+              : 'This run cannot be verified'}
+          </h2>
+          <p>
+            {staleness.staleResults > 0 ? (
+              <>
+                <strong data-testid="stale-row-count">{staleness.staleResults}</strong>{' '}
+                {staleness.staleResults === 1 ? 'record has' : 'records have'} changed on
+                the portal since these verdicts were computed.{' '}
+              </>
+            ) : null}
+            {/* A different claim, deliberately worded as one: nothing is KNOWN to
+                have changed, the run just cannot prove otherwise. */}
+            {staleness.unverifiedResults > 0 ? (
+              <>
+                <strong data-testid="unverified-count">{staleness.unverifiedResults}</strong>{' '}
+                {staleness.unverifiedResults === 1 ? 'verdict was' : 'verdicts were'}{' '}
+                computed before the app recorded which version of a record each one was
+                about, so it cannot tell whether they still hold.{' '}
+              </>
+            ) : null}
+            {staleness.unseenRecords > 0 ? (
+              <>
+                <strong data-testid="unseen-count">{staleness.unseenRecords}</strong>{' '}
+                {staleness.unseenRecords === 1 ? 'record' : 'records'} arrived after this
+                run and appear nowhere in it.{' '}
+              </>
+            ) : null}
+            The figures on each row are current; the verdicts beside them are not
+            guaranteed to be. Affected rows cannot be actioned until this is re-run —
+            it takes a second and keeps this run's own as-of date.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          data-testid="rerun-reconciliation"
+          disabled={busy}
+          onClick={onRerun}
+        >
+          {busy ? 'Re-running…' : 'Re-run reconciliation'}
+        </button>
+      </header>
+      <ErrorBox error={error} title="The re-run failed" />
+    </section>
+  );
+}
+
 export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
   const [scope, setScope] = useState('ATTENTION');
   const [bucketFilter, setBucketFilter] = useState('');
@@ -76,6 +145,28 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
   const [visible, setVisible] = useState({});
   const [busyGroup, setBusyGroup] = useState(null);
   const [error, setError] = useState(null);
+  const [rerunning, setRerunning] = useState(false);
+  const [rerunError, setRerunError] = useState(null);
+
+  const rerun = useCallback(async () => {
+    setRerunning(true);
+    setRerunError(null);
+    try {
+      // The run keeps its own clock: as-of date drives every recommendation, and
+      // moving it to today would change answers for reasons unrelated to the file.
+      await api.createRun({
+        taxPeriod: run.taxPeriod,
+        mode: run.mode,
+        asOfDate: run.asOfDate,
+        filingScheme: run.filingScheme
+      });
+      await onRefresh();
+    } catch (err) {
+      setRerunError(err);
+    } finally {
+      setRerunning(false);
+    }
+  }, [run, onRefresh]);
 
   const confirmOne = useCallback(
     async (result, action) => {
@@ -124,8 +215,14 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
       try {
         // Only rows that are still open AND actually actionable. Re-confirming a
         // decided row would silently overwrite an override the trader made.
+        // Stale and withdrawn rows are excluded rather than attempted: the API
+        // returns 409 on each, and one refused row must not abort the group.
         const targets = groups[action].results.filter(
-          (result) => !result.confirmedAction && actionability(result).kind !== 'NOT_IN_IMS'
+          (result) =>
+            !result.confirmedAction &&
+            !result.stale &&
+            !result.withdrawn &&
+            actionability(result).kind !== 'NOT_IN_IMS'
         );
         for (const result of targets) {
           const imsAction = RECOMMENDED_TO_IMS[result.recommendedAction] ?? 'NO_ACTION';
@@ -189,8 +286,23 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
             body: 'Try a different supplier, invoice number or verdict.'
           };
 
+  const staleRows = (results ?? []).filter((result) => result.stale).length;
+
   return (
     <div className="screen screen-actions">
+      <StaleRunBanner
+        run={run}
+        staleRows={staleRows}
+        onRerun={rerun}
+        busy={rerunning}
+        error={rerunError}
+      />
+
+      {/* Above the action list, not inside it. A decision that has been invalidated
+          is not one more row to work through — it is work the trader already did
+          that has come undone, and they have to see that before they start. */}
+      <ChangeFeed run={run} />
+
       <section className="panel">
         <header className="panel-head">
           <div>

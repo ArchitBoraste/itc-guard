@@ -14,9 +14,12 @@ import {
   createRun,
   getRun,
   getRunByPeriod,
+  listPeriodInventory,
   listResults,
-  listRuns
+  listRuns,
+  rerunPeriodIfRun
 } from '../services/reconcile.js';
+import { listChangesForRun } from '../services/syncDiff.js';
 import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
@@ -139,7 +142,20 @@ export function apiRouter() {
     const result = await commitUpload(req.orgId, Number(req.params.id), {
       columnMap: req.body?.columnMap ?? null
     });
-    res.json(result);
+    // New data makes the period's existing run wrong the instant it lands: the
+    // stored verdicts were computed against the old figures, while every read
+    // joins the portal rows live. Rebuild it here rather than leaving a run that
+    // renders new numbers under an old answer.
+    const rerun = await rerunPeriodIfRun(req.orgId, result.taxPeriod);
+    res.json({ ...result, rerun });
+  }));
+
+  // What the org already holds, per period. The Reconcile button needs this: a
+  // trader re-downloading IMS weekly uploads ONE file, and whether the run can go
+  // ahead depends on what was committed in every previous session too, not on
+  // what happens to be on screen right now.
+  router.get('/periods', wrap(async (req, res) => {
+    res.json({ periods: await listPeriodInventory(req.orgId) });
   }));
 
   // --- runs ----------------------------------------------------------------
@@ -199,6 +215,19 @@ export function apiRouter() {
   router.get('/runs/:id/ims-actions-summary', wrap(async (req, res) => {
     const built = await buildRunImsActions(req.orgId, Number(req.params.id));
     res.json({ stats: built.stats, warnings: built.warnings });
+  }));
+
+  // --- what changed since last time ---------------------------------------
+
+  // The change feed for a run, most recent first. Scoped by runId because that is
+  // what the trader is looking at: the same period, the same records, and the
+  // same decisions the changes may have invalidated.
+  router.get('/changes', wrap(async (req, res) => {
+    const runId = Number(req.query.runId);
+    if (!Number.isInteger(runId) || runId <= 0) {
+      throw new ServiceError('runId is required');
+    }
+    res.json(await listChangesForRun(req.orgId, runId, { limit: req.query.limit ?? 200 }));
   }));
 
   // --- results -------------------------------------------------------------

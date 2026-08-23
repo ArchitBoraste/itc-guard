@@ -10,6 +10,7 @@ import * as ims from '../adapters/ims.js';
 import * as gstr2b from '../adapters/gstr2b.js';
 import { stripBom } from '../adapters/values.js';
 import { assignExpectedIdentities, assignPortalIdentities } from './identity.js';
+import { planPortalDiff, writePortalDiff } from './syncDiff.js';
 
 export const UPLOAD_KINDS = Object.freeze(['PURCHASE_REGISTER', 'IMS', 'GSTR2B']);
 
@@ -20,6 +21,9 @@ export class ServiceError extends Error {
     this.code = code;
   }
 }
+
+// An IMS upload with zero rows still has to diff against IMS and nothing else.
+const sourceOf = (kind) => (kind === 'IMS' ? 'IMS' : 'GSTR2B');
 
 function fileFormatOf(kind, filename) {
   if (kind === 'PURCHASE_REGISTER') {
@@ -282,9 +286,15 @@ async function replaceExpectedRateLines(connection, orgId, invoices) {
 async function commitPortal(connection, orgId, upload, parsed) {
   const records = assignPortalIdentities(parsed.rows);
 
-  // Detect amendments before writing: a changed content_hash on the same identity
-  // means the supplier edited a record we have already shown the trader.
-  const changes = await detectChanges(connection, orgId, records, upload.id);
+  // The diff is PLANNED before writing — once the upsert lands, the previous
+  // content_hash is gone and there is nothing left to compare against. It is
+  // written after, because a NEW record has no id until it exists.
+  const plan = await planPortalDiff(connection, {
+    orgId,
+    source: records[0]?.source ?? sourceOf(upload.kind),
+    taxPeriod: parsed.taxPeriod ?? upload.tax_period ?? null,
+    records
+  });
 
   const rows = records.map((record) => [
     orgId,
@@ -377,90 +387,19 @@ async function commitPortal(connection, orgId, upload, parsed) {
   );
 
   await replacePortalRateLines(connection, orgId, records);
-  await recordChanges(connection, orgId, changes, upload.id);
+  const changeCount = await writePortalDiff(connection, {
+    orgId,
+    uploadId: upload.id,
+    plan
+  });
 
   const after = await countRows(connection, 'portal_records', orgId);
   return {
     parsed: records.length,
     inserted: after - before,
     updated: records.length - (after - before),
-    changes: changes.length
+    changes: changeCount
   };
-}
-
-async function detectChanges(connection, orgId, records, uploadId) {
-  if (!records.length) return [];
-  const keys = records.map((record) => record.identityKey);
-  const changes = [];
-
-  for (let i = 0; i < keys.length; i += 500) {
-    const chunk = keys.slice(i, i + 500);
-    const [existing] = await connection.query(
-      `SELECT id, identity_key, content_hash, filing_status, ims_action,
-              taxable_value, total_tax
-         FROM portal_records
-        WHERE org_id = ? AND identity_key IN (?)`,
-      [orgId, chunk]
-    );
-    const byKey = new Map(existing.map((row) => [row.identity_key, row]));
-
-    for (const record of records) {
-      const previous = byKey.get(record.identityKey);
-      if (!previous) continue;
-      if (previous.content_hash === record.contentHash) continue;
-
-      // Same identity, different content: the supplier amended a saved record.
-      const changeType =
-        previous.taxable_value !== record.taxableValue || previous.total_tax !== record.totalTax
-          ? 'CHANGED_AFTER_REVIEW'
-          : previous.filing_status !== record.filingStatus
-            ? 'FILING_STATUS_CHANGED'
-            : 'ACTION_CHANGED';
-
-      changes.push({
-        portalRecordId: previous.id,
-        changeType,
-        oldContentHash: previous.content_hash,
-        newContentHash: record.contentHash,
-        oldValues: {
-          taxableValue: previous.taxable_value,
-          totalTax: previous.total_tax,
-          filingStatus: previous.filing_status,
-          imsAction: previous.ims_action
-        },
-        newValues: {
-          taxableValue: record.taxableValue,
-          totalTax: record.totalTax,
-          filingStatus: record.filingStatus,
-          imsAction: record.imsAction
-        },
-        uploadId
-      });
-    }
-  }
-  return changes;
-}
-
-async function recordChanges(connection, orgId, changes) {
-  if (!changes.length) return;
-  const rows = changes.map((change) => [
-    orgId,
-    change.portalRecordId,
-    change.changeType,
-    change.oldContentHash,
-    change.newContentHash,
-    JSON.stringify(change.oldValues),
-    JSON.stringify(change.newValues),
-    change.uploadId
-  ]);
-  await insertInChunks(
-    connection,
-    `INSERT INTO record_changes
-       (org_id, portal_record_id, change_type, old_content_hash, new_content_hash,
-        old_values, new_values, detected_from_upload_id)
-     VALUES ?`,
-    rows
-  );
 }
 
 async function replacePortalRateLines(connection, orgId, records) {

@@ -130,6 +130,18 @@ export default function App() {
     );
   }, []);
 
+  // A commit re-runs the period on the server. Nothing navigates, but whatever is
+  // held for that period in memory is now a version behind — including the run the
+  // Actions screen is about to render verdicts from.
+  const afterDataChanged = useCallback(
+    async (taxPeriod) => {
+      const runList = await api.listRuns();
+      setRuns(runList);
+      if (taxPeriod && taxPeriod === period) await loadRun(taxPeriod);
+    },
+    [period, loadRun]
+  );
+
   const afterIngest = useCallback(
     async (taxPeriod) => {
       const runList = await api.listRuns();
@@ -232,7 +244,12 @@ export default function App() {
             title="Cannot reach the API"
           />
         ) : route === 'upload' ? (
-          <UploadScreen org={org} runs={runs} onIngested={afterIngest} />
+          <UploadScreen
+            org={org}
+            runs={runs}
+            onIngested={afterIngest}
+            onDataChanged={afterDataChanged}
+          />
         ) : runError ? (
           <ErrorBox error={runError} onRetry={() => loadRun(period)} title="Cannot load this run" />
         ) : loadingRun ? (

@@ -5,7 +5,8 @@ import {
   REMARKS_MAX_LENGTH,
   UPLOAD_SECTIONS,
   buildImsActionJson,
-  serializeImsActionJson
+  serializeImsActionJson,
+  toAsciiRemarks
 } from '../../src/adapters/imsActionWriter.js';
 import { FIXTURES_PRESENT, PERIODS, readJson } from '../helpers/fixtures.js';
 
@@ -406,5 +407,33 @@ describe('IMS action writer — wire rules', () => {
     });
     expect(json.invdata.b2b.map((w) => w.action)).toEqual(['A', 'R']);
     expect(json.invdata.b2b[1].remarks).toBe('no');
+  });
+});
+
+// The remarks field is documented as 250 chars with nothing said about its
+// character set. A rupee sign the offline utility refuses would fail the WHOLE
+// upload over one record's explanatory text, so the wire boundary is the last
+// place to check — callers build ASCII already, but nothing enforces that they
+// keep doing so.
+describe('remarks are ASCII by the time they reach the portal', () => {
+  it('transliterates a rupee sign and warns that it did', () => {
+    expect(toAsciiRemarks('differs by ₹5,000.00')).toBe('differs by Rs. 5,000.00');
+  });
+
+  it('replaces the punctuation the reason strings use', () => {
+    expect(toAsciiRemarks('re-report — via GSTR-1A… “now”')).toBe(
+      're-report - via GSTR-1A... "now"'
+    );
+  });
+
+  it('drops anything it cannot transliterate rather than guessing', () => {
+    const out = toAsciiRemarks('mismatch ✗ on 数量');
+    expect(out).toMatch(/^[ -~]*$/);
+    expect(out).toBe('mismatch on');
+  });
+
+  it('leaves an already-ASCII remark exactly as it is', () => {
+    const remark = 'Value mismatch: taxable value Rs. 7,12,915.00 on portal vs Rs. 7,17,915.00 in books.';
+    expect(toAsciiRemarks(remark)).toBe(remark);
   });
 });

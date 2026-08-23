@@ -7,6 +7,8 @@ import {
   FLAG_LABEL,
   IMS_ACTIONS,
   RECOMMENDED_TO_IMS,
+  STALE_HELP,
+  WITHDRAWN_HELP,
   actionability,
   effectiveAction,
   isOverride
@@ -31,6 +33,16 @@ export function ResultRow({ result, onConfirm, busy }) {
   const overridden = isOverride(result);
   const recommendedIms = RECOMMENDED_TO_IMS[result.recommendedAction] ?? 'NO_ACTION';
   const wasReset = (result.flags ?? []).includes('CONFIRMATION_RESET');
+  // The verdict beside these numbers was computed against portal figures that have
+  // since moved. The API refuses a decision here with a 409; the controls must not
+  // offer one. Accepting a row that reads "Agrees with the portal" while the two
+  // sides visibly disagree is how a trader waives a discrepancy they never saw.
+  const stale = Boolean(result.stale);
+  // Withdrawn is a different state, not a worse one: the record is gone from the
+  // portal, so no decision applies — and unlike a stale verdict, re-running does
+  // not fix it. Both block the controls; only one prompts a rebuild.
+  const withdrawn = Boolean(result.withdrawn);
+  const blocked = stale || withdrawn;
 
   const identity = result.books ?? result.portal ?? {};
 
@@ -48,8 +60,10 @@ export function ResultRow({ result, onConfirm, busy }) {
 
   return (
     <article
-      className={`row ${result.confirmedAction ? 'is-confirmed' : ''} ${overridden ? 'is-overridden' : ''} ${wasReset ? 'is-reset' : ''}`}
+      className={`row ${result.confirmedAction ? 'is-confirmed' : ''} ${overridden ? 'is-overridden' : ''} ${wasReset ? 'is-reset' : ''} ${blocked ? 'is-stale' : ''}`}
       data-testid="result-row"
+      data-stale={stale ? 'true' : 'false'}
+      data-withdrawn={withdrawn ? 'true' : 'false'}
       data-bucket={result.bucket}
       data-recommended={result.recommendedAction}
       data-confirmed={result.confirmedAction ?? ''}
@@ -65,9 +79,23 @@ export function ResultRow({ result, onConfirm, busy }) {
           <span className="muted">{formatDate(identity.invoiceDate)}</span>
         </div>
         <div className="row-tags">
-          <span className={`chip chip-bucket bucket-${result.bucket}`} data-testid={`chip-${result.bucket}`}>
+          <span
+            className={`chip chip-bucket bucket-${result.bucket} ${blocked ? 'is-stale' : ''}`}
+            data-testid={`chip-${result.bucket}`}
+            title={blocked ? 'This verdict no longer describes the portal record' : undefined}
+          >
             {BUCKET_LABEL[result.bucket] ?? result.bucket}
           </span>
+          {stale ? (
+            <span className="chip chip-stale" data-testid="stale-chip">
+              out of date
+            </span>
+          ) : null}
+          {withdrawn ? (
+            <span className="chip chip-stale" data-testid="withdrawn-chip">
+              withdrawn
+            </span>
+          ) : null}
           <ScoreBreakdown
             score={result.score}
             breakdown={result.scoreBreakdown}
@@ -147,13 +175,17 @@ export function ResultRow({ result, onConfirm, busy }) {
                   type="button"
                   className={`ctl ctl-${action} ${selected ? 'is-selected' : ''} ${recommended ? 'is-recommended' : ''}`}
                   data-testid={`action-${action}`}
-                  disabled={!allowed || busy || pendingAction !== null}
+                  disabled={!allowed || blocked || busy || pendingAction !== null}
                   title={
-                    allowed
-                      ? recommended
-                        ? 'What the engine recommends'
-                        : undefined
-                      : gate.why ?? 'Not available on this record'
+                    withdrawn
+                      ? 'The supplier withdrew this record — there is nothing to act on'
+                      : stale
+                        ? 'Re-run the reconciliation before acting on this row'
+                        : allowed
+                        ? recommended
+                          ? 'What the engine recommends'
+                            : undefined
+                          : gate.why ?? 'Not available on this record'
                   }
                   aria-pressed={selected}
                   onClick={() => choose(action)}
@@ -174,6 +206,21 @@ export function ResultRow({ result, onConfirm, busy }) {
       </div>
 
       <div className="row-reason">
+        {stale ? (
+          <p className="stale-note" data-testid="stale-note" role="alert">
+            <strong>
+              {result.staleReason === 'UNVERIFIABLE'
+                ? 'This run cannot be verified.'
+                : 'This run is out of date.'}
+            </strong>{' '}
+            {STALE_HELP[result.staleReason] ?? STALE_HELP.PORTAL_CHANGED}
+          </p>
+        ) : null}
+        {withdrawn ? (
+          <p className="stale-note" data-testid="withdrawn-note" role="alert">
+            <strong>The supplier withdrew this record.</strong> {WITHDRAWN_HELP}
+          </p>
+        ) : null}
         {wasReset ? (
           <p className="reset-note" data-testid="reset-note">
             <strong>Your earlier decision was dropped.</strong> The supplier changed this

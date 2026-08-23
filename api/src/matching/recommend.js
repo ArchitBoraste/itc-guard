@@ -12,6 +12,7 @@
 //     the 10th and REJECT/DEFERRED on the 16th.
 import { BUCKETS } from './buckets.js';
 import { FILING_SCHEMES, filingWindow, isBeforeCutoff } from './cutoff.js';
+import { AMOUNT_TOLERANCE_PAISE, amountsDiffer } from './similarity.js';
 
 export const ACTIONS = Object.freeze({
   ACCEPT: 'ACCEPT',
@@ -37,7 +38,7 @@ export const REMARKS_MAX_LENGTH = 250;
 // recommendAction(result, context) ->
 //   { action, imsActionCode, reason, remarks, requiresConfirmation, itcAtRisk }
 //
-// context: { asOfDate, taxPeriod, filingScheme }
+// context: { asOfDate, taxPeriod, filingScheme, tolerancePaise }
 export function recommendAction(result, context = {}) {
   const { expected, portal, bucket } = result;
   const taxPeriod = context.taxPeriod ?? expected?.taxPeriod ?? portal?.taxPeriod ?? null;
@@ -53,12 +54,18 @@ export function recommendAction(result, context = {}) {
     ? filingWindow(asOfDate, taxPeriod, filingScheme)
     : null;
 
-  const decision = decide({ bucket, expected, portal, preCutOff });
+  // The SAME tolerance classify() used to put this result in its bucket. If the
+  // two ever drifted, a difference could decide the bucket and then be too small
+  // for the sentence explaining it to mention — which is how the zero-rupee text
+  // got written in the first place.
+  const tolerancePaise = context.tolerancePaise ?? AMOUNT_TOLERANCE_PAISE;
+
+  const decision = decide({ bucket, expected, portal, preCutOff, tolerancePaise });
 
   return finalize(decision, { result, portal, window, preCutOff });
 }
 
-function decide({ bucket, expected, portal, preCutOff }) {
+function decide({ bucket, expected, portal, preCutOff, tolerancePaise }) {
   switch (bucket) {
     case BUCKETS.MATCHED:
       return {
@@ -67,7 +74,7 @@ function decide({ bucket, expected, portal, preCutOff }) {
       };
 
     case BUCKETS.VALUE_MISMATCH:
-      return valueMismatch({ expected, portal, preCutOff });
+      return valueMismatch({ expected, portal, preCutOff, tolerancePaise });
 
     case BUCKETS.SUGGESTED:
       return {
@@ -121,10 +128,82 @@ function decide({ bucket, expected, portal, preCutOff }) {
   }
 }
 
-function valueMismatch({ expected, portal, preCutOff }) {
-  const delta = (portal?.totalTax ?? 0) - (expected?.totalTax ?? 0);
-  const direction = delta > 0 ? 'higher' : 'lower';
-  const magnitude = formatRupees(Math.abs(delta));
+// The fields a VALUE_MISMATCH is actually decided on — the same two classify()
+// tests, in the order a trader reads them. Anything named here must be something
+// that CAN have put the result in this bucket.
+const MISMATCH_FIELDS = Object.freeze([
+  { key: 'taxableValue', label: 'taxable value' },
+  { key: 'totalTax', label: 'tax' }
+]);
+
+// Which amounts actually differ, and by how much.
+//
+// The bug this replaces: every sentence was built from the TAX delta alone, so a
+// mismatch that was purely in the taxable value — same tax on both sides, which
+// happens whenever a supplier mistypes the base and the rate arithmetic still
+// lands on the same figure — produced "Portal tax is Rs. 0.00 lower than books".
+// The row was correctly bucketed and then explained by a sentence about nothing.
+export function valueDifferences(expected, portal, tolerancePaise = AMOUNT_TOLERANCE_PAISE) {
+  const differences = [];
+  for (const field of MISMATCH_FIELDS) {
+    const books = Number(expected?.[field.key] ?? 0);
+    const shown = Number(portal?.[field.key] ?? 0);
+    if (!amountsDiffer(books, shown, tolerancePaise)) continue;
+    const delta = shown - books;
+    differences.push({
+      field: field.key,
+      label: field.label,
+      books,
+      portal: shown,
+      delta,
+      direction: delta > 0 ? 'higher' : 'lower',
+      magnitude: Math.abs(delta)
+    });
+  }
+  return differences;
+}
+
+function joinClauses(parts) {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+}
+
+// "taxable value is Rs. 5,000.00 lower" / "...lower and tax is Rs. 900.00 higher"
+function describeDifferences(differences, format) {
+  return joinClauses(
+    differences.map(
+      (entry) => `${entry.label} is ${format(entry.magnitude)} ${entry.direction}`
+    )
+  );
+}
+
+// The remark GSTN receives as the stated reason for a rejection. It names both
+// sides of every field that differs, because the supplier reading it has to know
+// which figure to correct.
+//
+// ASCII only. The IMS schema documents remarks as a 250-char string and says
+// nothing about its character set (docs/ims-json-schema.md), and a rupee sign
+// rejected by the offline utility's validation would fail the WHOLE upload, not
+// just this record. "Rs." costs two characters and cannot fail.
+function mismatchRemarks(differences) {
+  if (!differences.length) return 'Value mismatch between books and portal.';
+  const parts = differences.map(
+    (entry) =>
+      `${entry.label} ${formatRupeesAscii(entry.portal)} on portal vs ` +
+      `${formatRupeesAscii(entry.books)} in books`
+  );
+  return `Value mismatch: ${parts.join('; ')}.`;
+}
+
+function valueMismatch({ expected, portal, preCutOff, tolerancePaise }) {
+  const differences = valueDifferences(expected, portal, tolerancePaise);
+
+  // A bucket of VALUE_MISMATCH with no measurable difference means the caller
+  // classified on a different tolerance than the one handed to us. Say that the
+  // amounts disagree without quoting a figure, rather than inventing a zero.
+  const summary = differences.length
+    ? `Portal ${describeDifferences(differences, formatRupees)} than books`
+    : 'Books and portal disagree on the amount';
 
   // A saved record is still editable by the supplier. Before the cut-off this is
   // the golden window: one phone call, the supplier corrects the draft, and
@@ -134,15 +213,15 @@ function valueMismatch({ expected, portal, preCutOff }) {
       return {
         action: ACTIONS.CHASE_SUPPLIER,
         reason:
-          `Portal tax is ${magnitude} ${direction} than books, and the record is only saved, ` +
-          'not filed. The supplier can still correct it for free before the cut-off.'
+          `${summary}. The record is only saved, not filed, so the supplier can ` +
+          'still correct it for free before the cut-off.'
       };
     }
     return {
       action: ACTIONS.CHASE_SUPPLIER,
       reason:
-        `Portal tax is ${magnitude} ${direction} than books and the record was never filed. ` +
-        'A correction now reaches a later period, not this one.'
+        `${summary}. The record was never filed, so a correction now reaches a ` +
+        'later period, not this one.'
     };
   }
 
@@ -150,10 +229,13 @@ function valueMismatch({ expected, portal, preCutOff }) {
   // the onus on them to re-report through GSTR-1A, which lands next period.
   return {
     action: ACTIONS.REJECT,
+    // Kept as two sentences: with more than one field differing, "...lower and tax
+    // is ... lower and the record is filed" stacks conjunctions until nothing is
+    // readable.
     reason:
-      `Portal tax is ${magnitude} ${direction} than books and the record is filed. ` +
-      'Reject and ask the supplier to re-report via GSTR-1A — that credit arrives next period.',
-    remarks: `Value mismatch: books tax differs from portal by ${magnitude}.`
+      `${summary}. The record is filed, so reject and ask the supplier to ` +
+      're-report via GSTR-1A — that credit arrives next period.',
+    remarks: mismatchRemarks(differences)
   };
 }
 
@@ -227,7 +309,20 @@ export function itcAtRisk({ bucket, expected, portal }) {
   }
 }
 
+// Two formatters on purpose. `reason` is read by a trader on screen, where the
+// rupee sign matches the rest of the app; `remarks` is uploaded to GSTN, where an
+// unvalidated character is a risk taken for no benefit. See mismatchRemarks().
+function formatAmount(paise) {
+  return (paise / 100).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
 function formatRupees(paise) {
-  const rupees = paise / 100;
-  return `₹${rupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₹${formatAmount(paise)}`;
+}
+
+export function formatRupeesAscii(paise) {
+  return `Rs. ${formatAmount(paise)}`;
 }

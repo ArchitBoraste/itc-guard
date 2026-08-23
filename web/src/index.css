@@ -603,3 +603,93 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 
 .suppliers-table td { vertical-align: middle; }
 .supplier-detail { border-color: var(--accent); }
+
+/* --- what changed since your review ------------------------------------- *
+ *
+ * Two treatments, deliberately far apart. The alert panel borrows the reset
+ * banner's magenta — the same colour the app already uses for "your decision was
+ * dropped" — and carries a left rule the eye catches before it reaches the action
+ * list. The quiet panel has no fill, no rule and stays collapsed: nothing there
+ * has undone any of the trader's work.
+ */
+.change-panel { display: flex; flex-direction: column; gap: 10px; }
+
+.change-panel-alert {
+  border-color: #eeaad9;
+  border-left: 4px solid #a51d78;
+  background: #fdf2fa;
+}
+.change-panel-alert h2 { color: #7d1459; }
+
+.chip-alarm {
+  background: #a51d78; border-color: #a51d78; color: #fff;
+  font-weight: 700; font-size: 0.8rem; padding: 2px 9px;
+}
+
+.change-total { text-align: right; white-space: nowrap; }
+.change-total strong { font-size: 1.15rem; display: block; }
+
+.change-list { display: flex; flex-direction: column; gap: 8px; }
+
+.change {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 9px 11px; background: var(--paper);
+}
+.change-loud { border-color: #eeaad9; }
+.change-quiet { background: var(--wash); border-color: var(--line-2); }
+.change-quiet .change-head { color: var(--ink-2); }
+
+.change-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.change-supplier { font-weight: 600; font-size: 0.9rem; }
+
+.chip-change { background: var(--wash); color: var(--ink-2); }
+.change-chip-AMENDED { background: #fdf2fa; border-color: #eeaad9; color: #a51d78; }
+.change-chip-DISAPPEARED { background: var(--bad-wash); border-color: #f0b4ae; color: var(--bad); }
+.change-chip-NEW { background: var(--warn-wash); border-color: #f3d38a; color: var(--warn); }
+.change-chip-STATUS_CHANGE { background: var(--info-wash); border-color: #b3e0f2; color: var(--info); }
+.change-chip-REAPPEARED { background: var(--good-wash); border-color: #a9dfbf; color: var(--good); }
+
+.change-verdict { margin: 6px 0 0; font-size: 0.86rem; }
+.change-money { margin: 6px 0 0; font-size: 0.82rem; color: var(--ink-2); }
+
+.change-diff { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.diff-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.82rem; }
+.diff-field { color: var(--ink-3); min-width: 12ch; }
+.diff-old { text-decoration: line-through; color: var(--ink-3); }
+.diff-arrow { color: var(--ink-3); }
+.diff-new { font-weight: 600; }
+.diff-delta { font-size: 0.78rem; }
+
+/* --- a run whose data moved underneath it -------------------------------- *
+ *
+ * Red, not the reset panel's magenta: this is not "your decision was dropped",
+ * it is "what you are reading is not true any more". The row treatment greys the
+ * verdict and the controls while leaving the FIGURES at full strength — the two
+ * sides disagreeing is exactly what the trader needs to see.
+ */
+.stale-banner {
+  border-color: #f0b4ae;
+  border-left: 4px solid var(--bad);
+  background: var(--bad-wash);
+}
+.stale-banner h2 { color: var(--bad); }
+.stale-banner p { margin: 3px 0 0; font-size: 0.88rem; max-width: 92ch; }
+
+.row.is-stale { border-color: #f0b4ae; background: var(--bad-wash); }
+.row.is-stale .chip-bucket.is-stale,
+.row.is-stale .row-recommendation .chip-action {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.chip-stale {
+  background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600;
+}
+
+.stale-note {
+  margin: 0 0 6px; font-size: 0.84rem; color: var(--bad);
+  border-left: 3px solid var(--bad); padding-left: 8px;
+}
+
+.download-blocked { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.btn.is-disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }

@@ -9,7 +9,7 @@
 //     emitted as a JSON number.
 //   * dates are dd-mm-yyyy, never ISO.
 //   * pos is the bare 2-digit state code, action is a single letter.
-//   * remarks appear ONLY on R or P, max 250 chars.
+//   * remarks appear ONLY on R or P, max 250 chars, and go out as ASCII.
 //   * blocked flags are absolute: one violation and the portal rejects the whole
 //     upload, not just the offending record.
 import { AdapterError, boolToYN, isBlank, isoToDDMMYYYY, periodToMM } from './values.js';
@@ -21,6 +21,27 @@ export const REMARKS_MAX_LENGTH = 250;
 
 const ACTIONS = new Set(['A', 'R', 'P', 'N']);
 const REMARKABLE_ACTIONS = new Set(['R', 'P']);
+
+// The remarks field is documented as a 250-char string and NOTHING is documented
+// about its character set (docs/ims-json-schema.md). A rupee sign the offline
+// utility refuses would fail the whole upload over one record's explanatory text,
+// so remarks are transliterated to ASCII at the wire boundary. Callers should
+// build them ASCII already — recommend.js does — but this is the last place the
+// string can be checked, so it is checked here too.
+const ASCII_SUBSTITUTIONS = [
+  [/₹\s*/g, 'Rs. '],
+  [/[—–]/g, '-'],
+  [/[’‘]/g, "'"],
+  [/[“”]/g, '"'],
+  [/…/g, '...']
+];
+
+export function toAsciiRemarks(text) {
+  let out = String(text);
+  for (const [pattern, replacement] of ASCII_SUBSTITUTIONS) out = out.replace(pattern, replacement);
+  // Anything still outside printable ASCII is dropped rather than guessed at.
+  return out.replace(/[^ -~]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
 
 // Canonical section + docType -> IMS upload section. Debit and credit notes both
 // arrive as 'cdnr'; docType is what separates them on the way back out.
@@ -188,7 +209,18 @@ function applyRemarks(decision, record, action, at, warnings) {
     return null;
   }
 
-  const text = String(decision.remarks).trim();
+  // ASCII first, THEN the length check: 'Rs.' is longer than the sign it
+  // replaces, so truncating first could push the result back over the limit.
+  const raw = String(decision.remarks).trim();
+  const text = toAsciiRemarks(raw);
+  if (text !== raw) {
+    warnings.push({
+      at,
+      code: 'REMARKS_TRANSLITERATED',
+      message: 'remarks rewritten to ASCII for the portal'
+    });
+  }
+  if (!text) return null;
   if (text.length > REMARKS_MAX_LENGTH) {
     warnings.push({
       at,

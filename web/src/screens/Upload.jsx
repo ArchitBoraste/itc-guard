@@ -241,13 +241,25 @@ function ColumnMapper({ columns, draft, guessed, onChange, onApply, onCancel, bu
 // header rows naming one. The parsed rows still each derive theirs from the
 // document date, so read it back from the preview rather than leaving the upload
 // unlabelled and the Reconcile button permanently disabled.
+// "414 register rows, 384 IMS and 420 GSTR-2B records" — the trader has to be
+// able to see WHY the button is enabled when they only dropped one file.
+function describeStored(entry) {
+  const parts = [];
+  if (entry.books) parts.push(`${entry.books.toLocaleString('en-IN')} register rows`);
+  if (entry.ims) parts.push(`${entry.ims.toLocaleString('en-IN')} IMS records`);
+  if (entry.gstr2b) parts.push(`${entry.gstr2b.toLocaleString('en-IN')} GSTR-2B records`);
+  if (!parts.length) return 'nothing';
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+}
+
 function periodOf(committed, preview) {
   return committed?.taxPeriod ?? preview?.taxPeriod ?? preview?.rows?.[0]?.taxPeriod ?? null;
 }
 
 // --- screen ----------------------------------------------------------------
 
-export function UploadScreen({ org, runs, onIngested }) {
+export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
   const [zones, setZones] = useState({});
   const [mapper, setMapper] = useState(null); // { kind, uploadId, columns, draft }
   const [mapperBusy, setMapperBusy] = useState(false);
@@ -257,11 +269,25 @@ export function UploadScreen({ org, runs, onIngested }) {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState(null);
   const [existing, setExisting] = useState(null);
+  const [periods, setPeriods] = useState([]);
   const [samplePeriod, setSamplePeriod] = useState('');
 
-  useEffect(() => {
-    api.listUploads().then(setExisting).catch(() => setExisting([]));
+  // What the SERVER holds, per period. Re-read after every commit: the normal
+  // case is a trader re-downloading IMS weekly into a period whose purchase
+  // register was committed weeks ago, and asking this page what it happens to
+  // have uploaded gets that case wrong every time.
+  const refreshHistory = useCallback(async () => {
+    const [uploads, known] = await Promise.all([
+      api.listUploads().catch(() => []),
+      api.listPeriods().catch(() => [])
+    ]);
+    setExisting(uploads);
+    setPeriods(known);
   }, []);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
 
   // Defaults once, when the org's fixture list arrives, and then leaves the
   // trader's own choice alone.
@@ -339,11 +365,17 @@ export function UploadScreen({ org, runs, onIngested }) {
         });
 
         const committed = await api.commitUpload(upload.id);
+        const taxPeriod = periodOf(committed, preview);
         setZone(kind, {
           status: 'committed',
           rowCount: committed.parsed,
-          taxPeriod: periodOf(committed, preview)
+          taxPeriod,
+          rerun: committed.rerun ?? null
         });
+        await refreshHistory();
+        // The server re-ran the period the moment this landed, so whatever the
+        // rest of the app is holding for it is now a version behind.
+        if (committed.rerun?.ran) await onDataChanged?.(taxPeriod);
       } catch (err) {
         setZone(kind, { status: 'error', error: err });
       }
@@ -362,26 +394,42 @@ export function UploadScreen({ org, runs, onIngested }) {
       }
       const preview = await api.previewUpload(mapper.uploadId, { columnMap });
       const committed = await api.commitUpload(mapper.uploadId, columnMap);
+      const taxPeriod = periodOf(committed, preview);
       setZone(mapper.kind, {
         status: 'committed',
         detectedFormat: preview.detectedFormat,
         rowCount: committed.parsed,
-        taxPeriod: periodOf(committed, preview),
-        filename: mapper.filename
+        taxPeriod,
+        filename: mapper.filename,
+        rerun: committed.rerun ?? null
       });
       setMapper(null);
+      await refreshHistory();
+      if (committed.rerun?.ran) await onDataChanged?.(taxPeriod);
     } catch (err) {
       setMapperError(err);
     } finally {
       setMapperBusy(false);
     }
-  }, [mapper, setZone]);
+  }, [mapper, setZone, refreshHistory, onDataChanged]);
 
   const committed = Object.entries(zones).filter(([, state]) => state?.status === 'committed');
   const committedPeriod = committed.map(([, state]) => state.taxPeriod).find(Boolean) ?? null;
-  const hasBooks = zones.PURCHASE_REGISTER?.status === 'committed';
+
+  // A source counts if it was committed in THIS session or is already in the
+  // database for this period. Uploading one file must never invalidate the other
+  // two that are sitting there.
+  const stored = periods.find((entry) => entry.taxPeriod === committedPeriod) ?? null;
+  const hasBooks = zones.PURCHASE_REGISTER?.status === 'committed' || Boolean(stored?.hasBooks);
   const hasPortal =
-    zones.IMS?.status === 'committed' || zones.GSTR2B?.status === 'committed';
+    zones.IMS?.status === 'committed' ||
+    zones.GSTR2B?.status === 'committed' ||
+    Boolean(stored?.hasPortal);
+  // What the trader is told is missing has to be the truth about the period, not
+  // about this page.
+  const missing = [!hasBooks ? 'a purchase register' : null, !hasPortal ? 'an IMS or GSTR-2B file' : null]
+    .filter(Boolean)
+    .join(' and ');
 
   const reconcile = useCallback(async () => {
     if (!committedPeriod) return;
@@ -393,13 +441,14 @@ export function UploadScreen({ org, runs, onIngested }) {
       const [year, month] = committedPeriod.split('-').map(Number);
       const next = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
       await api.createRun({ taxPeriod: committedPeriod, mode: 'REACTIVE', asOfDate: `${next}-16` });
+      await refreshHistory();
       await onIngested(committedPeriod);
     } catch (err) {
       setRunError(err);
     } finally {
       setRunning(false);
     }
-  }, [committedPeriod, onIngested]);
+  }, [committedPeriod, onIngested, refreshHistory]);
 
   const seed = useCallback(
     async (taxPeriod) => {
@@ -539,12 +588,19 @@ export function UploadScreen({ org, runs, onIngested }) {
           <header className="panel-head">
             <div>
               <h2>Reconcile</h2>
-              <p className="muted">
+              <p className="muted" data-testid="reconcile-status">
                 {committed.length} source{committed.length === 1 ? '' : 's'} committed
-                {committedPeriod ? ` for ${formatPeriod(committedPeriod)}` : ''}.
+                {committedPeriod ? ` for ${formatPeriod(committedPeriod)}` : ''}
+                {stored && committedPeriod
+                  ? `, alongside ${describeStored(stored)} already loaded for that period`
+                  : ''}
+                .
                 {hasBooks && hasPortal
-                  ? ''
-                  : ' A purchase register and at least one portal file are both needed.'}
+                  ? stored?.runId
+                    ? ' That period has already been reconciled and was re-run automatically ' +
+                      'when this file landed; run it again to change the mode or as-of date.'
+                    : ''
+                  : ` Still needed: ${missing}.`}
               </p>
             </div>
             <button

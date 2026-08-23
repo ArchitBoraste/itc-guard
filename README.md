@@ -283,8 +283,19 @@ Stub auth: every request is org 1. No login yet.
 | `PATCH` | `/api/results/:id` | `{ confirmedAction }` |
 | `GET` | `/api/runs/:id/ims-actions.json` | the portal upload JSON |
 | `GET` | `/api/runs/:id/ims-actions-summary` | what is in that file, before downloading it |
+| `GET` | `/api/changes?runId=` | what moved on the portal since the last download |
+| `GET` | `/api/periods` | what each period holds, and whether it can be reconciled |
 | `GET` | `/api/suppliers` | list with stats |
 | `GET` | `/api/suppliers/:gstin` | period history |
+
+A `VALUE_MISMATCH` explanation and its portal remark are built from the fields
+that actually differ — the same two `classify()` tests, measured with the same
+tolerance — so a taxable-only mismatch names the taxable value rather than
+quoting a zero tax delta. The remark goes to GSTN as the stated reason for a
+rejection, so it names both sides of every differing field and is **ASCII**: the
+IMS schema documents 250 characters and nothing about the character set, and a
+rupee sign the offline utility refuses would fail the whole upload. The wire
+layer transliterates as a last check (`toAsciiRemarks`).
 
 `recommended_action` and `confirmed_action` are stored separately. The IMS action
 JSON emits `confirmed_action` where set, otherwise `recommended_action`.
@@ -406,12 +417,57 @@ nothing goes missing.
 enforced by `uq_runs_org_period`. Re-running updates that row and rebuilds its
 `match_results` in one transaction, so row counts stay constant.
 
+**Committing a source re-runs that period's existing run.** Results are stored,
+but every read joins the books and portal rows LIVE — so new data without a
+rebuild renders current figures under a month-old verdict: taxable 7,17,915 vs
+7,12,915, both flagged different, under "Agrees with the portal", score 1.00,
+recommending Accept. The rebuild keeps the run's own mode, as-of date and filing
+scheme, because those decide the recommendation. A period with no run yet is left
+alone — that is the Reconcile button's decision, not an upload's.
+
+**A result records the portal `content_hash` it was computed from.** When that no
+longer matches the record, the row is `stale`: the API refuses to confirm it (409
+`stale_run`) and the UI greys out its controls. This is the guard that holds when
+the rebuild did not run — it failed, or a tool loaded rows outside the request
+cycle. A run that predates the column reports `UNVERIFIABLE` rather than
+"current"; not knowing is not the same as being fine, and one re-run settles it.
+
+A **withdrawn** record (`portal_records.absent_since`) is kept separate from
+staleness on purpose. Both are un-actionable, but re-running fixes one and can
+never fix the other, so a withdrawn row must not carry a "re-run the
+reconciliation" prompt that will never clear.
+
 **A `confirmed_action` survives the rebuild only while it still applies.** It is
 revalidated against the portal `content_hash` and bucket it was made about. If the
 supplier corrects the value, a confirmed REJECT is dropped and the result is
 flagged `CONFIRMATION_RESET` — otherwise the upload would reject an invoice the
 trader now agrees with, costing them a month of credit. IMS behaves the same way:
 editing a saved record resets the recipient's action.
+
+## Sync diffing
+
+Every re-upload of a source is diffed against the last one, per `identity_key`,
+**strictly within the same source**: uploading only IMS must never report the
+GSTR-2B rows as deleted. `record_changes` gets `AMENDED` (the `content_hash`
+moved), `DISAPPEARED` (a supplier withdrew a saved record), `REAPPEARED`,
+`STATUS_CHANGE` (`SAVED` -> `FILED`) and `NEW`. A record that is amended *and*
+filed in one upload emits both rows — only the amendment was still free to fix.
+
+A **first** upload of a period reports nothing, and re-uploading identical bytes
+reports nothing. That is the point: a feed that cries wolf on 400 unchanged rows
+is worse than no feed, and it is what the negative cases in
+`test/integration/syncDiff.test.js` exist to hold.
+
+`AMENDED` is `CHANGED_AFTER_REVIEW` renamed — the same hash test under a name that
+does not claim a review happened. The old value is still read and never written.
+`CONFIRMATION_RESET` is a different thing and stays: `AMENDED` is what the portal
+did, `CONFIRMATION_RESET` is what that did to a decision, and the latter also
+fires on a bucket move with no portal change at all.
+
+`GET /api/changes?runId=` returns the feed, newest first, with the changed fields
+and the rupee delta, plus whether the change invalidated a decision. The Actions
+screen splits it in two: an alert panel for changes that undid a confirmed
+decision, and a quiet collapsed list for records nobody had reviewed yet.
 
 **Ordinals are derived from the data, not from arrival order.** Two invoices that
 differ only in amount are separated by `identity_seq`, assigned after sorting by
@@ -421,15 +477,15 @@ keys and does not insert duplicates.
 **Re-uploading a source updates rows.** `identity_key` is a sha256 over source,
 section, supplier GSTIN, doc type, normalised invoice number, invoice date, port
 code and an ordinal — deliberately excluding amounts, so an amended record is
-recognised as the same row with a changed `content_hash` (`CHANGED_AFTER_REVIEW`)
-rather than as a new document. The spec's proposed key without the date collides
+recognised as the same row with a changed `content_hash` (`AMENDED`) rather than
+as a new document. The spec's proposed key without the date collides
 37 times across the fixtures, which would silently overwrite one of a duplicated
 invoice pair.
 
 ## Status
 
-Phases 0-5 done: skeleton, fixtures, adapters, matching engine, persistence, API
-and the web UI. The matching engine scores 100% macro precision/recall/F1 against
+Phases 0-6 done: skeleton, fixtures, adapters, matching engine, persistence, API,
+the web UI and sync diffing. The matching engine scores 100% macro precision/recall/F1 against
 `fixtures/ground_truth.json` across all six periods (2,461 documents).
 
 Not built yet: supplier risk scoring (`supplier_risk` is migrated but unpopulated)

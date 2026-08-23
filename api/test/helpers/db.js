@@ -52,7 +52,9 @@ export const TEST_ORGS = Object.freeze({
   reconcile: 5,
   ordinalStability: 2,
   staleConfirmation: 3,
-  negativeTotals: 4
+  negativeTotals: 4,
+  syncDiff: 6,
+  staleRun: 8
 });
 
 export async function ensureOrg(orgId, gstin) {

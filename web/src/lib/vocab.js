@@ -126,6 +126,78 @@ export const FLAG_LABEL = {
   CONFIRMATION_RESET: 'Your decision was reset'
 };
 
+// Why a stored verdict no longer describes the record it is shown against.
+//
+// STALE and WITHDRAWN are both un-actionable and are deliberately NOT the same
+// message: re-running fixes the first and cannot fix the second, so offering
+// "re-run the reconciliation" on a withdrawn record would be advice that never
+// works.
+export const STALE_HELP = {
+  PORTAL_CHANGED:
+    'The supplier changed this record after this run was computed. The verdict, ' +
+    'the score and the recommendation above all describe the old figures. Re-run ' +
+    'the reconciliation before deciding — the figures shown are current, the ' +
+    'verdict is not.',
+  // Not the same claim. Nothing is known to have changed; the run simply cannot
+  // prove it has not, and saying "the supplier changed this" would be inventing a
+  // fact.
+  UNVERIFIABLE:
+    'This run was computed before the app started recording which version of each ' +
+    'portal record a verdict was about, so there is no way to tell whether these ' +
+    'still agree. Re-run the reconciliation once and it will say for certain.'
+};
+
+export const WITHDRAWN_HELP =
+  'The supplier has withdrawn this record from the portal. There is no IMS record ' +
+  'left to accept or reject, and re-running will not bring it back — it returns ' +
+  'only if the supplier reports it again.';
+
+// --- what changed on the portal between two downloads ----------------------
+//
+// Mirrors CHANGE_TYPES in api/src/services/syncDiff.js. The words are the
+// trader's, not the schema's: nobody thinks "STATUS_CHANGE", they think "they
+// finally filed it".
+export const CHANGE_TYPE_LABEL = {
+  NEW: 'Newly reported',
+  AMENDED: 'Amounts changed',
+  DISAPPEARED: 'Withdrawn by the supplier',
+  REAPPEARED: 'Back on the portal',
+  STATUS_CHANGE: 'Now filed'
+};
+
+export const CHANGE_TYPE_HELP = {
+  NEW: 'The supplier added this after your last download. Left unactioned it is ' +
+    'deemed accepted at GSTR-3B.',
+  AMENDED: 'The supplier edited what they had reported. Anything you decided was ' +
+    'about the old figures.',
+  DISAPPEARED:
+    'The supplier deleted this saved record before filing. There is nothing left ' +
+    'in IMS to accept, and no credit unless they report it again.',
+  REAPPEARED: 'The supplier had deleted this and has reported it again.',
+  STATUS_CHANGE:
+    'Saved became filed. Until now their fix was free; from here a correction ' +
+    'needs GSTR-1A and the credit lands next period.'
+};
+
+export const CHANGE_FIELD_LABEL = {
+  supplierGstin: 'Supplier GSTIN',
+  invoiceNoNorm: 'Invoice number',
+  invoiceDate: 'Invoice date',
+  docType: 'Document type',
+  taxableValue: 'Taxable value',
+  totalTax: 'Total tax',
+  igst: 'IGST',
+  cgst: 'CGST',
+  sgst: 'SGST',
+  cess: 'Cess',
+  filingStatus: 'Filing status'
+};
+
+// Which changed fields are integer paise and must be rendered as rupees.
+export const CHANGE_MONEY_FIELDS = new Set([
+  'taxableValue', 'totalTax', 'igst', 'cgst', 'sgst', 'cess'
+]);
+
 export const SECTION_LABEL = {
   b2b: 'B2B',
   b2ba: 'B2B amendment',

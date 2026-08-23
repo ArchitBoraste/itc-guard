@@ -9,6 +9,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
     ...actual,
     api: {
       listUploads: vi.fn(),
+      listPeriods: vi.fn(),
       uploadFile: vi.fn(),
       uploadColumns: vi.fn(),
       previewUpload: vi.fn(),
@@ -41,6 +42,9 @@ function dropFile(name, contents = 'x', type = 'text/csv') {
 
 beforeEach(() => {
   api.listUploads.mockResolvedValue([]);
+  // What the server already holds for each period. The Reconcile gate reads this
+  // rather than trusting what this page happens to have uploaded.
+  api.listPeriods.mockResolvedValue([]);
 });
 
 describe('upload screen — a rejected file can be dismissed', () => {
@@ -217,3 +221,65 @@ function columnsFixture(overrides = {}) {
     ...overrides
   };
 }
+
+// The reported bug: all three sources were committed for April in an earlier
+// session, the trader re-downloads IMS and drops that one file, and the panel
+// says "1 source committed … a purchase register and at least one portal file are
+// both needed" with the button disabled. Re-downloading IMS weekly while the
+// purchase register sits unchanged is the NORMAL way this product is used.
+describe('reconcile gate — what the period holds, not what this page uploaded', () => {
+  const commitOneImsFile = async () => {
+    api.uploadFile.mockResolvedValue({ id: 21, detected_format: 'IMS_JSON' });
+    api.previewUpload.mockResolvedValue({
+      detectedFormat: 'IMS_JSON',
+      taxPeriod: '2026-04',
+      totalRows: 384,
+      rows: []
+    });
+    api.commitUpload.mockResolvedValue({ parsed: 384, taxPeriod: '2026-04', rerun: { ran: true } });
+
+    const input = screen.getByTestId('file-IMS');
+    fireEvent.change(input, {
+      target: { files: [new File(['{}'], 'ims.json', { type: 'application/json' })] }
+    });
+    await screen.findByTestId('reconcile-panel');
+  };
+
+  it('enables the run when the register is already stored for that period', async () => {
+    api.listPeriods.mockResolvedValue([
+      { taxPeriod: '2026-04', books: 414, ims: 384, gstr2b: 420, hasBooks: true, hasPortal: true, runId: 291 }
+    ]);
+    mountUploadPanel();
+    await commitOneImsFile();
+
+    await waitFor(() => expect(screen.getByTestId('run-reconcile')).toBeEnabled());
+    // And it says why, rather than leaving the trader to guess what the button
+    // knows that the page does not show.
+    expect(screen.getByTestId('reconcile-status')).toHaveTextContent('414 register rows');
+    expect(screen.getByTestId('reconcile-status')).not.toHaveTextContent('Still needed');
+  });
+
+  it('still refuses, and names what is missing, when there is no register', async () => {
+    // The gate has to be able to say no, or it is not a gate.
+    api.listPeriods.mockResolvedValue([
+      { taxPeriod: '2026-04', books: 0, ims: 384, gstr2b: 0, hasBooks: false, hasPortal: true, runId: null }
+    ]);
+    mountUploadPanel();
+    await commitOneImsFile();
+
+    await waitFor(() => expect(screen.getByTestId('run-reconcile')).toBeDisabled());
+    expect(screen.getByTestId('reconcile-status')).toHaveTextContent(
+      'Still needed: a purchase register.'
+    );
+  });
+
+  it('re-reads the period inventory after a commit rather than trusting the mount', async () => {
+    api.listPeriods.mockResolvedValue([]);
+    mountUploadPanel();
+    await commitOneImsFile();
+
+    // Once on mount, once after the commit: a file just landed, so what the
+    // server holds for that period has changed.
+    await waitFor(() => expect(api.listPeriods).toHaveBeenCalledTimes(2));
+  });
+});

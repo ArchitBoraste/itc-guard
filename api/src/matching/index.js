@@ -117,7 +117,10 @@ export function reconcile(expected = [], portal = [], options = {}) {
   const context = {
     asOfDate: options.asOfDate ?? null,
     taxPeriod: options.taxPeriod ?? null,
-    filingScheme: options.filingScheme ?? FILING_SCHEMES.MONTHLY
+    filingScheme: options.filingScheme ?? FILING_SCHEMES.MONTHLY,
+    // Passed through so recommendAction() measures a difference with the same
+    // tolerance classify() used to decide the bucket.
+    tolerancePaise: options.tolerancePaise
   };
 
   const portalRecords = options.merge === false ? [...portal] : mergePortalRecords(portal);

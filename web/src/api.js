@@ -73,6 +73,12 @@ export const api = {
 
   commitUpload: (id, columnMap = null) => json('POST', `/api/uploads/${id}/commit`, { columnMap }),
 
+  // What the org already holds per period. The Reconcile button asks the SERVER
+  // what has been committed rather than remembering what this page uploaded — a
+  // trader re-downloading IMS weekly uploads one file into a period whose other
+  // two sources landed weeks ago.
+  listPeriods: () => request('/api/periods').then((body) => body.periods),
+
   // --- runs ----------------------------------------------------------------
   listRuns: () => request('/api/runs').then((body) => body.runs),
   getRunByPeriod: (taxPeriod) =>
@@ -98,6 +104,9 @@ export const api = {
   },
 
   imsActionsSummary: (runId) => request(`/api/runs/${runId}/ims-actions-summary`),
+
+  // --- what moved on the portal since last time ----------------------------
+  listChanges: (runId) => request(`/api/changes?runId=${encodeURIComponent(runId)}`),
   imsActionsUrl: (runId) => `/api/runs/${runId}/ims-actions.json`,
 
   // --- decisions -----------------------------------------------------------

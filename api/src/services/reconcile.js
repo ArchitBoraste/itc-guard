@@ -22,9 +22,14 @@ import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.j
 import { cutoffDate, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
 import { assertTotalsBalance, computeRunTotals, itcSign, totalBucketFor } from './totals.js';
-import { supplierSchemeMap } from './supplierStats.js';
+import { rebuildSupplierPeriods, supplierSchemeMap } from './supplierStats.js';
 
 export const RUN_MODES = Object.freeze(['PREVENTIVE', 'REACTIVE']);
+
+// Matches recommendation_reason's column width (006_reason_length.sql). Clamped
+// rather than trusted: an explanation growing by a sentence must never be able to
+// fail an entire run's INSERT.
+const REASON_MAX_LENGTH = 512;
 
 // --- loading ---------------------------------------------------------------
 
@@ -198,13 +203,17 @@ export async function createRun({
 
   const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
   const totals = computeRunTotals(results, { asOfDate, taxPeriod, filingScheme, schemeFor });
+  // What this run was computed FROM, not what it produced. runStaleness() compares
+  // these against the live counts to notice records that arrived afterwards and so
+  // appear in no result at all — a record nobody has seen is deemed accepted.
+  const inputCounts = { expected: expected.length, portal: portal.length };
   // If this throws, a bucket has no home in the total mapping. Fix the
   // classification, never the arithmetic.
   assertTotalsBalance(totals);
 
   return withTransaction(async (connection) => {
     const runId = await upsertRunRow(connection, {
-      orgId, taxPeriod, mode, asOfDate, filingScheme, totals, engineOptions
+      orgId, taxPeriod, mode, asOfDate, filingScheme, totals, engineOptions, inputCounts
     });
 
     // Carry human decisions across the rebuild, keyed on the pair identity rather
@@ -227,11 +236,12 @@ export async function createRun({
 }
 
 async function upsertRunRow(connection, {
-  orgId, taxPeriod, mode, asOfDate, filingScheme, totals, engineOptions
+  orgId, taxPeriod, mode, asOfDate, filingScheme, totals, engineOptions, inputCounts
 }) {
   const summary = JSON.stringify({
     bucketCounts: totals.bucketCounts,
-    totalCounts: totals.totalCounts
+    totalCounts: totals.totalCounts,
+    inputCounts
   });
   const thresholds = JSON.stringify({
     weights: engineOptions.weights ?? null,
@@ -316,13 +326,16 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
       runId,
       result.expected?.id ?? null,
       result.portal?.id ?? null,
+      // What this verdict was computed against. If the record's hash moves later,
+      // the verdict is about a document that no longer exists in that form.
+      result.portal?.contentHash ?? null,
       result.bucket,
       result.score,
       result.matchedVia,
       result.scoreBreakdown ? JSON.stringify(result.scoreBreakdown) : null,
       JSON.stringify(flags),
       result.recommendedAction,
-      result.recommendationReason,
+      result.recommendationReason?.slice(0, REASON_MAX_LENGTH) ?? null,
       // Remarks follow the decision: a dropped confirmation reverts to the
       // engine's own remark rather than keeping the one written for the old value.
       confirmation?.remarks ?? result.remarks,
@@ -345,14 +358,101 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
   await insertInChunks(
     connection,
     `INSERT INTO match_results
-       (org_id, run_id, expected_invoice_id, portal_record_id, bucket, score,
-        matched_via, score_breakdown, flags, recommended_action,
+       (org_id, run_id, expected_invoice_id, portal_record_id, portal_content_hash,
+        bucket, score, matched_via, score_breakdown, flags, recommended_action,
         recommendation_reason, remarks, delta_taxable_value, delta_total_tax,
         itc_impact, signed_itc, total_bucket, confirmed_action, confirmed_by,
         confirmed_at, confirmed_content_hash, confirmed_bucket)
      VALUES ?`,
     rows
   );
+}
+
+// --- keeping a run in step with its data -----------------------------------
+
+// Re-runs a period's run if it HAS one, and reports what happened.
+//
+// Called after every commit. New portal data makes the stored verdicts wrong the
+// instant it lands — the results are frozen, but every read joins the portal rows
+// live, so the screen ends up showing new figures under an old answer.
+//
+// A period with NO run is left alone. Creating one on upload would put a period
+// in the run list that the trader never asked to reconcile; that decision belongs
+// to the Reconcile button.
+//
+// The run keeps its own clock. mode, as-of date and filing scheme drive every
+// recommendation — a CHASE_SUPPLIER before the cut-off is a REJECT after it — so
+// resetting them to today would change answers for reasons that have nothing to
+// do with the file that just arrived.
+export async function rerunPeriodIfRun(orgId, taxPeriod) {
+  if (!taxPeriod) return { ran: false, reason: 'unknown_period' };
+
+  const [rows] = await pool.query(
+    'SELECT id, mode, as_of_date, filing_scheme FROM runs WHERE org_id = ? AND tax_period = ?',
+    [orgId, taxPeriod]
+  );
+  if (!rows.length) return { ran: false, reason: 'no_run_yet' };
+
+  try {
+    const run = await createRun({
+      orgId,
+      taxPeriod,
+      mode: rows[0].mode,
+      asOfDate: rows[0].as_of_date,
+      filingScheme: rows[0].filing_scheme
+    });
+    await rebuildSupplierPeriods(orgId, taxPeriod, { runId: run.id });
+    return { ran: true, runId: run.id, taxPeriod };
+  } catch (err) {
+    // A failed rebuild must not fail the upload: the rows are committed, and the
+    // staleness guard marks every affected result so nothing can be acted on in
+    // the meantime. Report it rather than swallowing it.
+    return { ran: false, reason: err.code ?? 'rerun_failed', message: err.message };
+  }
+}
+
+// Every period this org holds data for, and whether that data is enough to run.
+//
+// The Reconcile button asks this instead of counting what the page just uploaded.
+// The normal case is a trader re-downloading IMS weekly into a period whose
+// purchase register was committed weeks ago; treating one dropped file as the
+// whole picture disables the button on exactly that case.
+export async function listPeriodInventory(orgId) {
+  const [books] = await pool.query(
+    'SELECT tax_period, COUNT(*) AS n FROM expected_invoices WHERE org_id = ? GROUP BY tax_period',
+    [orgId]
+  );
+  const [portal] = await pool.query(
+    `SELECT tax_period, source, COUNT(*) AS n
+       FROM portal_records WHERE org_id = ? GROUP BY tax_period, source`,
+    [orgId]
+  );
+  const [runs] = await pool.query('SELECT id, tax_period FROM runs WHERE org_id = ?', [orgId]);
+
+  const periods = new Map();
+  const entry = (taxPeriod) => {
+    if (!periods.has(taxPeriod)) {
+      periods.set(taxPeriod, {
+        taxPeriod, books: 0, ims: 0, gstr2b: 0, hasBooks: false, hasPortal: false, runId: null
+      });
+    }
+    return periods.get(taxPeriod);
+  };
+
+  for (const row of books) {
+    const period = entry(row.tax_period);
+    period.books = Number(row.n);
+    period.hasBooks = period.books > 0;
+  }
+  for (const row of portal) {
+    const period = entry(row.tax_period);
+    if (row.source === 'IMS') period.ims = Number(row.n);
+    else period.gstr2b = Number(row.n);
+    period.hasPortal = period.ims > 0 || period.gstr2b > 0;
+  }
+  for (const row of runs) entry(row.tax_period).runId = row.id;
+
+  return [...periods.values()].sort((a, b) => b.taxPeriod.localeCompare(a.taxPeriod));
 }
 
 // --- reading ---------------------------------------------------------------
@@ -384,6 +484,7 @@ export async function getRun(orgId, runId) {
   }
 
   const totalsBreakdown = await runTotalsBreakdown(orgId, runId);
+  const staleness = await runStaleness(orgId, run);
 
   return {
     id: run.id,
@@ -410,7 +511,74 @@ export async function getRun(orgId, runId) {
       grandTotalItc: Number(run.grand_total_itc)
     },
     totalsBreakdown,
+    // Whether this run still describes the data underneath it. See runStaleness().
+    staleness,
     summary: parseJsonColumn(run.summary)
+  };
+}
+
+// Is this run still current?
+//
+// Two questions, because they fail differently:
+//   * staleResults — a row whose portal record changed under the stored verdict.
+//     Exact, per row, and it is what disables the action buttons.
+//   * changesSinceRun — anything the diff recorded after the run started,
+//     INCLUDING records that are new since and therefore appear in no result at
+//     all. A record nobody has seen is deemed accepted at GSTR-3B, so "nothing on
+//     screen is stale" is not the same as "the run is current".
+async function runStaleness(orgId, run) {
+  const [staleRows] = await pool.query(
+    `SELECT
+       SUM(mr.portal_content_hash IS NOT NULL
+           AND mr.portal_content_hash <> pr.content_hash) AS stale,
+       SUM(mr.portal_content_hash IS NULL) AS unverifiable,
+       SUM(pr.absent_since IS NOT NULL) AS withdrawn
+       FROM match_results mr
+       JOIN portal_records pr ON pr.id = mr.portal_record_id
+      WHERE mr.org_id = ? AND mr.run_id = ?`,
+    [orgId, run.id]
+  );
+
+  // Deliberately NOT a timestamp comparison. DATETIME resolves to the second, and
+  // an ingest that finishes in the same second as the rebuild it triggers is
+  // ordinary — the first attempt at this reported a freshly rebuilt run as
+  // current while a change sat unaccounted for. Counts are exact and they clear
+  // themselves on the next run.
+  //
+  // Counting raw portal rows rather than results, because the engine MERGES the
+  // same document seen in IMS and 2B into one result: a new 2B row that merges
+  // under an existing IMS record would look like a missing result forever.
+  const [liveExpected] = await pool.query(
+    'SELECT COUNT(*) AS n FROM expected_invoices WHERE org_id = ? AND tax_period = ?',
+    [orgId, run.tax_period]
+  );
+  const [livePortal] = await pool.query(
+    'SELECT COUNT(*) AS n FROM portal_records WHERE org_id = ? AND tax_period IN (?)',
+    [orgId, periodWindow(run.tax_period)]
+  );
+
+  const atRun = parseJsonColumn(run.summary)?.inputCounts ?? null;
+  const unseenRecords = atRun
+    ? Math.max(0, Number(livePortal[0].n) - Number(atRun.portal ?? 0)) +
+      Math.max(0, Number(liveExpected[0].n) - Number(atRun.expected ?? 0))
+    : 0;
+
+  const staleResults = Number(staleRows[0].stale ?? 0);
+  // Rows this run cannot vouch for, because it predates the baseline column. Kept
+  // apart from staleResults so the UI can say "re-run to verify" rather than
+  // claiming records changed when it does not know that.
+  const unverifiedResults = Number(staleRows[0].unverifiable ?? 0);
+  return {
+    staleResults,
+    unverifiedResults,
+    // Reported, but NOT a reason to re-run: rebuilding will not bring a withdrawn
+    // record back. Those rows carry their own note and are un-actionable.
+    withdrawnResults: Number(staleRows[0].withdrawn ?? 0),
+    unseenRecords,
+    // Runs written before inputCounts existed report on stale results alone rather
+    // than claiming a certainty they do not have.
+    inputCountsKnown: Boolean(atRun),
+    isStale: staleResults > 0 || unverifiedResults > 0 || unseenRecords > 0
   };
 }
 
@@ -544,7 +712,9 @@ export async function listResults(orgId, runId, { bucket = null, page = 1, pageS
             pr.taxable_value AS portal_taxable_value,
             pr.total_tax AS portal_total_tax,
             pr.filing_status, pr.ims_action, pr.pending_blocked, pr.remarks_blocked,
-            pr.itc_available, pr.itc_ineligible_reason, pr.supplier_filed_on
+            pr.itc_available, pr.itc_ineligible_reason, pr.supplier_filed_on,
+            mr.portal_record_id, mr.portal_content_hash,
+            pr.content_hash AS portal_current_hash, pr.absent_since
        FROM match_results mr
        LEFT JOIN expected_invoices ei ON ei.id = mr.expected_invoice_id
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
@@ -564,10 +734,40 @@ export async function listResults(orgId, runId, { bucket = null, page = 1, pageS
   };
 }
 
+// Whether this stored verdict still describes the portal record it is rendered
+// beside. The comparison is against the hash the result was COMPUTED from, not a
+// timestamp: exact, and true whichever path wrote the portal row.
+export function stalenessOf(row) {
+  if (row.portal_content_hash) {
+    return row.portal_content_hash === row.portal_current_hash ? null : 'PORTAL_CHANGED';
+  }
+  // A result with a portal side but no recorded baseline was written before this
+  // check existed. We cannot tell whether it is current — and "cannot tell"
+  // reported as "current" is the original bug with extra steps. Unverifiable rows
+  // are treated as stale and clear on the first rebuild.
+  return row.portal_record_id ? 'UNVERIFIABLE' : null;
+}
+
+// A record the supplier withdrew. Deliberately NOT folded into staleness, because
+// the two are fixed by different things: a stale verdict is cured by re-running,
+// a withdrawn record is not — the row stays absent until the supplier reports it
+// again, and the matcher still pairs it as though it were there. Calling it stale
+// would put a "re-run the reconciliation" prompt on screen that could never clear.
+//
+// Both are un-actionable. Only one is a reason to rebuild.
+export const isWithdrawn = (row) => Boolean(row.absent_since);
+
 function toResultView(row) {
+  const staleReason = stalenessOf(row);
   return {
     id: row.id,
     bucket: row.bucket,
+    // The verdict, the score and the recommendation on this row were all computed
+    // against portal figures that have since moved. Acting on it is the single
+    // most expensive mistake available here, so it is reported on every read.
+    stale: Boolean(staleReason),
+    staleReason,
+    withdrawn: isWithdrawn(row),
     score: row.score === null ? null : Number(row.score),
     matchedVia: row.matched_via,
     scoreBreakdown: parseJsonColumn(row.score_breakdown),
@@ -636,8 +836,9 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
   }
 
   const [rows] = await pool.query(
-    `SELECT mr.id, mr.run_id, mr.bucket, mr.portal_record_id,
+    `SELECT mr.id, mr.run_id, mr.bucket, mr.portal_record_id, mr.portal_content_hash,
             pr.pending_blocked, pr.remarks_blocked, pr.content_hash,
+            pr.content_hash AS portal_current_hash, pr.absent_since,
             pr.section, pr.source, pr.invoice_no
        FROM match_results mr
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
@@ -646,6 +847,34 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
   );
   if (!rows.length) throw new ServiceError('result not found', 404, 'not_found');
   const result = rows[0];
+
+  // The stale-verdict guard, enforced here and not only in the UI.
+  //
+  // The bucket, the score and the recommendation on this row were computed
+  // against a version of the portal record that no longer exists. Accepting on
+  // that basis waives a discrepancy the trader was never shown and loses the
+  // disputed credit permanently, so this refuses rather than warns.
+  const staleReason = stalenessOf(result);
+  if (staleReason) {
+    throw new ServiceError(
+      staleReason === 'UNVERIFIABLE'
+        ? 'this run predates the staleness check, so there is no way to tell ' +
+          'whether its verdicts still match the portal; re-run the reconciliation ' +
+          'before deciding'
+        : 'the portal record changed after this run was computed, so this verdict ' +
+          'is out of date; re-run the reconciliation before deciding',
+      409,
+      'stale_run'
+    );
+  }
+  if (isWithdrawn(result)) {
+    throw new ServiceError(
+      'the supplier withdrew this record from the portal, so there is no IMS ' +
+        'record left to act on',
+      409,
+      'record_withdrawn'
+    );
+  }
 
   if (action === 'PENDING' && result.pending_blocked) {
     throw new ServiceError(

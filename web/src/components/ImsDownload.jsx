@@ -31,6 +31,10 @@ export function ImsDownload({ run, compact = false }) {
 
   const stats = summary?.stats;
   const byAction = stats?.byAction ?? {};
+  // The file is built from stored verdicts. If the portal has moved since they
+  // were computed, the envelope would carry an Accept for a record that no longer
+  // agrees — and once uploaded, that is final.
+  const stale = Boolean(run.staleness?.isStale);
 
   return (
     <section
@@ -47,14 +51,25 @@ export function ImsDownload({ run, compact = false }) {
               : 'Building the upload envelope…'}
           </p>
         </div>
-        <a
-          className="btn btn-primary"
-          href={api.imsActionsUrl(run.id)}
-          download={`ims-actions-run-${run.id}.json`}
-          data-testid="download-ims-json"
-        >
-          Download IMS action JSON
-        </a>
+        {stale ? (
+          <span className="download-blocked" data-testid="download-blocked">
+            <span className="btn btn-primary is-disabled" aria-disabled="true">
+              Download IMS action JSON
+            </span>
+            <span className="small bad">
+              Re-run the reconciliation first — this run is out of date.
+            </span>
+          </span>
+        ) : (
+          <a
+            className="btn btn-primary"
+            href={api.imsActionsUrl(run.id)}
+            download={`ims-actions-run-${run.id}.json`}
+            data-testid="download-ims-json"
+          >
+            Download IMS action JSON
+          </a>
+        )}
       </header>
 
       <InlineError error={error} onDismiss={() => setError(null)} />
