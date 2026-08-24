@@ -8,6 +8,7 @@ import {
 } from '../lib/vocab.js';
 import { Empty } from '../components/States.jsx';
 import { ImsDownload } from '../components/ImsDownload.jsx';
+import { RerunButton } from '../components/RerunControl.jsx';
 
 // A net figure that HIDES its components is not one number.
 //
@@ -115,7 +116,7 @@ function TotalCard({ id, label, help, total, breakdown, tone = 'neutral', denomi
   );
 }
 
-export function SummaryScreen({ run, results, onGoToActions }) {
+export function SummaryScreen({ run, results, onGoToActions, onRefresh }) {
   if (!run) {
     return (
       <Empty title="No run for this period" testId="empty-run">
@@ -139,13 +140,30 @@ export function SummaryScreen({ run, results, onGoToActions }) {
               Reconciled as of {formatDate(run.asOfDate)} · supplier cut-off{' '}
               {formatDate(run.cutOffDate)} · {run.filingScheme.toLowerCase()} filer ·{' '}
               {(results?.length ?? 0).toLocaleString('en-IN')} documents compared
+              {run.finishedAt ? (
+                <>
+                  {' · '}
+                  {/* When these verdicts were last computed, which is the question
+                      the re-run button beside it answers. Distinct from the as-of
+                      date above: that is the filing clock, this is the build. */}
+                  <span data-testid="run-computed-at">
+                    last built {formatDate(run.finishedAt)}
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
-          {exceptions > 0 ? (
-            <button type="button" className="btn btn-primary" onClick={onGoToActions}>
-              {exceptions} need a decision
-            </button>
-          ) : null}
+          <div className="head-actions">
+            {exceptions > 0 ? (
+              <button type="button" className="btn btn-primary" onClick={onGoToActions}>
+                {exceptions} need a decision
+              </button>
+            ) : null}
+            {/* Always available, not only when the run notices it is stale: after a
+                change to the engine there is nothing for it to notice, and
+                uploading a file to see your own change is a strange requirement. */}
+            <RerunButton run={run} onRefresh={onRefresh} />
+          </div>
         </header>
 
         <div className="headline">

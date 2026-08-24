@@ -152,7 +152,23 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
         <p className="banner-meta">
           As of {formatDate(summary.asOf)} · {WINDOW_LABEL[summary.window] ?? '—'} ·
           supplier cut-off was {formatDate(summary.cutOff)} ·{' '}
-          {summary.confirmedCount} decision{summary.confirmedCount === 1 ? '' : 's'} recorded
+          <span data-testid="deemed-confirmed-count">
+            {summary.confirmedCount} decision{summary.confirmedCount === 1 ? '' : 's'} recorded
+          </span>
+          {/* A reset decision counts as neither recorded nor never-made, and
+              omitting it made this line contradict the panel directly beneath:
+              "0 decisions recorded" above "1 decision you made was dropped". Both
+              were true — the count is of decisions that still STAND — but the
+              reader has to reconcile them, and the obvious reading is that one of
+              the two is broken. */}
+          {summary.resetCount > 0 ? (
+            <span data-testid="deemed-reset-count">
+              {' · '}
+              {summary.resetCount === 1
+                ? '1 was reset when the supplier changed the record'
+                : `${summary.resetCount} were reset when suppliers changed those records`}
+            </span>
+          ) : null}
         </p>
       </div>
 

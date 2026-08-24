@@ -693,3 +693,7 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 
 .download-blocked { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .btn.is-disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+
+/* Header actions: the primary call to action, then the rebuild beside it. */
+.head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.rerun-control { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }

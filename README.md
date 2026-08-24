@@ -106,6 +106,7 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 | `web/` | `npm run dev` | Vite dev server on 5173 |
 | root | `npm run gen:fixtures` | regenerate `fixtures/` |
 | root | `npm run seed:demo` | load a fixture period end to end for org 1 |
+| root | `npm run demo:reset` | wipe org 1 and rebuild the presentable demo state |
 | root | `npm run sweep:weights` | grid-search matching weights vs ground truth |
 | root | `docker compose up --build` | all three services |
 | root | `docker compose down -v` | stop and drop the db volume |
@@ -118,6 +119,45 @@ npm run seed:demo -- 2026-03 --reset
 
 Uploads, commits, reconciles and prints the bucket counts, the run totals in paise
 and rupees, and the identity check. `--all` does every fixture period.
+
+### Demo reset
+
+```bash
+npm run demo:reset
+```
+
+One command, one known state, safe to run between practice runs and immediately
+before presenting. **It wipes org 1** — that is its purpose, and it prints the
+database it is about to clear first. Then it rebuilds:
+
+1. March and April 2026, loaded through the real upload path and reconciled.
+2. The largest clean invoice in April confirmed as **Accept** — a decision the
+   trader made and would have filed.
+3. That same invoice revised downward by the supplier in **both** the IMS and 2B
+   downloads, and re-ingested. Both, because the engine merges the same document
+   seen in each source into one result keyed partly on money: revising only IMS
+   un-merges the pair, the confirmation is orphaned rather than reset, and the
+   demo shows nothing.
+4. April re-run, which drops the confirmation and flags `CONFIRMATION_RESET`.
+
+It then verifies what it built — exactly one invalidated decision on the change
+feed, and a run that is not stale — and refuses to report success otherwise,
+because a demo that is subtly not in the state it claims is worse than one that
+failed loudly.
+
+The invoice is chosen from the data by a deterministic query, not hard-coded:
+`fixtures/` is generated and gitignored, so a fixed invoice number would break the
+first time anyone runs `gen:fixtures`.
+
+### Re-running a period
+
+Every period with a run carries a persistent **Re-run reconciliation** button on
+Summary. The stale banner on Actions offers the same rebuild, but only once a run
+has NOTICED it is out of date — which covers new portal data and nothing else.
+After an engine or wording change there is nothing to notice, and uploading a file
+to see your own change is a strange requirement. Either path keeps the run's own
+mode, as-of date and filing scheme: those decide whether a mismatch is a free
+supplier fix or a reject.
 
 ## Running the tests
 

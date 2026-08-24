@@ -255,7 +255,12 @@ export default function App() {
         ) : loadingRun ? (
           <Loading label={`Loading ${formatPeriod(period)}`} rows={6} />
         ) : route === 'summary' ? (
-          <SummaryScreen run={run} results={results} onGoToActions={goToActions} />
+          <SummaryScreen
+            run={run}
+            results={results}
+            onGoToActions={goToActions}
+            onRefresh={refreshRun}
+          />
         ) : route === 'actions' ? (
           <ActionsScreen
             run={run}

@@ -16,6 +16,7 @@ import { Empty, ErrorBox } from '../components/States.jsx';
 import { GroupConfirm, ResultRow } from '../components/ResultRow.jsx';
 import { ImsDownload } from '../components/ImsDownload.jsx';
 import { ChangeFeed } from '../components/ChangeFeed.jsx';
+import { useRerun } from '../components/RerunControl.jsx';
 
 const PAGE_STEP = 25;
 
@@ -145,28 +146,8 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
   const [visible, setVisible] = useState({});
   const [busyGroup, setBusyGroup] = useState(null);
   const [error, setError] = useState(null);
-  const [rerunning, setRerunning] = useState(false);
-  const [rerunError, setRerunError] = useState(null);
-
-  const rerun = useCallback(async () => {
-    setRerunning(true);
-    setRerunError(null);
-    try {
-      // The run keeps its own clock: as-of date drives every recommendation, and
-      // moving it to today would change answers for reasons unrelated to the file.
-      await api.createRun({
-        taxPeriod: run.taxPeriod,
-        mode: run.mode,
-        asOfDate: run.asOfDate,
-        filingScheme: run.filingScheme
-      });
-      await onRefresh();
-    } catch (err) {
-      setRerunError(err);
-    } finally {
-      setRerunning(false);
-    }
-  }, [run, onRefresh]);
+  // Same rebuild the Summary screen offers persistently — see RerunControl.jsx.
+  const { rerun, busy: rerunning, error: rerunError } = useRerun(run, onRefresh);
 
   const confirmOne = useCallback(
     async (result, action) => {
