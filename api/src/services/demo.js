@@ -11,7 +11,7 @@ import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { ServiceError, commitUpload, createUpload } from './ingest.js';
 import { createRun } from './reconcile.js';
-import { rebuildSupplierPeriods } from './supplierStats.js';
+import { rebuildSupplierStats } from './supplierRisk.js';
 
 // The fixture generator's own trader. Matches tools/seed-demo.js, because the two
 // have to seed the same org or the IMS action JSON comes out under a different
@@ -109,7 +109,7 @@ export async function seedDemoPeriod(orgId, { taxPeriod = DEMO_PERIOD, asOfDate 
     mode: 'REACTIVE',
     asOfDate: asOfDate ?? `${next}-16`
   });
-  await rebuildSupplierPeriods(orgId, taxPeriod, { runId: run.id });
+  await rebuildSupplierStats(orgId, taxPeriod, { runId: run.id });
 
   return { taxPeriod, uploads, runId: run.id, run };
 }

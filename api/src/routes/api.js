@@ -24,7 +24,9 @@ import { preventiveAlerts } from '../services/preventive.js';
 import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
-import { rebuildSupplierPeriods, getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
+import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
+import { rebuildSupplierStats, supplierRiskMap } from '../services/supplierRisk.js';
+import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
 
@@ -47,9 +49,14 @@ export function stubAuth(req, res, next) {
 // instead of hanging the request.
 const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-export function apiRouter() {
+// `auth` is injectable for one reason: stubAuth pins every request to org 1, and
+// org 1 is the RUNNING DEMO — tests are forbidden from touching it (see TEST_ORGS
+// in test/helpers/db.js). Without a seam here the only way to exercise a route
+// end to end would be against the demo's own data. Production still gets
+// stubAuth; only tests pass anything else. Real auth will use this too.
+export function apiRouter({ auth = stubAuth } = {}) {
   const router = Router();
-  router.use(stubAuth);
+  router.use(auth);
 
   // --- who this is ---------------------------------------------------------
 
@@ -169,9 +176,10 @@ export function apiRouter() {
       asOfDate: req.body?.asOfDate ?? null,
       filingScheme: req.body?.filingScheme ?? 'MONTHLY'
     });
-    // Supplier stats are a by-product of the run: they need its verdicts to count
-    // mismatches per supplier.
-    await rebuildSupplierPeriods(req.orgId, run.taxPeriod, { runId: run.id });
+    // Supplier stats AND the risk band are by-products of the run: the stats need
+    // its verdicts to count mismatches, and the band is computed from the stats.
+    // One call so neither half can be forgotten — see rebuildSupplierStats().
+    await rebuildSupplierStats(req.orgId, run.taxPeriod, { runId: run.id });
     res.status(201).json({ run: await getRun(req.orgId, run.id) });
   }));
 
@@ -269,7 +277,16 @@ export function apiRouter() {
   // --- suppliers -----------------------------------------------------------
 
   router.get('/suppliers', wrap(async (req, res) => {
-    res.json({ suppliers: await listSuppliers(req.orgId, { limit: Number(req.query.limit ?? 200) }) });
+    const asOfPeriod = req.query.taxPeriod ? String(req.query.taxPeriod) : null;
+    const [suppliers, risk] = await Promise.all([
+      listSuppliers(req.orgId, { limit: Number(req.query.limit ?? 200) }),
+      supplierRiskMap(req.orgId, asOfPeriod)
+    ]);
+    res.json({
+      suppliers: suppliers.map((supplier) => ({ ...supplier, risk: risk.get(supplier.gstin) ?? null })),
+      // Named so the UI can say which scorer produced the bands it is showing.
+      model: modelProvenance()
+    });
   }));
 
   router.get('/suppliers/:gstin', wrap(async (req, res) => {

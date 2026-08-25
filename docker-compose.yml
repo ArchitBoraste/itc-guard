@@ -45,6 +45,12 @@ services:
       - ./docs:/app/docs:ro
       # Read-only: the "Load sample data" button seeds from these.
       - ./fixtures:/app/fixtures:ro
+      # The committed risk model. src/risk/score.js reads ml/model.json at
+      # runtime; without this the API silently serves the phase 7 hand-weighted
+      # fallback instead, which is correct behaviour but not the intended one.
+      # Mounted rather than baked because the build context is ./api and ml/ is
+      # its sibling — same reason fixtures/ is mounted.
+      - ./ml:/app/ml:ro
 
   web:
     build: ./web

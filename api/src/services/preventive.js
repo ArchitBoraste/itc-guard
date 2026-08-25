@@ -47,6 +47,7 @@ import { formatRupeesAscii } from '../matching/recommend.js';
 import { ServiceError } from './ingest.js';
 import { loadExpected, loadPortal } from './reconcile.js';
 import { itcSign } from './totals.js';
+import { loadModel, outOfDistribution, scoreSupplier } from '../risk/score.js';
 
 // How far back the risk model looks. Six months is what the fixtures carry and
 // what a trader can sanity-check from memory.
@@ -104,10 +105,21 @@ export const urgencyRank = (urgency) => URGENCY_RANK[urgency] ?? 0;
 // Risk model
 // ---------------------------------------------------------------------------
 //
-// Phase 8's trained model does not exist yet, so this scores from what
-// supplier_periods already records. It is deliberately a small, readable weighted
-// sum rather than anything clever: every term has to be explainable in one
-// sentence to a trader who is deciding whether to make a phone call.
+// TWO SCORERS, ONE OF THEM PREFERRED.
+//
+// Phase 8 trained a logistic regression (ml/train.py) and serves its weights from
+// ml/model.json through risk/score.js. It replaces the hand-weighted SUM below
+// and nothing else: the bands, the guards, the plain-English reasons and the UI
+// are phase 7's and stay exactly as they were.
+//
+// The heuristic is kept as the FALLBACK, not as dead code. It runs whenever
+// model.json is missing or unreadable, so a checkout without the model still
+// ranks suppliers sensibly instead of failing. On the held-out period the model
+// ranked better (ROC AUC 0.935 vs 0.900; pooled leave-one-period-out 0.897 vs
+// 0.795), which is the only reason it is preferred — see README limitations for
+// what those numbers are and are not evidence of.
+//
+// The hand-weighted sum, kept below:
 //
 // The question being scored is ONE thing: "will this supplier's invoice reach my
 // GSTR-2B for THIS period?" There are exactly two ways it fails — they never
@@ -169,7 +181,7 @@ function bandFor(score) {
 // No history at all is MEDIUM, not LOW. A supplier nobody has ever watched file
 // is not evidence of reliability, and calling them low risk is the one mistake
 // here that silently loses money.
-export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHLY } = {}) {
+export function heuristicRisk(periods = [], { scheme = FILING_SCHEMES.MONTHLY } = {}) {
   const cutOffDay = scheme === FILING_SCHEMES.QRMP ? 13 : 11;
 
   if (!periods.length) {
@@ -177,7 +189,9 @@ export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHL
       band: RISK_BANDS.MEDIUM,
       score: null,
       reasons: ['no filing history yet - this is the first period we have seen them'],
-      features: { periodsObserved: 0, cutOffDay }
+      features: { periodsObserved: 0, cutOffDay },
+      guard: 'NO_HISTORY',
+      source: 'HEURISTIC'
     };
   }
 
@@ -230,7 +244,166 @@ export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHL
   let band = bandFor(score);
   if (band === RISK_BANDS.HIGH && observed < MIN_PERIODS_FOR_HIGH) band = RISK_BANDS.MEDIUM;
 
-  return { band, score, reasons: riskReasons(features), features };
+  return { band, score, reasons: riskReasons(features), features, source: 'HEURISTIC' };
+}
+
+// ---------------------------------------------------------------------------
+// The trained model
+// ---------------------------------------------------------------------------
+
+// Phase 7's rich feature object -> the vector ml/model.json was fitted on.
+//
+// Deliberately derived from the SAME numbers the heuristic uses, so the two
+// scorers are two weightings of one description of a supplier rather than two
+// competing descriptions. That is also what makes the train.py comparison fair.
+//
+// filed_ratio_6m, amendment_rate and gstr3b_filed_ratio are still produced here
+// even though train.py dropped all three from THIS model — the vector is the
+// stable contract, and score.js simply ignores names the model does not carry.
+// A retrained model on a corpus where they vary would pick them up with no
+// change on this side.
+export function modelFeatures(features) {
+  const observed = features.periodsObserved ?? 0;
+  return {
+    filed_ratio_6m: observed ? (observed - (features.notIn2bCount ?? 0)) / observed : 0,
+    mean_days_late: features.meanDaysLate ?? 0,
+    max_days_late: features.maxDaysLate ?? 0,
+    mismatch_rate: features.mismatchRate ?? 0,
+    // Not derivable from anything this app ingests; see train.py. Passed as null
+    // rather than 0 so score.js imputes it instead of reading "no amendments".
+    amendment_rate: null,
+    periods_observed: observed,
+    gstr3b_filed_ratio: null
+  };
+}
+
+// A model factor -> the sentence a trader reads.
+//
+// The model chooses WHICH facts to show and in what order; the sentence itself is
+// always a plain statement of the underlying COUNTS, in phase 7's style. That
+// split matters: a standardised contribution is not something anyone can check,
+// but "filed late in 4 of the last 6 months" is, and the trader is the one who
+// knows whether it is true.
+//
+// The direction is used to pick between two true phrasings, never to assert
+// something the counts do not support. A supplier can sit slightly above the
+// training mean on mean_days_late while having been late in zero months — saying
+// "filed late" there would be the model overriding the data.
+function factorSentence({ feature, direction }, features) {
+  const observed = features.periodsObserved ?? 0;
+  const window = `the last ${plural(observed, 'month')}`;
+  const deadline = ordinal(features.cutOffDay);
+
+  switch (feature) {
+    case 'mean_days_late':
+      return features.lateCount > 0
+        ? `filed late in ${features.lateCount} of ${window}`
+        : `filed on time in all of ${window}, by their ${deadline}`;
+
+    case 'max_days_late':
+      return features.maxDaysLate > 0
+        ? `worst month was ${plural(features.maxDaysLate, 'day')} past their ${deadline}`
+        : `never later than their ${deadline} in ${window}`;
+
+    case 'mismatch_rate':
+      return features.mismatches > 0
+        ? `amounts differed from your books on ${features.mismatches} of ` +
+            `${plural(features.documents, 'document')}`
+        : `amounts matched your books on all ${plural(features.documents, 'document')}`;
+
+    case 'periods_observed':
+      return direction === 'LOWERS'
+        ? `${plural(observed, 'month')} of filing history to judge from`
+        : `only ${plural(observed, 'month')} of history so far`;
+
+    case 'filed_ratio_6m':
+      return features.notIn2bCount > 0
+        ? `nothing of theirs reached your GSTR-2B in ${features.notIn2bCount} of ${window}`
+        : `something of theirs reached your GSTR-2B in every one of ${window}`;
+
+    default:
+      return null;
+  }
+}
+
+// scoreSupplierRisk(periods, { scheme }) -> { band, score, reasons, features, ... }
+//
+// The model when it is loadable, the phase 7 heuristic when it is not. Same
+// return shape either way, so nothing downstream has to know which ran — only
+// `source` differs, and the UI uses it to say which one produced the ranking.
+//
+// THE TWO GUARDS ARE APPLIED AFTER THE PROBABILITY, in risk/score.js:
+//   no history      -> MEDIUM, never LOW
+//   fewer than 3 observed periods -> capped at MEDIUM, never HIGH
+// They are not part of the model and must not be. They are statements about how
+// much EVIDENCE exists, and a probability fitted on 200 synthetic rows is in no
+// position to overrule them — a supplier we know nothing about scores near the
+// base rate, which is the model saying "average", not "safe".
+export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHLY } = {}) {
+  const heuristic = heuristicRisk(periods, { scheme });
+
+  // Nothing observed means there is no feature vector worth standardising: every
+  // value would impute to its own training mean, and the model would answer with
+  // the base rate dressed up as a prediction about this supplier. The guard's
+  // answer — MEDIUM, and say the history is empty — is the whole of what can
+  // honestly be said here, so it is returned directly.
+  if (!periods.length) return heuristic;
+
+  if (!loadModel()) return heuristic;
+
+  const vector = modelFeatures(heuristic.features);
+
+  // This supplier shows something the training corpus never contained, so the
+  // model has no term for it — see outOfDistribution(). The heuristic reads the
+  // fact directly and is the better answer here, however confident the model is.
+  //
+  // Concretely: every supplier in the fixtures reaches 2B every month, so
+  // filed_ratio_6m was dropped for having no variance. Without this the model
+  // rates a supplier who reached 2B in one month of six at 0.03 — LOW — because
+  // the only feature that could tell them apart is not in the model at all.
+  const outlier = outOfDistribution(vector);
+  if (outlier) {
+    return {
+      ...heuristic,
+      source: 'HEURISTIC',
+      fallbackReason: 'OUT_OF_DISTRIBUTION',
+      outOfDistribution: outlier
+    };
+  }
+
+  const scored = scoreSupplier(vector);
+  if (!scored) return heuristic;
+
+  // Top factors become the reasons, most influential first. Deduplicated because
+  // two factors can describe the same underlying count — mean and max days late
+  // both collapse to "filed on time" for a supplier who never was.
+  const reasons = [];
+  for (const factor of scored.topFactors) {
+    // When a guard fired it already says how thin the history is, and better —
+    // "only 1 month of history so far, so this is a provisional read" against the
+    // factor's bare "only 1 month of history so far". Printing both reads as a
+    // stutter and neither sentence is doing the other's work.
+    if (factor.feature === 'periods_observed' && scored.guard) continue;
+    const sentence = factorSentence(factor, heuristic.features);
+    if (sentence && !reasons.includes(sentence)) reasons.push(sentence);
+  }
+  if (!reasons.length) reasons.push(...heuristic.reasons);
+  if (scored.guardNote && !reasons.includes(scored.guardNote)) reasons.push(scored.guardNote);
+
+  return {
+    band: scored.band,
+    // The probability, for persistence and ranking. It is NEVER rendered as a
+    // number — see the UI, which shows the band and the sentences only.
+    score: Math.round(scored.probability * 10000) / 10000,
+    probability: scored.probability,
+    reasons,
+    features: heuristic.features,
+    topFactors: scored.topFactors,
+    guard: scored.guard,
+    modelBand: scored.modelBand,
+    heuristicScore: heuristic.score,
+    source: 'MODEL'
+  };
 }
 
 // Plain words, in the order that would matter on a phone call. Never a bare

@@ -26,11 +26,14 @@ api/                       Express API (ESM, plain JS)
     reconcile.js           load a period, run the engine, persist the run
     totals.js              run totals in paise, incl. credit-note signs
     supplierStats.js       supplier master + per-period filing behaviour
+    preventive.js          pre-cut-off alerts, risk banding, chase messages
+    supplierRisk.js        persists the band per period to supplier_risk
     imsActions.js          run -> IMS upload JSON
     identity.js            idempotency keys for ingested rows
   src/adapters/            portal/PR parsers — the ONLY place portal field
                            names (ctin, inum, txval, srcfilstatus...) appear
   src/matching/            PURE matching engine — no db, no fs, no network
+  src/risk/score.js        serves ml/model.json: standardise, dot, sigmoid
   src/db/pool.js           mysql2/promise pool
   src/db/tx.js             transaction + chunked insert helpers
   src/db/migrate.js        migration runner
@@ -45,9 +48,12 @@ web/                       React 18 + Vite front end (plain JS, one stylesheet)
   src/lib/calendar.js      cut-off, 2B generation and GSTR-3B dates
   src/components/          banners, side-by-side compare, score popover, states
                            ErrorBoundary.jsx — the app's only class component
-  src/screens/             Upload, Summary, Actions, Suppliers
+  src/screens/             Upload, Summary, Alerts, Actions, Suppliers
   test/                    vitest + jsdom + @testing-library/react
 tools/                     dev tooling (fixtures, weight sweep, demo seed)
+ml/                        offline training. train.py fits the supplier risk
+                           model; model.json is COMMITTED and read by Node.
+                           No Python runs at serve time.
 docs/                      IMS / 2B / purchase-register schemas, domain reference
 docker-compose.yml
 ```
@@ -108,6 +114,8 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 | root | `npm run seed:demo` | load a fixture period end to end for org 1 |
 | root | `npm run demo:reset` | wipe org 1 and rebuild the presentable demo state |
 | root | `npm run sweep:weights` | grid-search matching weights vs ground truth |
+| root | `npm run ml:export` | seed org 10 from fixtures, export `ml/training-data.csv` |
+| root | `python ml/train.py` | fit the risk model, print metrics, write `ml/model.json` |
 | root | `docker compose up --build` | all three services |
 | root | `docker compose down -v` | stop and drop the db volume |
 
@@ -522,14 +530,99 @@ as a new document. The spec's proposed key without the date collides
 37 times across the fixtures, which would silently overwrite one of a duplicated
 invoice pair.
 
+## Supplier risk model
+
+A logistic regression, fitted offline in Python and served from Node. There is no
+Python at runtime: `ml/train.py` writes `ml/model.json`, that file is committed,
+and `api/src/risk/score.js` standardises, dots and sigmoids it in about twenty
+lines.
+
+```bash
+npm run ml:export      # seeds org 10 from fixtures, writes ml/training-data.csv
+python ml/train.py     # prints metrics and coefficients, writes ml/model.json
+```
+
+**Label.** One row per (supplier, period): did that supplier's invoices reach that
+period's GSTR-2B, correct and on time? Features are computed over the periods
+*before* the label period — filing late in a month is most of that month's label,
+so features spanning it would let the model read the answer off its own input.
+
+**Bands.** `LOW < 0.15`, `MEDIUM 0.15–0.40`, `HIGH > 0.40`, then two guards from
+phase 7 that the model cannot overrule, because they are claims about how much is
+*known* rather than about probability:
+
+- no filing history at all → MEDIUM, never LOW. Absence of data is not evidence of
+  reliability.
+- HIGH needs 3+ observed periods. A supplier seen once who filed a day late must
+  not top the chase list.
+
+The probability is never shown on screen. `topFactors` — the three features that
+moved this supplier's score furthest from average — are rendered as the same kind
+of plain sentence phase 7 used: *"filed late in 4 of the last 6 months"*. A trader
+can disagree with that. They cannot disagree with `0.61`.
+
+### Limitations — read this before trusting a band
+
+**The training data is synthetic.** Every row comes from
+`tools/generate-fixtures.js`, which builds the corpus from rules we wrote. The
+model has largely learned our own generator. The metrics below are evidence about
+that generator and nothing else — no part of this has seen a real GST filing, and
+none of it should be presented to a trader, an investor or a judge as evidence
+that the model works on real data.
+
+**The sample is small.** 200 supplier-months, 43 of them failures, across 40
+suppliers and 5 label periods. One held-out period is about 40 suppliers with
+roughly 8 failures in it. Differences of a few points in the figures below are
+noise.
+
+**Metrics, held out rather than fitted:**
+
+| | ROC AUC | Avg precision |
+|---|---|---|
+| Held-out period 2026-07 — logistic regression | 0.935 | 0.742 |
+| Held-out period 2026-07 — phase 7 hand-weighted score | 0.900 | 0.614 |
+| Leave-one-period-out pooled — logistic regression | 0.897 | 0.680 |
+| Leave-one-period-out pooled — phase 7 hand-weighted score | 0.795 | 0.464 |
+
+The model ranks better than the heuristic on data it never saw, on both splits,
+which is the only reason it is served. Cross-validation is grouped by **period**,
+not by row: a random split would put the same supplier's March and April rows on
+both sides, and their features overlap heavily, so the score would be measuring
+memory of that supplier rather than prediction.
+
+**Three of the seven requested features could not be learned from this corpus,**
+and `train.py` drops them rather than fitting a meaningless coefficient:
+
+| Feature | Why it was dropped |
+|---|---|
+| `gstr3b_filed_ratio` | Not derivable from anything the app ingests. GSTR-2B carries `cfs`, and `docs/gstr2b-schema.md` records that whether `cfs` means GSTR-1 or GSTR-3B is **unverified**; the fixture generator hard-codes it to `Y` on every record regardless. Exported as an empty column, never as `0` — unknown is not the same as zero. |
+| `amendment_rate` | The generator declares `b2ba`/`cdnra`/`ecoma` and never populates them, so it is `0` on all 200 rows. |
+| `filed_ratio_6m` | Every supplier in the fixtures reaches 2B every month, so it is `1` on all 200 rows. |
+
+That last one has a consequence worth stating on its own, because no held-out
+metric can reveal it: **the model is blind to a supplier who stops reporting
+altogether.** It has no coefficient for `filed_ratio_6m`, so a supplier who reached
+2B in one month of six scores 0.03 — LOW — identically to a perfect one. The
+held-out period contains no such supplier either, which is precisely why the
+metrics look fine.
+
+The fix is not to pretend otherwise. `model.json` records the constant value each
+dropped feature had, and `outOfDistribution()` in `risk/score.js` compares a
+supplier against it: when their value differs, the model has no term for what they
+are doing, and `preventive.js` falls back to the phase 7 hand-weighted scorer for
+that supplier. The heuristic reads the fact directly and bands them HIGH. The
+fallback is not dead code — it also runs whenever `model.json` is missing.
+
 ## Status
 
 Phases 0-6 done: skeleton, fixtures, adapters, matching engine, persistence, API,
 the web UI and sync diffing. The matching engine scores 100% macro precision/recall/F1 against
 `fixtures/ground_truth.json` across all six periods (2,461 documents).
 
-Not built yet: supplier risk scoring (`supplier_risk` is migrated but unpopulated)
-and the WhatsApp/chase message generation.
+Phase 7 added the pre-cut-off workflow — risk-ranked alerts, per-supplier cut-offs
+and returned chase text. Phase 8 replaced the hand-weighted risk score with a
+logistic regression trained offline; `supplier_risk` is now populated per period.
+**Read the limitations below before believing any of it.**
 
 `npm test` is safe to run against a live demo: every DB-backed suite works in its
 own org and org 1 is reserved for the app. See **Test data isolation**.

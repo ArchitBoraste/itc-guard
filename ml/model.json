@@ -1,0 +1,74 @@
+{
+  "intercept": -0.9965742285156849,
+  "coefficients": [
+    1.0833670585270785,
+    0.24327478559213564,
+    1.8018482277138728,
+    -0.4869929944175741
+  ],
+  "featureNames": [
+    "mean_days_late",
+    "max_days_late",
+    "mismatch_rate",
+    "periods_observed"
+  ],
+  "means": [
+    -3.704916655000001,
+    -2.73,
+    0.09229250500000001,
+    3.0
+  ],
+  "stds": [
+    1.6876848134363316,
+    2.0067635635520196,
+    0.09280528338898586,
+    1.4142135623730951
+  ],
+  "meta": {
+    "trainedOn": "synthetic fixtures from tools/generate-fixtures.js",
+    "rows": 200,
+    "positives": 43,
+    "suppliers": 40,
+    "labelPeriods": [
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07"
+    ],
+    "droppedFeatures": {
+      "filed_ratio_6m": {
+        "reason": "identical (1) on every row - no signal to learn from",
+        "constantValue": 1.0
+      },
+      "amendment_rate": {
+        "reason": "identical (0) on every row - no signal to learn from",
+        "constantValue": 0.0
+      },
+      "gstr3b_filed_ratio": {
+        "reason": "no value in any row - not present in the ingested data",
+        "constantValue": null
+      }
+    },
+    "imputeMeans": {
+      "mean_days_late": -3.704916655000001,
+      "max_days_late": -2.73,
+      "mismatch_rate": 0.09229250500000001,
+      "periods_observed": 3.0
+    },
+    "bands": {
+      "low": 0.15,
+      "high": 0.4
+    },
+    "holdoutPeriod": "2026-07",
+    "metrics": {
+      "cvRocAuc": 0.8975,
+      "cvRocAucHeuristic": 0.7951,
+      "holdoutRocAuc": 0.9351,
+      "holdoutRocAucHeuristic": 0.9004,
+      "cvAveragePrecision": 0.6803,
+      "cvAveragePrecisionHeuristic": 0.4635
+    },
+    "beatsHeuristic": true
+  }
+}

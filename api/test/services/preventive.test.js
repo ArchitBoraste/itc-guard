@@ -490,7 +490,11 @@ describe('scoreSupplierRisk', () => {
   it('bands six clean months as LOW', () => {
     const risk = scoreSupplierRisk(Array.from({ length: 6 }, () => period()));
     expect(risk.band).toBe(RISK_BANDS.LOW);
-    expect(risk.score).toBe(0);
+    // `score` is now the model's probability rather than the heuristic's weighted
+    // sum, so it is asserted as a probability well inside the LOW band rather
+    // than as the exact 0 the hand-weighted version returned.
+    expect(risk.score).toBeLessThan(0.15);
+    expect(risk.score).toBeGreaterThanOrEqual(0);
   });
 
   it('bands late-in-two-of-six as MEDIUM and late-in-three as HIGH', () => {

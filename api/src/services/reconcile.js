@@ -22,7 +22,8 @@ import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.j
 import { cutoffDate, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
 import { assertTotalsBalance, computeRunTotals, itcSign, totalBucketFor } from './totals.js';
-import { rebuildSupplierPeriods, supplierSchemeMap } from './supplierStats.js';
+import { supplierSchemeMap } from './supplierStats.js';
+import { rebuildSupplierStats } from './supplierRisk.js';
 
 export const RUN_MODES = Object.freeze(['PREVENTIVE', 'REACTIVE']);
 
@@ -401,7 +402,7 @@ export async function rerunPeriodIfRun(orgId, taxPeriod) {
       asOfDate: rows[0].as_of_date,
       filingScheme: rows[0].filing_scheme
     });
-    await rebuildSupplierPeriods(orgId, taxPeriod, { runId: run.id });
+    await rebuildSupplierStats(orgId, taxPeriod, { runId: run.id });
     return { ran: true, runId: run.id, taxPeriod };
   } catch (err) {
     // A failed rebuild must not fail the upload: the rows are committed, and the

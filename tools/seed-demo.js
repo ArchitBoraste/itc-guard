@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { pool, closePool } from '../api/src/db/pool.js';
 import { commitUpload, createUpload } from '../api/src/services/ingest.js';
 import { createRun } from '../api/src/services/reconcile.js';
-import { rebuildSupplierPeriods } from '../api/src/services/supplierStats.js';
+import { rebuildSupplierStats } from '../api/src/services/supplierRisk.js';
 import { buildRunImsActions } from '../api/src/services/imsActions.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -110,7 +110,7 @@ async function seedPeriod(taxPeriod) {
     mode: 'REACTIVE',
     asOfDate
   });
-  await rebuildSupplierPeriods(ORG_ID, taxPeriod, { runId: run.id });
+  await rebuildSupplierStats(ORG_ID, taxPeriod, { runId: run.id });
 
   const buckets = Object.entries(run.bucketCounts)
     .sort((a, b) => b[1] - a[1])

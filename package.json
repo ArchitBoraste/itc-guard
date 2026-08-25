@@ -2,11 +2,12 @@
   "name": "itc-guard",
   "private": true,
   "type": "module",
-  "description": "ITC Guard workspace root — dev tooling only. The app lives in api/ and web/.",
+  "description": "ITC Guard workspace root \u00e2\u20ac\u201d dev tooling only. The app lives in api/ and web/.",
   "scripts": {
     "gen:fixtures": "node tools/generate-fixtures.js",
     "sweep:weights": "node tools/sweep-weights.js",
     "seed:demo": "node tools/seed-demo.js",
-    "demo:reset": "node tools/demo-reset.js"
+    "demo:reset": "node tools/demo-reset.js",
+    "ml:export": "node tools/export-training-data.js --seed"
   }
 }

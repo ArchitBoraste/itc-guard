@@ -125,7 +125,13 @@ export const api = {
   },
 
   // --- suppliers -----------------------------------------------------------
-  listSuppliers: () => request('/api/suppliers?limit=200').then((body) => body.suppliers),
+  // Returns { suppliers, model }. `model` is the provenance of the scorer that
+  // produced the bands — the screen has to be able to say what it was fitted on.
+  listSuppliers: (taxPeriod = null) => {
+    const params = new URLSearchParams({ limit: '200' });
+    if (taxPeriod) params.set('taxPeriod', taxPeriod);
+    return request(`/api/suppliers?${params}`);
+  },
   getSupplier: (gstin) =>
     request(`/api/suppliers/${encodeURIComponent(gstin)}`).then((body) => body.supplier),
 

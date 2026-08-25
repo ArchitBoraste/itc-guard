@@ -765,3 +765,29 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.76rem; line-height: 1.5; color: var(--ink-2);
 }
+
+/* --- supplier risk bands --------------------------------------------------- *
+ *
+ * Same three-colour ladder as the Before cut-off screen, for the same reason:
+ * HIGH is money about to be lost, LOW is what a normal month looks like. The
+ * PROBABILITY behind the band is deliberately absent from the markup — a trader
+ * cannot check a decimal, and a number implies a precision the model has not
+ * earned on 200 synthetic rows.
+ */
+.risk-cell { display: flex; flex-direction: column; gap: 4px; max-width: 34ch; }
+.risk-chip { font-weight: 600; align-self: flex-start; }
+.risk-HIGH { background: var(--bad-wash); border-color: var(--bad); color: var(--bad); }
+.risk-MEDIUM { background: var(--warn-wash); border-color: #f3d38a; color: var(--warn); }
+.risk-LOW { background: var(--good-wash); border-color: #a9dfbf; color: var(--good); }
+
+.risk-reasons { margin: 0; padding-left: 15px; font-size: 0.76rem; color: var(--ink-3); display: grid; gap: 1px; }
+
+/* Not styled as a warning banner: it is not an error, it is provenance, and it
+   should read as part of the explanation rather than as something to dismiss. */
+.model-note {
+  margin: 8px 0 0; padding: 10px 12px; max-width: 96ch;
+  border: 1px solid var(--line); border-left: 3px solid var(--info);
+  border-radius: var(--radius); background: var(--info-wash);
+}
+.model-note p { margin: 0; font-size: 0.82rem; color: var(--ink-2); }
+.model-note p + p { margin-top: 6px; }

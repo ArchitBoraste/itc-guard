@@ -5,14 +5,16 @@ import { apiRouter } from './routes/api.js';
 
 // pingDb is injected so the app can be exercised without a live MySQL.
 // mountApi is off by default so health-only tests need no database.
-export function createApp({ pingDb, mountApi = true }) {
+// auth is injected so a route test can run against its own org instead of the
+// demo's — see apiRouter().
+export function createApp({ pingDb, mountApi = true, auth }) {
   const app = express();
 
   app.use(cors());
   app.use(express.json({ limit: '5mb' }));
 
   app.use(healthRouter({ pingDb }));
-  if (mountApi) app.use('/api', apiRouter());
+  if (mountApi) app.use('/api', apiRouter(auth ? { auth } : undefined));
 
   app.use((req, res) => {
     res.status(404).json({ error: 'not_found', path: req.path });
