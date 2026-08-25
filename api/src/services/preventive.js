@@ -473,6 +473,9 @@ function ordinal(day) {
 // History
 // ---------------------------------------------------------------------------
 
+// The periods BEFORE taxPeriod. Used by preventiveAlerts(), where the trader is
+// standing in the middle of taxPeriod and it has not finished yet — a supplier
+// who has not filed on the 5th has not filed LATE, they simply have not filed.
 export function historyPeriodsFor(taxPeriod, count = HISTORY_PERIODS) {
   const periods = [];
   for (let back = count; back >= 1; back -= 1) {
@@ -480,6 +483,24 @@ export function historyPeriodsFor(taxPeriod, count = HISTORY_PERIODS) {
     if (period) periods.push(period);
   }
   return periods;
+}
+
+// The periods UP TO AND INCLUDING taxPeriod. Used by rebuildSupplierRisk(), where
+// the period is complete and the question is "what do I now know about this
+// supplier", not "what could I have known before the month started".
+//
+// The two windows exist because the two questions are different, and confusing
+// them is what put a contradiction on the Suppliers screen: the Late column
+// counted every observed period while the risk reasons counted only the periods
+// before the one on screen. Deepak Sales Corp filed two days EARLY in March and
+// two days LATE in April, so the row read "Late 1" beside "filed on time in all
+// of the last 1 month" — both true, about different spans, neither saying which.
+//
+// Nothing about training changes: ml/train.py still learns features-before-P
+// against a label-at-P. Serving with features through P predicts P+1, which is
+// the same shape pointed one month forward.
+export function historyPeriodsThrough(taxPeriod, count = HISTORY_PERIODS) {
+  return [...historyPeriodsFor(taxPeriod, count - 1), taxPeriod].filter(Boolean);
 }
 
 // gstin -> [{ taxPeriod, expectedCount, invoiceCount, appearedIn2b, appearedInIms,

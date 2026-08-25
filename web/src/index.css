@@ -791,3 +791,19 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 }
 .model-note p { margin: 0; font-size: 0.82rem; color: var(--ink-2); }
 .model-note p + p { margin-top: 6px; }
+
+/* The provenance disclosure: one line by default, the full text on demand.
+   Every word of the caveat is still there — collapsing it keeps it readable
+   rather than making it wallpaper above the table. */
+details.model-note > summary {
+  cursor: pointer; font-size: 0.82rem; font-weight: 600; color: var(--ink-2);
+  list-style: revert;
+}
+details.model-note[open] > summary { margin-bottom: 6px; }
+
+/* UNPROVEN is deliberately the quietest chip on the screen. "We have not seen
+   enough of this supplier" must not compete with "this one is losing you money". */
+.risk-UNPROVEN {
+  background: var(--wash); border-color: var(--line); color: var(--ink-3);
+  font-weight: 500;
+}

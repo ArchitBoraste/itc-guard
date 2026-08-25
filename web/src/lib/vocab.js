@@ -260,7 +260,13 @@ export const CHANGE_MONEY_FIELDS = new Set([
 export const RISK_BAND_LABEL = {
   HIGH: 'Chase these',
   MEDIUM: 'Worth a look',
-  LOW: 'Normal for this point in the month'
+  LOW: 'Normal for this point in the month',
+  // A DISPLAY band, not a fourth risk level. The stored band stays MEDIUM — the
+  // phase 7 call that absence of history is not evidence of reliability is right
+  // and is unchanged. What was wrong was the sentence: "Worth a look" over three
+  // clean facts and "only 1 month of history" reads as a model that has gone
+  // wrong, and it collapses "we do not know yet" into "we have concerns".
+  UNPROVEN: 'Too early to say'
 };
 
 export const RISK_BAND_HELP = {
@@ -269,8 +275,11 @@ export const RISK_BAND_HELP = {
     'or may arrive too late to count. A phone call today is free; after their ' +
     'cut-off it costs a month.',
   MEDIUM:
-    'Some history of filing late or short, or too little history to be sure. ' +
-    'Worth a message if the amount matters to you.',
+    'Some history of filing late or short. Worth a message if the amount ' +
+    'matters to you.',
+  UNPROVEN:
+    'Not enough filing history to judge yet. Not a concern and not a clean ' +
+    'bill of health — just too early to say either way.',
   LOW:
     'Not reported yet, and that is normal — GSTR-1 is not due until their ' +
     'cut-off. Listed so nothing is hidden, not because anything is wrong.'

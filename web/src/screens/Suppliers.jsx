@@ -26,6 +26,11 @@ function LateTrend({ periods }) {
   if (!points.length) {
     return <span className="muted small">no filing dates observed</span>;
   }
+  // One point is not a trend. Drawn, it becomes a single full-width bar that
+  // reads as a strong signal — the widest mark in the column, from one month.
+  if (points.length < 2) {
+    return <span className="muted small">one month only</span>;
+  }
 
   const magnitude = Math.max(3, ...points.map((entry) => Math.abs(entry.daysLate)));
   const height = 34;
@@ -64,11 +69,79 @@ function LateTrend({ periods }) {
 // carries an air of precision that a model fitted on 200 synthetic rows has not
 // earned. What they can check is "filed late in 4 of the last 6 months" — they
 // were there.
+// The counts a row shows, taken from the SAME feature object the risk reasons
+// were generated from.
+//
+// These used to come from listSuppliers' own aggregate over every observed
+// period, while the reasons beside them came from the risk scoring window. The
+// two spans differed and nothing said so: Deepak Sales Corp filed two days early
+// in March and two days late in April, and the row read "Late 1" next to "filed
+// on time in all of the last 1 month". Both were true. Neither was legible.
+//
+// Falling back to the aggregate keeps a supplier with no risk row rendering
+// something rather than blanking three columns.
+// Sort order for the bands.
+//
+// UNPROVEN sits ABOVE Low and below the two real concern bands. Absence of
+// history is not evidence of reliability — the phase 7 call — so an unproven
+// supplier should not be filed under "normal"; but there is nothing to act on
+// either, so they must not push a genuine concern down the page.
+const SORT_BAND_ORDER = ['HIGH', 'MEDIUM', 'UNPROVEN', 'LOW', null];
+
+function rowCounts(supplier) {
+  const features = supplier.risk?.features;
+  if (!features) {
+    return {
+      periodsObserved: supplier.stats.periodsObserved,
+      lateCount: supplier.stats.lateCount,
+      missedCount: supplier.stats.missedCount,
+      mismatchCount: supplier.stats.mismatchCount,
+      avgDaysLate: supplier.stats.avgDaysLate,
+      fromRisk: false
+    };
+  }
+  return {
+    periodsObserved: features.periodsObserved ?? 0,
+    lateCount: features.lateCount ?? 0,
+    missedCount: features.missedCount ?? 0,
+    mismatchCount: features.mismatches ?? 0,
+    avgDaysLate: features.meanDaysLate ?? null,
+    fromRisk: true
+  };
+}
+
+// A single month is one observation. It cannot support a concern and it cannot
+// support a clean bill of health either — "Normal for this point in the month"
+// off one document is the phase 7 mistake pointing the other way.
+const MIN_PERIODS_FOR_A_VERDICT = 2;
+
+// Display band. UNPROVEN is not a fourth risk level — the stored band is
+// untouched, and the phase 7 call that absence of history means MEDIUM rather
+// than LOW still holds in the data. This is a different SENTENCE about the same
+// band, used in exactly two situations:
+//
+//   * a guard fired, so the band on screen is NOT the band the model computed —
+//     the app is withholding a judgement and should say so rather than dressing
+//     the cap up as a verdict. "Worth a look" over three clean facts and "only 1
+//     month of history" reads as a model that has gone wrong.
+//   * there is only one month to go on, whichever way it points.
+//
+// Deliberately NOT extended to every thin history: with two months and no guard
+// the model has made an actual call, and burying it under "too early to say"
+// would throw away the only signal on the screen.
+function displayBand(risk) {
+  if (!risk) return null;
+  if (risk.guard) return 'UNPROVEN';
+  if ((risk.periodsObserved ?? 0) < MIN_PERIODS_FOR_A_VERDICT) return 'UNPROVEN';
+  return risk.band;
+}
+
 function RiskCell({ risk }) {
   if (!risk) return <span className="muted small">not scored yet</span>;
+  const band = displayBand(risk);
   return (
-    <div className="risk-cell" data-testid={`risk-${risk.band}`}>
-      <span className={`chip risk-chip risk-${risk.band}`}>{RISK_BAND_LABEL[risk.band] ?? risk.band}</span>
+    <div className="risk-cell" data-testid={`risk-${band}`}>
+      <span className={`chip risk-chip risk-${band}`}>{RISK_BAND_LABEL[band] ?? band}</span>
       <ul className="risk-reasons">
         {(risk.reasons ?? []).map((reason) => (
           <li key={reason}>{reason}</li>
@@ -97,8 +170,16 @@ function ModelNote({ model }) {
   }
 
   const metrics = model.metrics ?? {};
+  // Collapsed to one line, expanded on demand. NOT shortened: every word below is
+  // the same text that used to sit open above the table. The caveat has to stay
+  // reachable and intact — it is the difference between a band a reader trusts
+  // and a band a reader knows the provenance of — but a five-line disclaimer
+  // permanently above the data reads as boilerplate and stops being read at all.
   return (
-    <div className="model-note" data-testid="model-note">
+    <details className="model-note" data-testid="model-note">
+      <summary data-testid="model-note-summary">
+        Trained on synthetic data <span className="muted">· how this is scored</span>
+      </summary>
       <p>
         <strong>These bands come from a model trained on synthetic data.</strong> It is a
         logistic regression fitted on {model.rows} supplier-months ({model.positives} of
@@ -124,7 +205,7 @@ function ModelNote({ model }) {
           hand-weighted fallback instead, because the model has no term for it.
         </p>
       ) : null}
-    </div>
+    </details>
   );
 }
 
@@ -254,14 +335,32 @@ export function SuppliersScreen({ run = null }) {
   const rows = useMemo(() => {
     if (!suppliers) return [];
     const needle = query.trim().toLowerCase();
-    return suppliers.filter((supplier) => {
-      if (onlyProblems && !supplier.stats.lateCount && !supplier.stats.missedCount && !supplier.stats.mismatchCount) {
+    const filtered = suppliers.filter((supplier) => {
+      const counts = rowCounts(supplier);
+      if (onlyProblems && !counts.lateCount && !counts.missedCount && !counts.mismatchCount) {
         return false;
       }
       if (!needle) return true;
       return [supplier.tradeName, supplier.legalName, supplier.gstin]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(needle));
+    });
+
+    // Risk band first, then the three counts the subtitle names — in that order.
+    //
+    // The order used to be late-count then average timing, with mismatches never
+    // entering it at all, under a subtitle promising all three. Deepak Sales Corp
+    // with zero mismatches outranked Trident Cables with four.
+    return [...filtered].sort((a, b) => {
+      const ca = rowCounts(a);
+      const cb = rowCounts(b);
+      return (
+        SORT_BAND_ORDER.indexOf(displayBand(a.risk)) - SORT_BAND_ORDER.indexOf(displayBand(b.risk)) ||
+        cb.lateCount - ca.lateCount ||
+        cb.missedCount - ca.missedCount ||
+        cb.mismatchCount - ca.mismatchCount ||
+        String(a.tradeName ?? a.gstin).localeCompare(String(b.tradeName ?? b.gstin))
+      );
     });
   }, [suppliers, query, onlyProblems]);
 
@@ -284,8 +383,9 @@ export function SuppliersScreen({ run = null }) {
           <div>
             <h2>Suppliers</h2>
             <p className="muted">
-              Ranked by filing behaviour — who has been late, who has missed a period
-              entirely, and who keeps sending amounts that do not match your books.
+              Ranked by risk band, then by how often each supplier filed late, missed a
+              period entirely, and sent amounts that did not match your books — the same
+              counts the band was built from, over the same months.
             </p>
             <ModelNote model={model} />
           </div>
@@ -334,10 +434,9 @@ export function SuppliersScreen({ run = null }) {
             </thead>
             <tbody>
               {rows.map((supplier) => {
+                const counts = rowCounts(supplier);
                 const avg =
-                  supplier.stats.avgDaysLate === null
-                    ? null
-                    : Math.round(supplier.stats.avgDaysLate);
+                  counts.avgDaysLate === null ? null : Math.round(counts.avgDaysLate);
                 const late = lateness(avg);
                 return (
                   <tr
@@ -361,16 +460,16 @@ export function SuppliersScreen({ run = null }) {
                         {supplier.filingSchemeConfidence === 'LOW' ? ' (assumed)' : ''}
                       </span>
                     </td>
-                    <td className="num mono">{supplier.stats.periodsObserved}</td>
+                    <td className="num mono">{counts.periodsObserved}</td>
                     <td className="num mono">{supplier.stats.invoiceCount}</td>
-                    <td className={`num mono ${supplier.stats.lateCount ? 'bad' : 'muted'}`}>
-                      {supplier.stats.lateCount || '—'}
+                    <td className={`num mono ${counts.lateCount ? 'bad' : 'muted'}`}>
+                      {counts.lateCount || '—'}
                     </td>
-                    <td className={`num mono ${supplier.stats.missedCount ? 'bad' : 'muted'}`}>
-                      {supplier.stats.missedCount || '—'}
+                    <td className={`num mono ${counts.missedCount ? 'bad' : 'muted'}`}>
+                      {counts.missedCount || '—'}
                     </td>
-                    <td className={`num mono ${supplier.stats.mismatchCount ? 'warn-text' : 'muted'}`}>
-                      {supplier.stats.mismatchCount || '—'}
+                    <td className={`num mono ${counts.mismatchCount ? 'warn-text' : 'muted'}`}>
+                      {counts.mismatchCount || '—'}
                     </td>
                     <td className="num">
                       <span className={`pill pill-${late.tone}`}>{late.label}</span>

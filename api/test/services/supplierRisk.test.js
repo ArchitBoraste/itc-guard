@@ -23,7 +23,7 @@ const ORG_ID = TEST_ORGS.supplierRisk;
 const TRADER_GSTIN = '27AABCS1429F11Z';
 
 const HISTORY = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'];
-const AS_OF_PERIOD = '2026-07';
+const AS_OF_PERIOD = '2026-06';
 
 const ON_TIME = 8;
 const LATE = 15;
@@ -52,6 +52,17 @@ const SUPPLIERS = [
     name: 'Fresh Imports',
     months: 1,
     filedOnDay: () => LATE
+  },
+  {
+    // Files on the deadline itself, every month. The 11th IS the deadline, so
+    // this is ON TIME — the boundary the "Late" column and the reasons have to
+    // agree about. Deepak Sales Corp on the demo screen was read as an off-by-one
+    // here; it was not, and this pins the predicate so it stays that way.
+    key: 'ON_THE_DEADLINE',
+    gstin: '27BBBBB0005B1Z1',
+    name: 'Exactly Punctual',
+    months: HISTORY.length,
+    filedOnDay: () => 11
   },
   {
     // Reported in the first month and never again, while the trader kept buying.
@@ -215,6 +226,71 @@ describe('supplier_risk', () => {
     expect(ghost.source).toBe('HEURISTIC');
     expect(ghost.band).toBe('HIGH');
     expect(ghost.reasons.join(' ')).toContain('reported nothing at all in 5 of the last 6 months');
+  });
+
+// --- the cut-off boundary ------------------------------------------------
+
+  describe('a filing landing exactly on the cut-off', () => {
+    it('is on time, not late', async () => {
+      const [rows] = await pool.query(
+        `SELECT sp.tax_period, sp.gstr1_filed_on, sp.cut_off_date, sp.days_late, sp.filed_late
+           FROM supplier_periods sp
+           JOIN suppliers s ON s.id = sp.supplier_id AND s.org_id = sp.org_id
+          WHERE sp.org_id = ? AND s.gstin = ? ORDER BY sp.tax_period`,
+        [ORG_ID, byKey('ON_THE_DEADLINE').gstin]
+      );
+      expect(rows).toHaveLength(HISTORY.length);
+      for (const row of rows) {
+        // Filed on the 11th against an 11th cut-off.
+        expect(row.gstr1_filed_on.slice(8)).toBe('11');
+        expect(row.cut_off_date.slice(8)).toBe('11');
+        expect(Number(row.days_late)).toBe(0);
+        expect(Number(row.filed_late)).toBe(0);
+      }
+    });
+
+    it('is described as on time by the reasons too', () => {
+      const punctual = riskOf(stored, 'ON_THE_DEADLINE');
+      expect(punctual.features.lateCount).toBe(0);
+      expect(punctual.reasons.join(' ')).toContain('filed on time in all of the last 6 months');
+      expect(punctual.reasons.join(' ')).not.toContain('filed late');
+    });
+  });
+
+  // --- the column and the sentence beside it -------------------------------
+  //
+  // The bug: the Late column aggregated every observed period while the reasons
+  // covered only the periods BEFORE the one on screen. A supplier early one month
+  // and late the next read "Late 1" next to "filed on time in all of the last 1
+  // month". Both true, about different spans, neither saying which.
+  //
+  // Both now come from one feature object over one window, so they cannot say
+  // different things about the same supplier.
+  describe('the counts a row shows and the counts its reasons quote', () => {
+    it('come from the same window, for every supplier', () => {
+      for (const supplier of SUPPLIERS) {
+        const risk = riskOf(stored, supplier.key);
+        const { features, reasons } = risk;
+        const text = reasons.join(' ');
+
+        if (features.lateCount > 0) {
+          expect(text).toContain(`filed late in ${features.lateCount} of the last`);
+        } else {
+          expect(text).not.toContain('filed late in');
+        }
+        // The window the sentences quote is the one the counts were taken over.
+        if (features.periodsObserved > 0 && text.includes('of the last')) {
+          expect(text).toContain(`of the last ${features.periodsObserved} month`);
+        }
+      }
+    });
+
+    it('counts the most recent period, not just the ones before it', () => {
+      // ON_THE_DEADLINE and RELIABLE both have a row in AS_OF_PERIOD itself. An
+      // exclusive window would report one period fewer than the table shows.
+      expect(riskOf(stored, 'RELIABLE').features.periodsObserved).toBe(HISTORY.length);
+      expect(riskOf(stored, 'ON_THE_DEADLINE').features.periodsObserved).toBe(HISTORY.length);
+    });
   });
 
   // --- rebuild behaviour ----------------------------------------------------

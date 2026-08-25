@@ -53,11 +53,14 @@ describe('the deemed-acceptance banner and the reset panel agree', () => {
   it('says a decision was reset rather than leaving the count at a bare zero', () => {
     mount([RESET_ROW]);
 
+    // Not "0 decisions recorded". A bare zero beside "1 was reset" read as a
+    // contradiction of the panel below; this states what is left in the same
+    // breath as what happened to the rest.
     expect(screen.getByTestId('deemed-confirmed-count')).toHaveTextContent(
-      '0 decisions recorded'
+      'no decisions still stand'
     );
     expect(screen.getByTestId('deemed-reset-count')).toHaveTextContent(
-      '1 was reset when the supplier changed the record'
+      'the one you made was dropped when the supplier changed that record'
     );
   });
 
@@ -72,10 +75,17 @@ describe('the deemed-acceptance banner and the reset panel agree', () => {
 
     const banner = screen.getByTestId('deemed-banner');
     const panel = screen.getByTestId('confirmation-reset-banner');
-    expect(banner).toHaveTextContent('0 decisions recorded');
-    // The bridging clause: without it these two are a contradiction.
-    expect(banner).toHaveTextContent('1 was reset');
+
+    // Read top to bottom: "no decisions still stand — the one you made was
+    // dropped when the supplier changed that record", then "1 decision you made
+    // was dropped". One statement, told twice, agreeing.
+    expect(banner).toHaveTextContent('no decisions still stand');
+    expect(banner).toHaveTextContent('the one you made was dropped');
     expect(panel).toHaveTextContent('1 decision you made was dropped');
+
+    // The old phrasing put a bare zero next to a non-zero and left the reader to
+    // reconcile them.
+    expect(banner).not.toHaveTextContent('0 decisions recorded');
   });
 
   it('counts decisions that still stand alongside the ones that were reset', () => {
@@ -84,15 +94,31 @@ describe('the deemed-acceptance banner and the reset panel agree', () => {
     // A reset row is neither recorded nor never-made, so it must not be folded
     // into the recorded count — that would overstate what is actually decided.
     expect(screen.getByTestId('deemed-confirmed-count')).toHaveTextContent(
-      '1 decision recorded'
+      '1 decision still stands'
     );
-    expect(screen.getByTestId('deemed-reset-count')).toHaveTextContent('1 was reset');
+    // "another", not "the one you made" — there is a surviving decision too.
+    expect(screen.getByTestId('deemed-reset-count')).toHaveTextContent(
+      'another was dropped when the supplier changed that record'
+    );
   });
 
   it('pluralises when several were reset', () => {
     mount([RESET_ROW, { ...RESET_ROW, id: 9 }]);
+    expect(screen.getByTestId('deemed-confirmed-count')).toHaveTextContent(
+      'no decisions still stand'
+    );
     expect(screen.getByTestId('deemed-reset-count')).toHaveTextContent(
-      '2 were reset when suppliers changed those records'
+      'all 2 you made were dropped when suppliers changed those records'
+    );
+  });
+
+  it('says "others" when some survived and several did not', () => {
+    mount([RESET_ROW, { ...RESET_ROW, id: 9 }, CONFIRMED_ROW]);
+    expect(screen.getByTestId('deemed-confirmed-count')).toHaveTextContent(
+      '1 decision still stands'
+    );
+    expect(screen.getByTestId('deemed-reset-count')).toHaveTextContent(
+      '2 others were dropped when suppliers changed those records'
     );
   });
 

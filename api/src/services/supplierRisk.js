@@ -12,7 +12,7 @@
 import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { FILING_SCHEMES } from '../matching/cutoff.js';
-import { HISTORY_PERIODS, historyPeriodsFor, scoreSupplierRisk } from './preventive.js';
+import { HISTORY_PERIODS, historyPeriodsThrough, scoreSupplierRisk } from './preventive.js';
 import { rebuildSupplierPeriods } from './supplierStats.js';
 import { ServiceError } from './ingest.js';
 
@@ -38,9 +38,8 @@ export async function rebuildSupplierStats(orgId, taxPeriod, { runId = null } = 
 // Every supplier the behaviour table knows about, each with whatever of their
 // history falls in the scoring window.
 //
-// The window is the periods BEFORE the one being worked on — a band for period P
-// has to be built from what was knowable before P, the same rule ml/train.py was
-// trained under. But membership is NOT decided by the window.
+// Membership is NOT decided by the window. Which periods FEED the score is one
+// question; which suppliers get scored at all is another.
 //
 // The bug that forced this apart: the query used to filter on the window itself,
 // so a supplier with no row before P simply did not come back, got no
@@ -97,16 +96,20 @@ async function loadHistories(orgId, periods) {
 
 // rebuildSupplierRisk(orgId, asOfPeriod) -> { scored, bands, source }
 //
-// asOfPeriod is the period being worked on. History is the periods BEFORE it —
-// the same window the model was trained against, and the same one preventive.js
-// scores from, so the stored band is the band the trader actually saw.
+// asOfPeriod is the completed period being recorded against. The score reads the
+// last six periods THROUGH it, inclusive.
 export async function rebuildSupplierRisk(orgId, asOfPeriod) {
   if (!/^\d{4}-\d{2}$/.test(String(asOfPeriod ?? ''))) {
     throw new ServiceError('asOfPeriod must be YYYY-MM');
   }
 
-  const priorPeriods = historyPeriodsFor(asOfPeriod, HISTORY_PERIODS);
-  const histories = await loadHistories(orgId, priorPeriods);
+  // INCLUSIVE of asOfPeriod — see historyPeriodsThrough(). The Suppliers screen is
+  // a retrospective view of completed months, so the band there has to be built
+  // from everything observed, including the month being looked at. Excluding it
+  // threw away the most recent evidence and made the Late column disagree with
+  // the reasons printed beside it.
+  const scoringWindow = historyPeriodsThrough(asOfPeriod, HISTORY_PERIODS);
+  const histories = await loadHistories(orgId, scoringWindow);
   if (!histories.size) return { scored: 0, bands: {}, source: null };
 
   const bands = { LOW: 0, MEDIUM: 0, HIGH: 0 };
@@ -211,6 +214,11 @@ export async function supplierRiskMap(orgId, asOfPeriod = null) {
       guard: features.guard ?? null,
       reasons: features.reasons ?? [],
       topFactors: features.topFactors ?? null,
+      // The counts the reasons were generated from. The Suppliers table renders
+      // its Late / Missed / Mismatches columns from THESE rather than from its
+      // own aggregate, so a column and the sentence beside it cannot describe
+      // different spans of history again.
+      features: features.features ?? null,
       computedAt: row.computed_at
     });
   }

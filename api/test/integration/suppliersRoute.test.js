@@ -23,13 +23,13 @@ import { createApp } from '../../src/app.js';
 import { computeContentHash } from '../../src/adapters/contentHash.js';
 import { normalizeInvoiceNo } from '../../src/matching/normalize.js';
 import { assignExpectedIdentities, assignPortalIdentities } from '../../src/services/identity.js';
-import { rebuildSupplierStats } from '../../src/services/supplierRisk.js';
+import { rebuildSupplierRisk, rebuildSupplierStats } from '../../src/services/supplierRisk.js';
 import { TEST_ORGS, ensureOrg, requireDatabase, resetOrg } from '../helpers/db.js';
 
 const ORG_ID = TEST_ORGS.suppliersRoute;
 const TRADER_GSTIN = '27AABCS1429F12Z';
 
-const PERIODS = ['2026-04', '2026-05', '2026-06'];
+const PERIODS = ['2026-04', '2026-05', '2026-06', '2026-07'];
 const AS_OF_PERIOD = '2026-06';
 
 const ON_TIME = 8;
@@ -37,8 +37,8 @@ const LATE = 15;
 
 const SUPPLIERS = [
   {
-    // Present in all three periods, so two of them fall inside the scoring
-    // window for 2026-06. This is the shape the demo actually has.
+    // Present from the first period on, so three of them fall inside the scoring
+    // window for 2026-06 and the fourth is later than it.
     key: 'STEADY',
     gstin: '27CCCCC0001C1Z5',
     name: 'Steady Supplies',
@@ -53,12 +53,22 @@ const SUPPLIERS = [
     filedOnDay: (index) => (index < 2 ? LATE : ON_TIME)
   },
   {
-    // First seen in the as-of period itself: a behaviour row exists, but nothing
-    // before it. Cold start — MEDIUM, and emphatically not a blank cell.
+    // First seen in the as-of period itself. One month of history — thin, but not
+    // nothing, and emphatically not a blank cell.
     key: 'COLD',
     gstin: '27CCCCC0003C1Z3',
     name: 'Newly Onboarded',
     from: 2,
+    filedOnDay: () => ON_TIME
+  },
+  {
+    // Only ever seen AFTER the as-of period. A behaviour row exists, but none of
+    // it falls inside the window, which is the genuine no-history case now that
+    // the window includes the as-of period itself.
+    key: 'FUTURE',
+    gstin: '27CCCCC0005C1Z1',
+    name: 'Not Yet Trading',
+    from: 3,
     filedOnDay: () => ON_TIME
   }
 ];
@@ -151,6 +161,13 @@ async function seed() {
   // The whole post-run rebuild, exactly as every run path now calls it.
   for (const period of PERIODS) await rebuildSupplierStats(ORG_ID, period);
 
+  // Rescore the as-of period now that every later period exists too. Running in
+  // date order, 2026-06 was scored before 2026-07's behaviour rows were written,
+  // so a supplier first seen in 2026-07 had no row anywhere at that instant. That
+  // is faithful to what was known then, and it is not the state under test here —
+  // this suite is about a trader looking back at 2026-06 with everything loaded.
+  await rebuildSupplierRisk(ORG_ID, AS_OF_PERIOD);
+
   // Added AFTER the rebuilds so it never acquires a behaviour row.
   await pool.query(
     `INSERT INTO suppliers (org_id, gstin, legal_name, trade_name, state_code)
@@ -196,7 +213,7 @@ describe('GET /api/suppliers', () => {
 
   const supplier = (key) => body.suppliers.find((entry) => entry.gstin === byKey(key).gstin);
 
-  it('returns a band and topFactors for a supplier with two observed periods', () => {
+  it('returns a band and topFactors for a supplier with several observed periods', () => {
     const steady = supplier('STEADY');
     expect(steady.stats.periodsObserved).toBe(PERIODS.length);
 
@@ -204,9 +221,9 @@ describe('GET /api/suppliers', () => {
     expect(steady.risk).not.toBeNull();
     expect(['LOW', 'MEDIUM', 'HIGH']).toContain(steady.risk.band);
 
-    // Two periods inside the scoring window, so the model ran rather than the
-    // cold-start fallback, and it can say which features moved the score.
-    expect(steady.risk.periodsObserved).toBe(2);
+    // The window runs THROUGH the as-of period, so it covers 2026-04..2026-06 —
+    // three of the four seeded periods, the fourth being later than the as-of.
+    expect(steady.risk.periodsObserved).toBe(3);
     expect(steady.risk.source).toBe('MODEL');
     expect(steady.risk.topFactors.length).toBeGreaterThan(0);
     for (const factor of steady.risk.topFactors) {
@@ -223,21 +240,41 @@ describe('GET /api/suppliers', () => {
   });
 
   it('separates a habitually late supplier from a steady one', () => {
-    expect(supplier('LATE').risk.reasons.join(' ')).toContain('filed late in 2 of the last 2 months');
+    expect(supplier('LATE').risk.reasons.join(' ')).toContain('filed late in 2 of the last 3 months');
     expect(supplier('STEADY').risk.reasons.join(' ')).toContain('filed on time');
   });
 
   // Cold start. This is the case the window filter used to swallow: a supplier
   // present in the behaviour table but with nothing before the as-of period came
   // back from the query at all, got no supplier_risk row, and rendered blank.
-  it('bands a supplier with no prior history as MEDIUM, not as unscored', () => {
+  it('bands a supplier with one thin month rather than leaving it blank', () => {
     const cold = supplier('COLD');
     expect(cold.risk).not.toBeNull();
-    expect(cold.risk.band).toBe('MEDIUM');
-    expect(cold.risk.band).not.toBe('LOW');
-    expect(cold.risk.periodsObserved).toBe(0);
-    expect(cold.risk.guard).toBe('NO_HISTORY');
-    expect(cold.risk.reasons.join(' ')).toContain('no filing history yet');
+    expect(cold.risk.periodsObserved).toBe(1);
+    expect(cold.risk.band).toBeTruthy();
+  });
+
+  // The genuine no-history case: a behaviour row exists, none of it inside the
+  // scoring window. Phase 7 settled this as MEDIUM — never LOW, never blank.
+  it('bands a supplier with nothing inside the window as MEDIUM, not as unscored', () => {
+    const future = supplier('FUTURE');
+    expect(future.risk).not.toBeNull();
+    expect(future.risk.band).toBe('MEDIUM');
+    expect(future.risk.band).not.toBe('LOW');
+    expect(future.risk.periodsObserved).toBe(0);
+    expect(future.risk.guard).toBe('NO_HISTORY');
+    expect(future.risk.reasons.join(' ')).toContain('no filing history yet');
+  });
+
+  // The window includes the as-of period, so the counts a row shows and the
+  // sentence beside it describe the same months. They used to differ silently.
+  it('counts the as-of period itself, so the columns match the reasons', () => {
+    const late = supplier('LATE');
+    expect(late.risk.features.lateCount).toBe(2);
+    expect(late.risk.features.periodsObserved).toBe(3);
+    expect(late.risk.reasons.join(' ')).toContain(
+      `filed late in ${late.risk.features.lateCount} of the last ${late.risk.features.periodsObserved} months`
+    );
   });
 
   it('leaves only a supplier with no behaviour row unscored', () => {

@@ -77,6 +77,42 @@ function daysPhrase(days) {
   return `${days} days left`;
 }
 
+// How many decisions stand, and what happened to the ones that do not.
+//
+// A reset decision is neither recorded nor never-made: the count is of decisions
+// that still STAND. Presenting the two as independent tallies put
+// "0 decisions recorded · 1 was reset" directly above a panel reading
+// "1 decision you made was dropped" — every clause true, the whole reading as
+// though one of the two were broken.
+//
+// So they stop being two numbers side by side. With nothing reset it is a plain
+// count. With something reset the sentence says what is left and what happened
+// to the rest, as one statement, and the wording changes with the count so
+// "no decisions still stand" is never followed by "another was dropped".
+function decisionTally({ confirmedCount, resetCount }) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  if (!resetCount) {
+    return { stand: `${plural(confirmedCount, 'decision')} recorded`, dropped: null };
+  }
+  if (confirmedCount === 0) {
+    return {
+      stand: 'no decisions still stand',
+      dropped:
+        resetCount === 1
+          ? 'the one you made was dropped when the supplier changed that record'
+          : `all ${resetCount} you made were dropped when suppliers changed those records`
+    };
+  }
+  return {
+    stand: `${plural(confirmedCount, 'decision')} still stand${confirmedCount === 1 ? 's' : ''}`,
+    dropped:
+      resetCount === 1
+        ? 'another was dropped when the supplier changed that record'
+        : `${resetCount} others were dropped when suppliers changed those records`
+  };
+}
+
 export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions }) {
   if (loading && !run) {
     return (
@@ -89,6 +125,7 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
 
   const summary = deemedAcceptanceSummary(run, results);
   const { daysToDue, riskyCount, unactionedCount } = summary;
+  const tally = decisionTally(summary);
 
   // Tone tracks consequence, not volume: past the due date nothing can be undone,
   // and a week out with open decisions is materially different from a week out
@@ -152,21 +189,11 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
         <p className="banner-meta">
           As of {formatDate(summary.asOf)} · {WINDOW_LABEL[summary.window] ?? '—'} ·
           supplier cut-off was {formatDate(summary.cutOff)} ·{' '}
-          <span data-testid="deemed-confirmed-count">
-            {summary.confirmedCount} decision{summary.confirmedCount === 1 ? '' : 's'} recorded
-          </span>
-          {/* A reset decision counts as neither recorded nor never-made, and
-              omitting it made this line contradict the panel directly beneath:
-              "0 decisions recorded" above "1 decision you made was dropped". Both
-              were true — the count is of decisions that still STAND — but the
-              reader has to reconcile them, and the obvious reading is that one of
-              the two is broken. */}
-          {summary.resetCount > 0 ? (
+          <span data-testid="deemed-confirmed-count">{tally.stand}</span>
+          {tally.dropped ? (
             <span data-testid="deemed-reset-count">
-              {' · '}
-              {summary.resetCount === 1
-                ? '1 was reset when the supplier changed the record'
-                : `${summary.resetCount} were reset when suppliers changed those records`}
+              {' — '}
+              {tally.dropped}
             </span>
           ) : null}
         </p>
