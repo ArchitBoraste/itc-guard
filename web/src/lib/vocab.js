@@ -68,11 +68,50 @@ export const ACTION_HELP = {
   DEFERRED:
     'Nothing can be done this period — no IMS record exists to act on and the ' +
     'cut-off has passed.',
+  // Placeholder only — CHASE_SUPPLIER depends on the calendar, so read it through
+  // actionHelp() below and never straight out of this table.
   CHASE_SUPPLIER:
-    'Call the supplier. The cut-off has not passed, so their fix still lands in ' +
-    'this period for free.',
+    'Call the supplier. Whether their fix still lands in this period depends on ' +
+    'their own cut-off.',
   NO_ACTION: 'No IMS action applies to this record.'
 };
+
+// actionHelp(action, results) -> the sentence shown above a group.
+//
+// Every other action means the same thing whatever day it is. CHASE_SUPPLIER does
+// not: before a supplier's cut-off the fix is free and lands this period, after it
+// the same call gets the credit into a LATER period instead of losing it. The
+// static sentence used to promise the first case unconditionally, so on the 16th
+// the group header read "the cut-off has not passed" directly above rows saying a
+// correction now reaches a later period.
+//
+// The cut-off is per SUPPLIER, so this cannot be derived from the run's one date.
+// It counts the CUTOFF_PASSED flag the engine wrote against each result, which is
+// the same verdict the row's own explanation was built from.
+export function actionHelp(action, results = []) {
+  if (action !== 'CHASE_SUPPLIER' || !results.length) return ACTION_HELP[action];
+
+  const past = results.filter((result) => result.flags?.includes('CUTOFF_PASSED')).length;
+
+  if (past === 0) {
+    return (
+      'Call the supplier. Their cut-off has not passed, so their fix still lands ' +
+      'in this period for free.'
+    );
+  }
+  if (past === results.length) {
+    return (
+      'Their cut-off has passed. Calling still matters — it is how the credit ' +
+      'reaches a later period instead of being lost — but it can no longer land ' +
+      'in this period.'
+    );
+  }
+  return (
+    `${past} of ${results.length} are past their supplier's cut-off: for those, a ` +
+    'fix now reaches a later period, not this one. The rest are still inside the ' +
+    'free-fix window, where the correction costs nothing.'
+  );
+}
 
 // The order the action list presents its groups in.
 export const ACTION_ORDER = [
@@ -122,9 +161,22 @@ export const FLAG_LABEL = {
   NON_IMS_SECTION: 'Not an IMS section',
   SUPPLIER_UNFILED: 'Supplier has saved but not filed',
   LATE_FILING: 'Filed late',
+  CUTOFF_PASSED: 'Cut-off has passed',
   CHANGED_AFTER_REVIEW: 'Supplier changed this after you reviewed it',
   CONFIRMATION_RESET: 'Your decision was reset'
 };
+
+// Flags that are true of a result but are NOT row-level exceptions, so they do
+// not earn a chip next to GSTIN_MISMATCH and CHANGED_AFTER_REVIEW.
+//
+// CUTOFF_PASSED is true of EVERY result in a run read after the cut-off — 424 of
+// 424 in the April demo period. Rendering it per row would put an identical chip
+// on four hundred rows that are perfectly fine, and bury the handful of flags
+// that actually mean something. It is calendar context for the group header
+// (see actionHelp), not a mark against the invoice.
+export const ROW_FLAGS_HIDDEN = new Set(['CUTOFF_PASSED']);
+
+export const rowFlags = (flags = []) => flags.filter((flag) => !ROW_FLAGS_HIDDEN.has(flag));
 
 // Why a stored verdict no longer describes the record it is shown against.
 //
@@ -197,6 +249,46 @@ export const CHANGE_FIELD_LABEL = {
 export const CHANGE_MONEY_FIELDS = new Set([
   'taxableValue', 'totalTax', 'igst', 'cgst', 'sgst', 'cess'
 ]);
+
+// --- preventive alerts ------------------------------------------------------
+//
+// Mirrors api/src/services/preventive.js. The band is a claim about the SUPPLIER,
+// the urgency is a claim about the CALENDAR, and they are shown separately
+// because they move independently: a reliable supplier on the 12th is low risk
+// and out of time, which is a different sentence from either one alone.
+
+export const RISK_BAND_LABEL = {
+  HIGH: 'Chase these',
+  MEDIUM: 'Worth a look',
+  LOW: 'Normal for this point in the month'
+};
+
+export const RISK_BAND_HELP = {
+  HIGH:
+    'These suppliers have a filing record that says the invoice may not arrive, ' +
+    'or may arrive too late to count. A phone call today is free; after their ' +
+    'cut-off it costs a month.',
+  MEDIUM:
+    'Some history of filing late or short, or too little history to be sure. ' +
+    'Worth a message if the amount matters to you.',
+  LOW:
+    'Not reported yet, and that is normal — GSTR-1 is not due until their ' +
+    'cut-off. Listed so nothing is hidden, not because anything is wrong.'
+};
+
+export const URGENCY_LABEL = {
+  EARLY: 'Time in hand',
+  CHASE: 'Chase now',
+  URGENT: 'Almost out of time',
+  LAST_DAY: 'Cut-off is today',
+  PAST_CUTOFF: 'Cut-off passed'
+};
+
+export const ALERT_STATUS_LABEL = {
+  NOT_REPORTED: 'Not in IMS',
+  SAVED_NOT_FILED: 'Saved, not filed',
+  SAVED_VALUE_MISMATCH: 'Saved with different amounts'
+};
 
 export const SECTION_LABEL = {
   b2b: 'B2B',

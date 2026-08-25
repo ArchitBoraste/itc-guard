@@ -697,3 +697,71 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 /* Header actions: the primary call to action, then the rebuild beside it. */
 .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .rerun-control { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+
+/* --- before the cut-off ---------------------------------------------------- *
+ *
+ * The colour ladder is the point of the screen. HIGH is red because it is money
+ * about to be lost; LOW is green because "not reported on the 5th" is what a
+ * normal month looks like and must not read as a problem. If every band looked
+ * urgent, the trader would stop opening the screen on the 12th, which is the day
+ * it exists for.
+ */
+.screen-alerts { gap: 16px; }
+
+.alert-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--gap); }
+
+.band-panel { border-left: 4px solid var(--line); }
+.band-HIGH { border-left-color: var(--bad); }
+.band-MEDIUM { border-left-color: var(--warn); }
+.band-LOW { border-left-color: var(--good); }
+.band-HIGH > .panel-head h2 { color: var(--bad); }
+
+.alert-list { display: flex; flex-direction: column; gap: 12px; }
+
+.alert-card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+  background: var(--paper);
+}
+.alert-HIGH { border-color: #f0b4ae; }
+/* Marks the card without touching any text inside it. */
+.alert-card.is-past-cutoff { border-left: 3px solid var(--bad); }
+.alert-MEDIUM { border-color: #f3d38a; }
+
+.alert-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.alert-who { min-width: 0; }
+.alert-amount { text-align: right; white-space: nowrap; }
+.alert-amount strong { font-size: 1.3rem; display: block; line-height: 1.2; }
+
+/* Urgency is about the CALENDAR and rides separately from the risk band, so a
+   reliable supplier who is out of time still reads as out of time. */
+.urgency-chip { font-weight: 600; }
+.urgency-chip.urgency-EARLY { background: var(--wash); color: var(--ink-2); }
+.urgency-chip.urgency-CHASE { background: var(--warn-wash); border-color: #f3d38a; color: var(--warn); }
+.urgency-chip.urgency-URGENT { background: var(--bad-wash); border-color: #f0b4ae; color: var(--bad); }
+.urgency-chip.urgency-LAST_DAY { background: var(--bad); border-color: var(--bad); color: #fff; }
+/* No line-through, and no fill that reads as "settled". A passed cut-off is the
+   most expensive state on this screen — the credit has moved to next month — so
+   it is drawn as a warning, not as something struck off a list. These rules are
+   scoped to .urgency-chip so they can never apply to a container again. */
+.urgency-chip.urgency-PAST_CUTOFF { background: var(--bad-wash); border-color: var(--bad); color: var(--bad); }
+
+.alert-reasons { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 0.84rem; color: var(--ink-2); }
+
+.alert-consequence { margin: 8px 0; font-size: 0.86rem; color: var(--ink-2); max-width: 92ch; }
+.alert-consequence.is-past { color: var(--bad); border-left: 3px solid var(--bad); padding-left: 8px; }
+
+.alert-invoices { margin-top: 4px; }
+.status-NOT_REPORTED { background: var(--warn-wash); border-color: #f3d38a; color: var(--warn); }
+.status-SAVED_NOT_FILED { background: var(--info-wash); border-color: #b3e0f2; color: var(--info); }
+.status-SAVED_VALUE_MISMATCH { background: var(--bad-wash); border-color: #f0b4ae; color: var(--bad); }
+
+.copy-message { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.copy-message details { width: 100%; }
+.copy-message summary { font-size: 0.8rem; }
+
+.chase-message {
+  margin: 6px 0 0; padding: 10px; white-space: pre-wrap; overflow-x: auto;
+  background: var(--wash); border: 1px solid var(--line); border-radius: var(--radius);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem; line-height: 1.5; color: var(--ink-2);
+}

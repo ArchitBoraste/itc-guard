@@ -20,6 +20,7 @@ import {
   rerunPeriodIfRun
 } from '../services/reconcile.js';
 import { listChangesForRun } from '../services/syncDiff.js';
+import { preventiveAlerts } from '../services/preventive.js';
 import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
@@ -228,6 +229,31 @@ export function apiRouter() {
       throw new ServiceError('runId is required');
     }
     res.json(await listChangesForRun(req.orgId, runId, { limit: req.query.limit ?? 200 }));
+  }));
+
+  // --- preventive alerts ---------------------------------------------------
+
+  // Who to chase BEFORE the cut-off, ranked by supplier risk.
+  //
+  // asOf is a request parameter, not the server clock, for two reasons: the demo
+  // walks through the month (the 5th, the 10th, the 12th, the 16th) without
+  // touching the system clock, and a trader reviewing what they were told on the
+  // 9th needs the answer as it stood on the 9th. It defaults to the period's run
+  // as-of date so the alerts screen and the rest of the app share one clock.
+  router.get('/alerts', wrap(async (req, res) => {
+    const taxPeriod = req.query.taxPeriod ? String(req.query.taxPeriod) : null;
+    if (!taxPeriod) throw new ServiceError('taxPeriod is required (YYYY-MM)');
+
+    let asOf = req.query.asOf ? String(req.query.asOf) : null;
+    if (!asOf) {
+      const [rows] = await pool.query(
+        'SELECT as_of_date FROM runs WHERE org_id = ? AND tax_period = ?',
+        [req.orgId, taxPeriod]
+      );
+      asOf = rows[0]?.as_of_date ?? null;
+    }
+
+    res.json({ alerts: await preventiveAlerts(req.orgId, { taxPeriod, asOfDate: asOf }) });
   }));
 
   // --- results -------------------------------------------------------------

@@ -11,34 +11,72 @@ import { UploadScreen } from './screens/Upload.jsx';
 import { SummaryScreen } from './screens/Summary.jsx';
 import { ActionsScreen } from './screens/Actions.jsx';
 import { SuppliersScreen } from './screens/Suppliers.jsx';
+import { AlertsScreen } from './screens/Alerts.jsx';
 
 const ROUTES = [
   { id: 'upload', label: 'Upload' },
   { id: 'summary', label: 'Summary' },
+  // Sits before Actions on purpose: preventive work happens earlier in the month
+  // than the accept/reject pass, and the nav should read in that order.
+  { id: 'alerts', label: 'Before cut-off' },
   { id: 'actions', label: 'Actions' },
   { id: 'suppliers', label: 'Suppliers' }
 ];
 
+// The hash is `#/route?key=value`. The query part is session state that belongs
+// to the WHOLE app rather than to one screen — today that is the as-of date, the
+// clock everything on screen is being read at.
+//
+// It lives in the URL rather than in component state for three reasons: it
+// survives navigating away and back (it did not, and the Before cut-off screen
+// silently snapped back to the run's date), it survives a reload, and it makes a
+// particular point in the filing month a link someone can send.
 function readHash() {
-  const raw = window.location.hash.replace(/^#\/?/, '').split('?')[0];
-  return ROUTES.some((route) => route.id === raw) ? raw : null;
+  const raw = window.location.hash.replace(/^#\/?/, '');
+  const [path, query = ''] = raw.split('?');
+  return {
+    route: ROUTES.some((route) => route.id === path) ? path : null,
+    params: new URLSearchParams(query)
+  };
+}
+
+function writeHash(route, params) {
+  const query = params.toString();
+  window.location.hash = `#/${route}${query ? `?${query}` : ''}`;
 }
 
 function useHashRoute(fallback) {
-  const [route, setRoute] = useState(() => readHash() ?? fallback);
+  const [state, setState] = useState(readHash);
 
   useEffect(() => {
-    const onChange = () => setRoute(readHash() ?? fallback);
+    const onChange = () => setState(readHash());
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
-  }, [fallback]);
-
-  const navigate = useCallback((next) => {
-    window.location.hash = `#/${next}`;
-    setRoute(next);
   }, []);
 
-  return [route, navigate];
+  // Writing the hash fires `hashchange` — but only when the value actually
+  // changes, so the state is set here too rather than relying on the event.
+  const apply = useCallback((route, params) => {
+    writeHash(route, params);
+    setState(readHash());
+  }, []);
+
+  const navigate = useCallback(
+    (next) => apply(next, readHash().params), // query survives the move
+    [apply]
+  );
+
+  const setParam = useCallback(
+    (key, value) => {
+      const { route, params } = readHash();
+      if (value === null || value === undefined || value === '') params.delete(key);
+      else params.set(key, value);
+      apply(route ?? fallback, params);
+    },
+    [apply, fallback]
+  );
+
+  return [state.route ?? fallback, navigate, state.params, setParam];
 }
 
 export default function App() {
@@ -52,7 +90,14 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [loadingRun, setLoadingRun] = useState(false);
 
-  const [route, navigate] = useHashRoute('summary');
+  const [route, navigate, params, setParam] = useHashRoute('summary');
+
+  // The as-of date rides in the URL so it holds across screens and reloads. An
+  // absent or hand-mangled value falls back to the run's own date rather than
+  // being sent to an API that would reject it.
+  const asOfParam = params.get('asOf');
+  const asOf = /^\d{4}-\d{2}-\d{2}$/.test(asOfParam ?? '') ? asOfParam : null;
+  const setAsOf = useCallback((value) => setParam('asOf', value), [setParam]);
 
   // --- boot ----------------------------------------------------------------
 
@@ -261,6 +306,8 @@ export default function App() {
             onGoToActions={goToActions}
             onRefresh={refreshRun}
           />
+        ) : route === 'alerts' ? (
+          <AlertsScreen run={run} taxPeriod={period} asOf={asOf} onAsOfChange={setAsOf} />
         ) : route === 'actions' ? (
           <ActionsScreen
             run={run}

@@ -449,6 +449,53 @@ describe('reconcile', () => {
     expect(summary.atRiskTax).toBe(1800000);
   });
 
+  // The calendar verdict a recommendation was built on has to survive onto the
+  // result. Without it the only record of "this supplier's cut-off has passed"
+  // was inside the prose of recommendationReason, and the Actions screen printed
+  // a fixed "the cut-off has not passed" header over rows that said otherwise.
+  describe('CUTOFF_PASSED', () => {
+    // Saved, never filed, amounts disagree: CHASE_SUPPLIER on both sides of the
+    // cut-off, which is exactly why the flag has to carry the difference.
+    const saved = () => portal({ filingStatus: 'SAVED', taxableValue: 9500000 });
+
+    it('is absent while the supplier can still fix it for free', () => {
+      const [result] = reconcile([books()], [saved()], {
+        taxPeriod: '2026-02',
+        asOfDate: '2026-03-09'
+      });
+      expect(result.recommendedAction).toBe('CHASE_SUPPLIER');
+      expect(result.flags).not.toContain('CUTOFF_PASSED');
+    });
+
+    it('is set once their cut-off has gone', () => {
+      const [result] = reconcile([books()], [saved()], {
+        taxPeriod: '2026-02',
+        asOfDate: '2026-03-16'
+      });
+      expect(result.recommendedAction).toBe('CHASE_SUPPLIER');
+      expect(result.flags).toContain('CUTOFF_PASSED');
+      expect(result.recommendationReason).toContain('later period');
+    });
+
+    it('moves with the supplier scheme, not with one global date', () => {
+      // The 12th: past the 11th, still inside a QRMP filer's 13th.
+      const onThe12th = (filingScheme) =>
+        reconcile([books()], [saved()], {
+          taxPeriod: '2026-02',
+          asOfDate: '2026-03-12',
+          filingScheme
+        })[0].flags;
+
+      expect(onThe12th('MONTHLY')).toContain('CUTOFF_PASSED');
+      expect(onThe12th('QRMP')).not.toContain('CUTOFF_PASSED');
+    });
+
+    it('stays off entirely when there is no calendar context to judge from', () => {
+      const [result] = reconcile([books()], [saved()], { taxPeriod: '2026-02' });
+      expect(result.flags).not.toContain('CUTOFF_PASSED');
+    });
+  });
+
   it('accepts alternative weights without touching the shipped defaults', () => {
     const weights = { invoiceNo: 0.4, taxableValue: 0.25, totalTax: 0.15, invoiceDate: 0.35, gstin: 0.05 };
     const [result] = reconcile([books()], [portal()], { weights });

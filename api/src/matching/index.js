@@ -12,7 +12,7 @@
 //   6. recommend an action, with cut-off awareness
 import { assignOneToOne } from './assign.js';
 import { blockingCoverage, candidatePairs } from './block.js';
-import { BUCKETS, classify, pairFlags } from './buckets.js';
+import { BUCKETS, FLAGS, classify, pairFlags } from './buckets.js';
 import { FILING_SCHEMES } from './cutoff.js';
 import { normalizeGstin } from './normalize.js';
 import { recommendAction } from './recommend.js';
@@ -207,6 +207,13 @@ function buildResult({
   };
 
   const recommendation = recommendAction(result, context);
+  // The calendar verdict the recommendation was built on, kept as a flag so it
+  // survives to the UI. It is the difference between "chase them, the fix is
+  // free" and "chase them, but the credit now lands next period", and only the
+  // engine is in a position to say which — the cut-off is per supplier.
+  if (recommendation.preCutOff === false) {
+    result.flags = [...new Set([...result.flags, FLAGS.CUTOFF_PASSED])];
+  }
   result.recommendedAction = recommendation.action;
   result.imsActionCode = recommendation.imsActionCode;
   result.recommendationReason = recommendation.reason;

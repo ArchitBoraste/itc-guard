@@ -22,7 +22,16 @@ export const FLAGS = Object.freeze({
   NON_IMS_SECTION: 'NON_IMS_SECTION',
   SUPPLIER_UNFILED: 'SUPPLIER_UNFILED',
   LATE_FILING: 'LATE_FILING',
-  CHANGED_AFTER_REVIEW: 'CHANGED_AFTER_REVIEW'
+  CHANGED_AFTER_REVIEW: 'CHANGED_AFTER_REVIEW',
+  // The as-of date is past the cut-off this result was judged against, so a
+  // supplier-side fix can no longer reach THIS period's 2B.
+  //
+  // Set in index.js from what recommendAction() already worked out, rather than
+  // recomputed downstream. Without it the only record of the decision was inside
+  // the prose of recommendationReason, and the Actions screen was left describing
+  // a CHASE_SUPPLIER group with a hard-coded "the cut-off has not passed" — the
+  // exact opposite of what the rows underneath it said.
+  CUTOFF_PASSED: 'CUTOFF_PASSED'
 });
 
 // The two GSTR-2B sections that never pass through IMS. Records here are

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { rupees } from '../lib/money.js';
 import {
   ACTION_HELP,
+  actionHelp,
   ACTION_LABEL,
   ACTION_ORDER,
   BUCKETS,
@@ -322,7 +323,7 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
                 key={action}
                 className={`strip-item action-${action} ${group.open ? 'has-open' : ''}`}
                 data-testid={`strip-${action}`}
-                title={ACTION_HELP[action]}
+                title={actionHelp(action, group.results)}
               >
                 <span className="strip-name">{ACTION_LABEL[action]}</span>
                 <span className="strip-count mono">{group.results.length}</span>
@@ -429,7 +430,7 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
                       {rupees(group.itc)}
                     </span>
                   </h2>
-                  <p className="muted">{ACTION_HELP[action]}</p>
+                  <p className="muted">{actionHelp(action, group.results)}</p>
                 </div>
                 <GroupConfirm
                   action={action}

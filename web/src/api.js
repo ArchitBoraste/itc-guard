@@ -113,6 +113,17 @@ export const api = {
   confirmResult: (resultId, confirmedAction) =>
     json('PATCH', `/api/results/${resultId}`, { confirmedAction }).then((body) => body.result),
 
+  // --- preventive alerts ---------------------------------------------------
+  //
+  // asOf is sent explicitly rather than left to the server clock: the alerts
+  // screen lets the trader move through the filing month, and the answer for the
+  // 9th has to keep meaning the 9th.
+  listAlerts: (taxPeriod, asOf = null) => {
+    const params = new URLSearchParams({ taxPeriod });
+    if (asOf) params.set('asOf', asOf);
+    return request(`/api/alerts?${params}`).then((body) => body.alerts);
+  },
+
   // --- suppliers -----------------------------------------------------------
   listSuppliers: () => request('/api/suppliers?limit=200').then((body) => body.suppliers),
   getSupplier: (gstin) =>

@@ -5,6 +5,7 @@ import {
   ACTION_LABEL,
   BUCKET_LABEL,
   FLAG_LABEL,
+  rowFlags,
   IMS_ACTIONS,
   RECOMMENDED_TO_IMS,
   STALE_HELP,
@@ -102,9 +103,9 @@ export function ResultRow({ result, onConfirm, busy }) {
             matchedVia={result.matchedVia}
           />
         </div>
-        {(result.flags ?? []).length ? (
+        {rowFlags(result.flags ?? []).length ? (
           <div className="row-flags">
-            {result.flags.map((flag) => (
+            {rowFlags(result.flags).map((flag) => (
               <span
                 key={flag}
                 className={`flag ${flag === 'CONFIRMATION_RESET' || flag === 'CHANGED_AFTER_REVIEW' ? 'flag-alert' : ''}`}
