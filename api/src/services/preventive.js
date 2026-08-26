@@ -172,7 +172,7 @@ function bandFor(score) {
   return RISK_BANDS.LOW;
 }
 
-// scoreSupplierRisk(periods, { scheme }) -> { band, score, reasons, features }
+// heuristicRisk(periods, { scheme }) -> { band, score, reasons, features }
 //
 // PURE. `periods` is one entry per prior tax period in which the trader either
 // booked a purchase from this supplier or observed something of theirs on the
@@ -277,49 +277,111 @@ export function modelFeatures(features) {
   };
 }
 
-// A model factor -> the sentence a trader reads.
+// A model factor -> what a trader reads, plus whether it is ADVERSE.
 //
-// The model chooses WHICH facts to show and in what order; the sentence itself is
-// always a plain statement of the underlying COUNTS, in phase 7's style. That
-// split matters: a standardised contribution is not something anyone can check,
-// but "filed late in 4 of the last 6 months" is, and the trader is the one who
-// knows whether it is true.
+// Two jobs, and they were conflated. The model ranks by |contribution|, which is
+// distance from the AVERAGE SUPPLIER — so a supplier who averages exactly 0 days
+// late comes top of the list, because the corpus average is 3.7 days early and 0
+// is two standard deviations worse than that. True, and unreadable: "0 days late
+// is the main reason this supplier is risky" is not a sentence anyone can act on.
 //
-// The direction is used to pick between two true phrasings, never to assert
-// something the counts do not support. A supplier can sit slightly above the
-// training mean on mean_days_late while having been late in zero months — saying
-// "filed late" there would be the model overriding the data.
-function factorSentence({ feature, direction }, features) {
+// So a factor now yields:
+//   sentence  always a statement of the underlying COUNTS, in phase 7's style
+//   adverse   whether that sentence asserts something bad about the supplier
+//
+// When a RAISES factor is not adverse, the sentence is COMPARATIVE and names the
+// comparison out loud — "closer to their deadline than most suppliers manage" —
+// so the direction makes sense instead of looking like a mistake. And adverse
+// readings are ordered ahead of comparative ones, so a supplier is never headed
+// by a fact that is not a problem.
+function factorReading({ feature, direction, mean }, features) {
   const observed = features.periodsObserved ?? 0;
   const window = `the last ${plural(observed, 'month')}`;
   const deadline = ordinal(features.cutOffDay);
 
+  // "most suppliers file about 4 days early" — the corpus average, in words, so
+  // a comparative sentence says what it is comparing against.
+  const averageHabit = (average) => {
+    if (average === null || average === undefined) return 'most suppliers';
+    const days = Math.round(Math.abs(average));
+    if (average < 0) return `most file about ${plural(days, 'day')} early`;
+    if (average > 0) return `most run about ${plural(days, 'day')} over`;
+    return 'most file on the deadline';
+  };
+
   switch (feature) {
     case 'mean_days_late':
-      return features.lateCount > 0
-        ? `filed late in ${features.lateCount} of ${window}`
-        : `filed on time in all of ${window}, by their ${deadline}`;
+      // Adversity is judged on whether they were ACTUALLY late in a month, not on
+      // where their average sits against the corpus. A supplier can be above the
+      // corpus average while never having missed a deadline.
+      if (features.lateCount > 0) {
+        return { sentence: `filed late in ${features.lateCount} of ${window}`, adverse: true };
+      }
+      // The comparative framing is reserved for a supplier who actually sits ON or
+      // PAST their deadline on average. Below that it over-reaches: filing three
+      // days early against a corpus average of four is a real nudge to the
+      // probability and a ridiculous thing to narrate, and "less room if anything
+      // slips" would be noise on a supplier who has never once been late.
+      if (direction === 'RAISES' && (features.meanDaysLate ?? -1) >= 0) {
+        const own =
+          features.meanDaysLate === 0
+            ? 'files on the deadline itself'
+            : `averages ${plural(Math.round(features.meanDaysLate), 'day')} past it`;
+        return {
+          sentence:
+            `never missed their ${deadline} in ${window}, but ${own} — ` +
+            `${averageHabit(mean)}, so there is no room if anything slips`,
+          adverse: false
+        };
+      }
+      return {
+        sentence: `filed on time in all of ${window}, by their ${deadline}`,
+        adverse: false
+      };
 
     case 'max_days_late':
       return features.maxDaysLate > 0
-        ? `worst month was ${plural(features.maxDaysLate, 'day')} past their ${deadline}`
-        : `never later than their ${deadline} in ${window}`;
+        ? {
+            sentence: `worst month was ${plural(features.maxDaysLate, 'day')} past their ${deadline}`,
+            adverse: true
+          }
+        : { sentence: `never later than their ${deadline} in ${window}`, adverse: false };
 
     case 'mismatch_rate':
       return features.mismatches > 0
-        ? `amounts differed from your books on ${features.mismatches} of ` +
-            `${plural(features.documents, 'document')}`
-        : `amounts matched your books on all ${plural(features.documents, 'document')}`;
+        ? {
+            sentence:
+              `amounts differed from your books on ${features.mismatches} of ` +
+              `${plural(features.documents, 'document')}`,
+            adverse: true
+          }
+        : {
+            sentence: `amounts matched your books on all ${plural(features.documents, 'document')}`,
+            adverse: false
+          };
 
     case 'periods_observed':
-      return direction === 'LOWERS'
-        ? `${plural(observed, 'month')} of filing history to judge from`
-        : `only ${plural(observed, 'month')} of history so far`;
+      // Never adverse. How much has been seen is a statement about the EVIDENCE,
+      // not about the supplier.
+      return {
+        sentence:
+          direction === 'LOWERS'
+            ? `${plural(observed, 'month')} of filing history to judge from`
+            : `only ${plural(observed, 'month')} of history so far`,
+        adverse: false
+      };
 
     case 'filed_ratio_6m':
       return features.notIn2bCount > 0
-        ? `nothing of theirs reached your GSTR-2B in ${features.notIn2bCount} of ${window}`
-        : `something of theirs reached your GSTR-2B in every one of ${window}`;
+        ? {
+            sentence:
+              `nothing of theirs reached your GSTR-2B in ${features.notIn2bCount} of ${window}`,
+            adverse: true
+          }
+        : {
+            sentence: `something of theirs reached your GSTR-2B in every one of ${window}`,
+            adverse: false
+          };
 
     default:
       return null;
@@ -374,18 +436,40 @@ export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHL
   const scored = scoreSupplier(vector);
   if (!scored) return heuristic;
 
-  // Top factors become the reasons, most influential first. Deduplicated because
-  // two factors can describe the same underlying count — mean and max days late
-  // both collapse to "filed on time" for a supplier who never was.
-  const reasons = [];
+  // Top factors become the reasons — but ADVERSE ONES FIRST, not most-influential
+  // first.
+  //
+  // The model ranks by distance from the average supplier, which is the right way
+  // to rank a probability and the wrong way to order an explanation. Deepak Sales
+  // Corp averages exactly 0 days late; the corpus average is 3.7 days EARLY, so
+  // mean_days_late was their largest RAISES factor and led the list. "0 days late
+  // is the main reason this supplier is risky" is correct arithmetic and an
+  // unreadable sentence.
+  //
+  // So the reading decides the order: something actually wrong leads, and a
+  // merely-worse-than-average fact follows, phrased comparatively so the
+  // direction makes sense when it is shown at all.
+  const readings = [];
   for (const factor of scored.topFactors) {
     // When a guard fired it already says how thin the history is, and better —
     // "only 1 month of history so far, so this is a provisional read" against the
     // factor's bare "only 1 month of history so far". Printing both reads as a
     // stutter and neither sentence is doing the other's work.
     if (factor.feature === 'periods_observed' && scored.guard) continue;
-    const sentence = factorSentence(factor, heuristic.features);
-    if (sentence && !reasons.includes(sentence)) reasons.push(sentence);
+    const reading = factorReading(factor, heuristic.features);
+    if (reading) readings.push({ ...factor, ...reading });
+  }
+
+  // Stable within each group, so the model's ranking still decides the order of
+  // two adverse facts — it only cannot promote a non-adverse one above them.
+  const ordered = [
+    ...readings.filter((entry) => entry.adverse),
+    ...readings.filter((entry) => !entry.adverse)
+  ];
+
+  const reasons = [];
+  for (const entry of ordered) {
+    if (!reasons.includes(entry.sentence)) reasons.push(entry.sentence);
   }
   if (!reasons.length) reasons.push(...heuristic.reasons);
   if (scored.guardNote && !reasons.includes(scored.guardNote)) reasons.push(scored.guardNote);
@@ -398,7 +482,7 @@ export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHL
     probability: scored.probability,
     reasons,
     features: heuristic.features,
-    topFactors: scored.topFactors,
+    topFactors: ordered,
     guard: scored.guard,
     modelBand: scored.modelBand,
     heuristicScore: heuristic.score,

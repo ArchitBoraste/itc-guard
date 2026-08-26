@@ -251,9 +251,44 @@ describe('supplier_risk', () => {
 
     it('is described as on time by the reasons too', () => {
       const punctual = riskOf(stored, 'ON_THE_DEADLINE');
+      const text = punctual.reasons.join(' ');
       expect(punctual.features.lateCount).toBe(0);
-      expect(punctual.reasons.join(' ')).toContain('filed on time in all of the last 6 months');
-      expect(punctual.reasons.join(' ')).not.toContain('filed late');
+      expect(text).toContain('never missed their 11th');
+      expect(text).not.toContain('filed late');
+      // Their average sits ON the deadline, which the model reads as worse than
+      // the corpus average of ~4 days early. That nudge is stated COMPARATIVELY
+      // and names what it is comparing against, rather than being presented as a
+      // failing of theirs.
+      expect(text).toContain('files on the deadline itself');
+      expect(text).toContain('most file about 4 days early');
+    });
+
+    it('never leads with a factor that is not itself adverse', () => {
+      // The rule: a merely-worse-than-average fact cannot head the explanation
+      // while something actually went wrong. "0 days late is the main reason this
+      // supplier is risky" was correct arithmetic and an unreadable sentence.
+      for (const supplier of SUPPLIERS) {
+        const risk = riskOf(stored, supplier.key);
+        const factors = risk.topFactors ?? [];
+        if (!factors.length) continue;
+        const anyAdverse = factors.some((factor) => factor.adverse);
+        if (anyAdverse) expect(factors[0].adverse).toBe(true);
+        // The leading sentence is always the leading factor's own reading.
+        expect(risk.reasons[0]).toBe(factors[0].sentence);
+      }
+    });
+
+    it('says what each factor is measured against, so a raw 0 is not a mystery', () => {
+      for (const supplier of SUPPLIERS) {
+        for (const factor of riskOf(stored, supplier.key).topFactors ?? []) {
+          // Without these a reader sees "value 0, direction RAISES" and has no
+          // way to know 0 is two standard deviations worse than the average.
+          expect(typeof factor.mean).toBe('number');
+          expect(['ABOVE_AVERAGE', 'BELOW_AVERAGE']).toContain(factor.relative);
+          expect(typeof factor.adverse).toBe('boolean');
+          expect(typeof factor.sentence).toBe('string');
+        }
+      }
     });
   });
 

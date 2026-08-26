@@ -203,6 +203,34 @@ describe('topFactors', () => {
     expect([...magnitudes].sort((a, b) => b - a)).toEqual(magnitudes);
   });
 
+  // The tuple has to be self-describing. A supplier averaging exactly 0 days late
+  // came back as { value: 0, direction: 'RAISES', contribution: 2.38 } — the
+  // largest thing raising their risk — with nothing on the object saying 0 is two
+  // standard deviations worse than a corpus that averages 3.7 days EARLY. Right
+  // arithmetic, and it read as a broken model.
+  it('says what each factor was compared against', () => {
+    const meanDaysLateIndex = MODEL.featureNames.indexOf('mean_days_late');
+    const onTheDeadline = scoreSupplier({ ...PROBE, mean_days_late: 0 });
+    const factor = onTheDeadline.topFactors.find((f) => f.feature === 'mean_days_late');
+
+    expect(factor.value).toBe(0);
+    // The average supplier files EARLY, so 0 really is above average.
+    expect(factor.mean).toBeCloseTo(MODEL.means[meanDaysLateIndex], 9);
+    expect(factor.mean).toBeLessThan(0);
+    expect(factor.relative).toBe('ABOVE_AVERAGE');
+    expect(factor.direction).toBe('RAISES');
+    // And the standardised distance is carried, so the size of the gap is
+    // inspectable rather than only its sign.
+    expect(factor.standardised).toBeGreaterThan(0);
+  });
+
+  it('marks a value better than average as below it, whatever the raw number', () => {
+    const early = scoreSupplier({ ...PROBE, mean_days_late: -8 });
+    const factor = early.topFactors.find((f) => f.feature === 'mean_days_late');
+    expect(factor.relative).toBe('BELOW_AVERAGE');
+    expect(factor.direction).toBe('LOWERS');
+  });
+
   it('omits a feature that contributed nothing', () => {
     const atTheMean = Object.fromEntries(
       MODEL.featureNames.map((name, index) => [name, MODEL.means[index]])

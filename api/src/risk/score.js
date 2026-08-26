@@ -176,7 +176,15 @@ export function probabilityOf(features, model = loadModel()) {
     // std can be 0 only if a constant column slipped past train.py's drop; 1
     // keeps the arithmetic finite instead of producing NaN for every supplier.
     const standardised = (value - model.means[index]) / (model.stds[index] || 1);
-    return { name, value, standardised, contribution: model.coefficients[index] * standardised };
+    return {
+      name,
+      value,
+      // The average supplier in the training corpus. Carried through because
+      // every statement about direction is relative to it — see scoreSupplier().
+      mean: model.means[index],
+      standardised,
+      contribution: model.coefficients[index] * standardised
+    };
   });
 
   const logOdds = contributions.reduce((sum, entry) => sum + entry.contribution, model.intercept);
@@ -229,6 +237,19 @@ export function scoreSupplier(features, { model = loadModel(), limit = 3 } = {})
     .map((entry) => ({
       feature: entry.name,
       value: entry.value,
+      // Everything below is RELATIVE TO `mean`, and the payload now says so
+      // rather than leaving a reader to infer it.
+      //
+      // The failure this closes: a supplier averaging exactly 0 days late came
+      // back as { value: 0, direction: 'RAISES', contribution: 2.38 } — the
+      // largest thing raising their risk, with nothing on the object explaining
+      // that 0 is two standard deviations WORSE than the corpus average of 3.7
+      // days early. The arithmetic was right and the tuple read as broken.
+      mean: entry.mean,
+      standardised: entry.standardised,
+      relative: entry.standardised > 0 ? 'ABOVE_AVERAGE' : 'BELOW_AVERAGE',
+      // The effect on RISK, not a verdict on the raw value. A benign value can
+      // raise risk simply by being less good than most.
       direction: entry.contribution > 0 ? 'RAISES' : 'LOWERS',
       contribution: entry.contribution
     }));
