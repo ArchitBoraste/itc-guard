@@ -155,7 +155,20 @@ The snapshot. Only **filed** records counted.
 | Verma ₹8,496 ✓ (corrected) | |
 | Patel ₹4,500 ⚠️ (not ours) | |
 
-> ⚠️ **Verify before the PDF:** the exact cut-off for what lands in a given 2B. Sources conflict between the 11th (GSTR-1 due date) and the 13th. Check the current GST portal advisory — the whole alert schedule depends on this date.
+> ✅ **2B cut-off — settled.** From the GST portal's own FAQ. What lands in a given
+> 2B is decided by a rolling window, not by a single date:
+>
+> | Supplier's form | Window included in the recipient's 2B |
+> |---|---|
+> | Monthly GSTR-1 / GSTR-1A | 00:00 on the **12th of the relevant month** to 23:59 on the **11th of the succeeding month** |
+> | Quarterly GSTR-1 / GSTR-1A / IFF, GSTR-5, GSTR-6 | 00:00 on the **14th** to 23:59 on the **13th** |
+>
+> Import data is included where it is received within the 13th.
+>
+> So the recipient-side cut-off is the **11th** for monthly filers and the **13th**
+> for QRMP / IFF / ISD. That is what `api/src/matching/cutoff.js` implements and what
+> the whole alert schedule keys off — a mismatch here would make every "chase now,
+> it is still free" message wrong.
 
 ---
 
@@ -278,7 +291,12 @@ Krishna's reliability score drops. Next month, Sharma gets warned about them on 
 
 ## Part 5 — Open Items
 
-- [ ] Confirm exact 2B cut-off date (11th vs 13th) from the current portal advisory
-- [ ] Confirm QRMP GSTR-3B due dates by state group (22nd / 24th)
-- [ ] Obtain a real GSTR-2B JSON sample to fix the parser schema
-- [ ] Decide Section 16(4) ageing window for the pending alert
+The 2B cut-off was here and is now closed — see the settled window in Part 2, Mar 14.
+These three are still genuinely open:
+
+- [ ] Confirm QRMP GSTR-3B due dates by state group (22nd / 24th). `calendar.js` and
+      `cutoff.js` currently put GSTR-3B on the 20th for everyone, so a QRMP trader is
+      shown a due date up to four days early.
+- [ ] Obtain a real GSTR-2B JSON sample. The *schema* is closed — recovered from the
+      v2.9 matching tool — but nothing here has been parsed from a live filing.
+- [ ] Decide the Section 16(4) ageing window for the pending alert

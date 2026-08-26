@@ -807,3 +807,23 @@ details.model-note[open] > summary { margin-bottom: 6px; }
   background: var(--wash); border-color: var(--line); color: var(--ink-3);
   font-weight: 500;
 }
+
+/* --- about ---------------------------------------------------------------- */
+
+/* Prose, not a dashboard. Measure is capped so the caveats are actually read
+   rather than skimmed across a 2000px projector. */
+.screen-about .about-block { display: flex; flex-direction: column; gap: 10px; }
+.screen-about .about-block p { margin: 0; font-size: 0.85rem; max-width: 82ch; line-height: 1.55; }
+.screen-about h3 + p { margin-top: 3px; }
+
+.about-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.about-list li { font-size: 0.85rem; max-width: 82ch; line-height: 1.55; }
+
+.about-table td { vertical-align: top; }
+.about-table td:first-child { white-space: normal; }
+
+/* The synthetic-data warning is the one thing on this screen that must not read
+   as body text. Warn colouring, not danger: the app works, its evidence base is
+   the thing being qualified. */
+.panel-caution { border-color: #f3d38a; background: var(--warn-wash); }
+.panel-caution h3 { color: var(--warn); }

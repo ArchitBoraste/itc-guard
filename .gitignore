@@ -20,6 +20,15 @@ web/dist/
 # generated fixtures — reproducible via tools/generate-fixtures.js
 fixtures/
 
+# API response dumps. /api/suppliers writes {suppliers, model} and a curl of it
+# once landed here as a 90 KB file that read like a checked-in data source.
+# fixtures/suppliers.json is the real one and is covered above.
+/suppliers.json
+
+# scratch reproductions. Debug scripts belong in a scratch dir, not the repo —
+# api/.tmp-repro/ was committed for three phases writing to an unreserved org id.
+.tmp-repro/
+
 # ml artifacts
 ml/*.csv
 ml/__pycache__/

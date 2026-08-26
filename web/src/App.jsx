@@ -12,6 +12,7 @@ import { SummaryScreen } from './screens/Summary.jsx';
 import { ActionsScreen } from './screens/Actions.jsx';
 import { SuppliersScreen } from './screens/Suppliers.jsx';
 import { AlertsScreen } from './screens/Alerts.jsx';
+import { AboutScreen } from './screens/About.jsx';
 
 const ROUTES = [
   { id: 'upload', label: 'Upload' },
@@ -20,7 +21,10 @@ const ROUTES = [
   // than the accept/reject pass, and the nav should read in that order.
   { id: 'alerts', label: 'Before cut-off' },
   { id: 'actions', label: 'Actions' },
-  { id: 'suppliers', label: 'Suppliers' }
+  { id: 'suppliers', label: 'Suppliers' },
+  // Needs no run and no data, so it stays clickable on a cold start — which is
+  // exactly when someone is most likely to want to know what they are looking at.
+  { id: 'about', label: 'About', alwaysEnabled: true }
 ];
 
 // The hash is `#/route?key=value`. The query part is session state that belongs
@@ -208,7 +212,7 @@ export default function App() {
   // With nothing loaded there is only one useful screen. Send people there rather
   // than showing three empty ones.
   useEffect(() => {
-    if (!booting && !hasData && route !== 'upload') navigate('upload');
+    if (!booting && !hasData && route !== 'upload' && route !== 'about') navigate('upload');
   }, [booting, hasData, route, navigate]);
 
   return (
@@ -233,7 +237,7 @@ export default function App() {
               type="button"
               className={`nav-item ${route === entry.id ? 'is-active' : ''}`}
               data-testid={`nav-${entry.id}`}
-              disabled={!hasData && entry.id !== 'upload'}
+              disabled={!hasData && entry.id !== 'upload' && !entry.alwaysEnabled}
               onClick={() => navigate(entry.id)}
             >
               {entry.label}
@@ -280,7 +284,12 @@ export default function App() {
             remounts the boundary and clears the error — the nav bar above stays
             mounted throughout, so there is always a way out. */}
         <ErrorBoundary key={`${route}:${period ?? ''}`} scope="This screen">
-        {booting ? (
+        {/* About is checked first, ahead of booting and ahead of the API error:
+            it is static text about the project and reads correctly when nothing
+            else in the app can load. */}
+        {route === 'about' ? (
+          <AboutScreen />
+        ) : booting ? (
           <Loading label="Starting up" rows={4} />
         ) : bootError ? (
           <ErrorBox

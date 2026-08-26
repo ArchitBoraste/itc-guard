@@ -1,17 +1,239 @@
 # ITC Guard
 
-GST Input Tax Credit reconciliation for small traders. Compares a trader's purchase
-register against IMS / GSTR-2B and outputs recommended IMS actions (Accept / Reject /
-Pending) with rupee impact, plus a preventive mode that warns before the filing cut-off.
+**A small shop pays tax on what it buys, and gets that money back only if its supplier
+files the paperwork correctly and on time. When the supplier gets it wrong, the shop
+loses the money — and usually finds out too late to do anything about it.**
 
-Hackathon prototype — Omnikon 2026, Omni_FinTech_13.
+ITC Guard reads the shop's own purchase records, compares them against what the tax
+portal is actually showing, and produces a list of decisions with a rupee figure against
+each one. It does that early enough in the month that a supplier's mistake can still be
+corrected for free, and it writes the file the portal needs to record those decisions.
+
+Hackathon prototype — Omnikon 2026, team Omni_FinTech_13. Nothing here has been run
+against a real tax filing. See [Current status and limitations](#current-status-and-limitations).
 
 ---
 
-## Stack
+## The problem
 
-Node 20 · Express 4 · React 18 + Vite · MySQL 8 · Docker Compose.
-Plain JavaScript, ESM only. Raw SQL via `mysql2/promise` — no ORM. Money is integer paise.
+Under GST, a trader pays tax to their suppliers on every purchase and reclaims it from
+the government. That reclaim — **input tax credit** — only works if the supplier reports
+the invoice correctly on the government portal. If the supplier types ₹42,700 where they
+meant ₹47,200, or files a week late, or never files at all, the trader silently loses
+that money.
+
+Three things make it worse than an ordinary data-matching problem:
+
+- **Silence counts as agreement.** Anything the trader does not explicitly reject on the
+  portal is *deemed accepted* when they file. A wrong invoice nobody looked at becomes a
+  credit they claimed and are liable for.
+- **The window closes.** Before the supplier files their return, a mistake is a phone
+  call — they edit the draft, and nothing is lost. After they file, the fix legally
+  reaches the trader's account in the *next* month. Same error, one week later, a month
+  of cash flow gone.
+- **The government's own matching tool cannot find these.** It matches only invoices
+  whose every field already agrees exactly. Precisely the broken ones fall out of it.
+
+A large company has an accounts team for this. A shop with four hundred invoices a month
+has one person and a spreadsheet.
+
+## What the tool does
+
+Three files go in — all three are downloads the trader already has:
+
+| File | What it is |
+|---|---|
+| Purchase register | The shop's own record of what it bought. Excel or CSV. |
+| IMS download | What suppliers have entered on the portal, including drafts they have not filed yet. |
+| GSTR-2B download | The month's locked snapshot — the legal basis for the claim. |
+
+One action list comes out. Every document is placed in a bucket, given a recommended
+action, and priced:
+
+```
+ACCEPT           this agrees with your books
+REJECT           this is on the portal and not in your books
+CHASE SUPPLIER   the amounts differ and the supplier can still fix it for free
+VERIFY           we found a likely match but not a certain one — you decide
+DEFERRED         the supplier never reported it; the credit moves to next month
+```
+
+Every row shows both sides of the document side by side with the differing fields
+marked, and a score breakdown saying why the engine paired them. Nothing is
+auto-rejected: a wrong rejection costs the trader a month of credit and raises the
+supplier's liability, so a grey-zone match asks for a human.
+
+Then it writes **`ims-actions.json`** — the exact upload format GSTN's own IMS offline
+utility produces, so the trader's decisions go back to the portal as a file rather than
+as four hundred clicks.
+
+And before any of that, a **preventive mode**: from the 1st of the month it lists the
+invoices that have not appeared on the portal yet, ranked by which suppliers historically
+fail to file, with a pre-written chase message per supplier. The suppliers never need an
+account, a login, or to know the tool exists.
+
+## Why the government's own tool cannot do this
+
+GSTN publishes a *GSTR-2B Matching Offline Tool* (v2.9). We unpacked it. Its entire
+matcher is two SQL views:
+
+- **ExactMatch** — an inner join requiring *every* field equal: supply type, GSTIN,
+  document number, document type, document date, taxable value, and every tax head.
+- **ProbableMatch** — the "fuzzy" tier. It allows exactly **one** of GSTIN *or* document
+  type to differ. Document number, date, taxable value and every tax head must still be
+  **exactly** equal.
+
+That is the whole algorithm. It follows that the five most common real defects are
+structurally unmatchable by it:
+
+| The supplier's mistake | GSTN tool v2.9 | ITC Guard |
+|---|---|---|
+| Number written differently — `INV/2024/0891` vs `INV-2024-891` | no match | matched — numbers are normalised before comparison |
+| Amount off by a rupee or two, from rounding | no match | matched — tolerance of ₹1 or 0.5% |
+| Invoice date off by a day | no match | matched — date proximity is scored, not required |
+| Transposed digit — ₹47,200 entered as ₹42,700 | no match | matched, and flagged `VALUE_MISMATCH` with the ₹4,500 delta |
+| Wrong supplier GSTIN typed | only if the number, date and *every* tax head are exactly equal | matched on number and value, flagged `GSTIN_MISMATCH` |
+
+Everything the official tool cannot match lands in an unmatched pile for someone to
+eyeball. That pile is the product.
+
+The two tools deliberately share a vocabulary — the same field names, the same document
+types, the same section codes — so the results are directly comparable. The difference is
+normalisation, tolerance, and being able to say *why*.
+
+## Quick start
+
+Docker is the only prerequisite. From the repository root:
+
+```bash
+npm run demo
+```
+
+That brings up the three containers, waits for MySQL to actually be ready, applies
+migrations, and rebuilds a known demo state. It prints a URL — **http://localhost:5173**
+— and deliberately does not open a browser.
+
+It is safe to run twice, and safe to run thirty seconds before presenting: every step is
+either a no-op when already done or a full wipe-and-rebuild. If Docker is not running it
+says so in one sentence and stops.
+
+To stop everything: `docker compose down`.
+
+## Architecture
+
+```
+purchase register ─┐
+IMS download ──────┼─► adapters ─► canonical shapes ─► matching engine ─► buckets
+GSTR-2B download ──┘   (the only     (ExpectedInvoice   (pure: no db,      + recommended
+                        place portal   PortalRecord)     no fs, no net)     actions
+                        field names                            │
+                        appear)                                ▼
+                                                    persisted run ─► React UI
+                                                          │           (5 screens)
+                                                          ▼
+                                                    ims-actions.json
+                                                    (portal upload format)
+```
+
+- **`api/src/adapters/`** — the only code that knows portal field names (`ctin`, `inum`,
+  `txval`, `srcfilstatus`). Everything downstream sees canonical shapes and integer paise.
+- **`api/src/matching/`** — the scoring engine. Pure: no database, no filesystem, no
+  network, enforced by a test. This is where the five defect classes above are handled.
+- **`api/src/services/`** — orchestration. Ingest, reconcile, totals, preventive alerts,
+  supplier statistics, the IMS action writer.
+- **`api/src/risk/`** — serves a logistic regression fitted offline in Python. `ml/train.py`
+  writes `ml/model.json`, that file is committed, and Node reads it. No Python at runtime.
+- **`web/src/screens/`** — Upload, Summary, Before cut-off, Actions, Suppliers, About.
+  React 18, one stylesheet, no component library.
+- **MySQL 8**, raw SQL, no ORM. Money is `BIGINT` integer paise end to end.
+
+Plain JavaScript throughout, ESM only. Node 20 · Express 4 · React 18 + Vite · MySQL 8 ·
+Docker Compose.
+
+## Test status
+
+**566 API tests and 86 front-end tests**, all passing. The count is not the point; what
+they hold is:
+
+| Suite | What it actually verifies |
+|---|---|
+| `matching/purity` | The engine imports no database, filesystem or network module. The scoring logic can be reasoned about in isolation, and is. |
+| `matching/accuracy` | The engine measured against `fixtures/ground_truth.json` — 2,461 labelled documents across six periods, per bucket, precision and recall. Currently 100% macro on all six. |
+| `adapters/*` | Both purchase-register formats, both portal formats, every section, and the IMS upload writer round-tripping through the schema the offline utility expects. |
+| `services/totals` | Credit notes carry a negative sign. On the 2026-03 fixture, getting that wrong would inflate claimable credit by ₹6,73,655.78. Two accounting identities are asserted exactly. |
+| `integration/syncDiff` | Re-uploading the same file reports no changes; uploading only IMS never reports the 2B rows as deleted; an amended record is the same document with new amounts, not a new document. |
+| `integration/staleConfirmation` | A confirmed decision is dropped when the supplier amends the record it was about, and the API returns 409 rather than accepting it. Through the real HTTP route, against MySQL. |
+| `integration/ordinalStability` | Re-uploading a file with its rows shuffled produces the same keys and inserts no duplicates. |
+| `risk/score` | The model's arithmetic against fitted coefficients, and the out-of-distribution check that hands a supplier back to the fallback scorer. |
+| `web/errorBoundary` | A component that throws does not white-screen the app, and the navigation survives it. |
+| `web/uploadScreen`, `web/staleRun` | A rejected file can be dismissed without unmounting the app; a stale row cannot be accepted however clean its verdict looks. |
+
+Integration suites **fail rather than skip** when MySQL is missing. A green run with
+twenty silent skips reads as "verified" and is not.
+
+```bash
+cd api && npm test                    # needs MySQL up
+docker compose exec web npm test      # front end
+```
+
+## Current status and limitations
+
+Read this before believing any number in this repository.
+
+**Accuracy is measured against synthetic ground truth, and has never been validated on a
+live filing.** The 100% macro precision/recall figure is real, and it is a measurement
+against `fixtures/ground_truth.json` — a corpus this project generated, whose answers
+this project also wrote. It says the engine does what we specified. It says nothing about
+how a real trader's register compares against a real GSTR-2B, because we have never seen
+one. Getting real, anonymised files in front of this is the single highest-value thing
+left to do.
+
+**The supplier risk model was trained on data our own generator produced.** 200
+supplier-months from `tools/generate-fixtures.js`. It has largely learned our generator's
+rules. Its held-out scores (ROC AUC 0.935 on an unseen period, 0.897 pooled) beat the
+hand-weighted heuristic on both splits, which is the only reason it is served — but they
+are evidence about the generator, not about GST filing behaviour.
+
+**Three of the seven requested risk features could not be learned and were dropped.**
+Training refuses to fit a meaningless coefficient:
+
+- `gstr3b_filed_ratio` — not derivable from anything the app ingests. 2B carries a `cfs`
+  flag, and whether it means GSTR-1 or GSTR-3B is unverified.
+- `amendment_rate` — the generator declares the amendment sections and never populates
+  them, so it is 0 on all 200 rows.
+- `filed_ratio_6m` — every generated supplier reaches 2B every month, so it is 1 on all
+  200 rows.
+
+The last has a consequence no held-out metric can reveal: **the model is blind to a
+supplier who stops reporting altogether.** That case is caught by an out-of-distribution
+check that hands the supplier back to the hand-weighted scorer, not by the model.
+
+**Uploaded files are stored in the database as a `LONGBLOB`.** A prototype shortcut.
+Real object storage is the correct answer and was out of scope; as it stands, a few
+hundred large registers would bloat the database and every backup of it.
+
+**A record the supplier withdraws keeps its confirmation, deliberately.** When a
+`DISAPPEARED` record still carries a decision the trader made, the change feed reports it
+loudly as an invalidated decision rather than silently dropping the confirmation.
+Clearing it inside the matcher would move rupee totals, which is a bigger change than a
+correct alert. The trader sees it; the number does not move under them.
+
+**The demo seeds two tax periods, so no supplier can reach a HIGH risk band.** HIGH
+requires three or more observed periods — one late month is not a pattern — so the
+demo tops out at MEDIUM. That is the guard working, not a bug, but it means the risk
+screen shows a narrower range than the model can produce. Seeding 6–12 periods of filing
+history is deferred work and is what the preventive screen needs to show its full range.
+
+**Also not built, deliberately:** no login (every request is one stubbed trader), no
+multi-user or roles, no GSP/portal API integration (files move by hand, which is what
+the offline utility is for), no OCR, no email or WhatsApp sending (the app writes the
+message text; the trader sends it), no rate limiting, no audit log, no GSTR-2A parsing.
+
+---
+
+# Engineering reference
+
+Everything below is for someone working on the code.
 
 ## Layout
 
@@ -48,9 +270,15 @@ web/                       React 18 + Vite front end (plain JS, one stylesheet)
   src/lib/calendar.js      cut-off, 2B generation and GSTR-3B dates
   src/components/          banners, side-by-side compare, score popover, states
                            ErrorBoundary.jsx — the app's only class component
-  src/screens/             Upload, Summary, Alerts, Actions, Suppliers
+  src/screens/             Upload, Summary, Alerts, Actions, Suppliers, About
   test/                    vitest + jsdom + @testing-library/react
-tools/                     dev tooling (fixtures, weight sweep, demo seed)
+tools/                     dev tooling
+  demo.js                  `npm run demo` — compose up, migrate, demo:reset, print URL
+  demo-reset.js            wipe org 1 and rebuild the presentable state
+  generate-fixtures.js     the whole synthetic corpus, from one seed
+  seed-demo.js             load one fixture period end to end
+  sweep-weights.js         grid-search matching weights vs ground truth
+  export-training-data.js  seed org 10, write ml/training-data.csv
 ml/                        offline training. train.py fits the supplier risk
                            model; model.json is COMMITTED and read by Node.
                            No Python runs at serve time.
@@ -58,7 +286,32 @@ docs/                      IMS / 2B / purchase-register schemas, domain referenc
 docker-compose.yml
 ```
 
-## Setup — Docker (recommended)
+## Setup — one command
+
+```bash
+npm run demo
+```
+
+`tools/demo.js` does the whole sequence: checks Docker is actually running, copies
+`.env.example` to `.env` if there is no `.env`, `docker compose up -d --build`, waits for
+the MySQL healthcheck (up to four minutes — a cold `down -v` has to initialise the data
+directory), applies migrations in the container, generates `fixtures/` if they are
+missing, runs `demo:reset`, then confirms the API and the Vite server both answer before
+printing the URL.
+
+It never opens a browser. On a projector, a window opening on the wrong screen is not
+something you can undo.
+
+Every failure path names what to do about it, because the failure that matters is the one
+that happens in front of an audience. Docker not running, Compose v1 instead of v2, a
+port already taken, a MySQL data directory from an older image, a stale `DB_*` in the
+shell — each has its own message.
+
+The only host prerequisite is Docker. `api/node_modules` is installed on first run if it
+is missing: `demo-reset.js` runs on the host and imports the API's own services, and the
+container image does not carry `tools/`.
+
+## Setup — Docker by hand
 
 ```bash
 cp .env.example .env
@@ -110,6 +363,7 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 | `api/` | `npm run migrate` | apply pending migrations |
 | `api/` | `npm test` | vitest — integration tests FAIL without a db, see below |
 | `web/` | `npm run dev` | Vite dev server on 5173 |
+| root | `npm run demo` | **the demo.** up, migrate, reset, print the URL |
 | root | `npm run gen:fixtures` | regenerate `fixtures/` |
 | root | `npm run seed:demo` | load a fixture period end to end for org 1 |
 | root | `npm run demo:reset` | wipe org 1 and rebuild the presentable demo state |
@@ -134,7 +388,11 @@ and rupees, and the identity check. `--all` does every fixture period.
 npm run demo:reset
 ```
 
-One command, one known state, safe to run between practice runs and immediately
+What `npm run demo` calls once the stack is up. Run it on its own when the containers are
+already running and only the data needs rebuilding — it is the fast path between practice
+runs.
+
+One known state, safe to run between practice runs and immediately
 before presenting. **It wipes org 1** — that is its purpose, and it prints the
 database it is about to clear first. Then it rebuilds:
 
@@ -169,6 +427,9 @@ supplier fix or a reject.
 
 ## Running the tests
 
+566 API tests and 86 front-end tests. What each suite holds is tabulated under
+[Test status](#test-status); this section is about running them.
+
 The front end has its own suite. It runs in the web container, which is where its
 node_modules live:
 
@@ -176,9 +437,11 @@ node_modules live:
 docker compose exec web npm test
 ```
 
-It covers the upload panel (a rejected file can be dismissed without unmounting
-the app) and the error boundary. A dependency change needs `docker compose build
-web`; `test/` and `vitest.config.js` are bind-mounted, so test edits do not.
+`test/` and `vitest.config.js` are bind-mounted, so test edits need no rebuild; a
+dependency change needs `docker compose build web`.
+
+The API suite does **not** run in its container — `api/.dockerignore` excludes `test/`,
+so the image has no tests in it. Run it on the host, against the containerised MySQL.
 
 
 ```bash
@@ -356,7 +619,8 @@ forbid (e.g. `PENDING` where `ispendactblocked` is `Y`).
 the `/api` prefix is passed through rather than stripped, because the API mounts
 its router at `/api`.
 
-Four screens, plus one banner that never leaves the top of the page.
+Five working screens plus an About page, and one banner that never leaves the top of the
+page.
 
 **Upload** — three drop zones. Each shows the detected format and row count once
 committed. The column-mapping step appears **only** when detection fails, and only
@@ -400,6 +664,13 @@ is nothing there to accept or reject. Rejecting a whole group takes a second cli
 
 **Suppliers** — filing history per supplier with a days-late sparkline, drawn
 against *that supplier's* own cut-off (the 11th monthly, the 13th for QRMP).
+
+**About** — where each portal schema was recovered from, that every figure in the app is
+synthetic, and what the test suites verify. It is checked ahead of the boot state and
+ahead of the API error, so it renders when nothing else in the app can load, and its nav
+entry stays enabled with no data loaded. A caveat that only appears on a healthy, seeded
+machine is not a caveat. `TEST_COUNTS` in `screens/About.jsx` is the one place the counts
+live; a test asserts the rendered text matches it.
 
 **The deemed-acceptance banner** is sticky on every screen. It shows days to
 GSTR-3B and two numbers that are deliberately not merged: everything unactioned in
@@ -612,17 +883,3 @@ supplier against it: when their value differs, the model has no term for what th
 are doing, and `preventive.js` falls back to the phase 7 hand-weighted scorer for
 that supplier. The heuristic reads the fact directly and bands them HIGH. The
 fallback is not dead code — it also runs whenever `model.json` is missing.
-
-## Status
-
-Phases 0-6 done: skeleton, fixtures, adapters, matching engine, persistence, API,
-the web UI and sync diffing. The matching engine scores 100% macro precision/recall/F1 against
-`fixtures/ground_truth.json` across all six periods (2,461 documents).
-
-Phase 7 added the pre-cut-off workflow — risk-ranked alerts, per-supplier cut-offs
-and returned chase text. Phase 8 replaced the hand-weighted risk score with a
-logistic regression trained offline; `supplier_risk` is now populated per period.
-**Read the limitations below before believing any of it.**
-
-`npm test` is safe to run against a live demo: every DB-backed suite works in its
-own org and org 1 is reserved for the app. See **Test data isolation**.
