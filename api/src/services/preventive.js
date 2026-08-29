@@ -56,6 +56,34 @@ export const HISTORY_PERIODS = 6;
 export const RISK_BANDS = Object.freeze({ LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH' });
 export const BAND_ORDER = Object.freeze([RISK_BANDS.HIGH, RISK_BANDS.MEDIUM, RISK_BANDS.LOW]);
 
+// alertBandFor(riskBand, preCutOff) -> the band the supplier is GROUPED under.
+//
+// The risk band is a claim about the supplier's filing RECORD and is deliberately
+// date-free. The GROUP is not: "Normal for this point in the month" is a claim
+// about the calendar as much as the supplier, and it stops being true the moment
+// their own cut-off passes with nothing reported. Grouping on the risk band alone
+// meant the three groups held the same members on the 5th and the 16th, so
+// "Normal" still contained suppliers whose deadline had gone.
+//
+// Past their cut-off moves a supplier up exactly ONE band. Not straight to HIGH:
+// after the cut-off every supplier on this screen is past it, so promoting them
+// all would collapse the ranking to a single group on the one day the screen
+// matters most — the opposite of the design, which exists so the 12th does not
+// look like the 5th. One step keeps the record-based ordering intact underneath
+// the calendar, so a habitually late supplier still outranks a reliable one who
+// is merely out of time.
+//
+// preCutOff is true / false / null, and null means the date could not be worked
+// out. Only an explicit false escalates: guessing would move somebody into a
+// concern group on the strength of a failed calculation.
+export function alertBandFor(riskBand, preCutOff) {
+  const index = BAND_ORDER.indexOf(riskBand);
+  if (index === -1) return riskBand;
+  if (preCutOff !== false) return riskBand;
+  // BAND_ORDER runs HIGH -> MEDIUM -> LOW, so one step "up" is one index down.
+  return BAND_ORDER[Math.max(0, index - 1)];
+}
+
 // Why an invoice is on the list. All three are things a PHONE CALL fixes for
 // free, because the supplier's record is still a draft.
 //
@@ -765,6 +793,13 @@ export async function preventiveAlerts(
       urgency,
       urgencyRank: urgencyRank(urgency),
       risk,
+      // Which group they appear under. risk.band is untouched — the model's
+      // verdict on their record — and alertBand is that verdict read against
+      // today's date. They differ exactly when the cut-off has passed, and
+      // `escalated` says so, so the UI can explain why a reliable supplier is
+      // sitting in a concern group.
+      alertBand: alertBandFor(risk.band, preCutOff),
+      escalated: alertBandFor(risk.band, preCutOff) !== risk.band,
       invoiceCount: invoices.length,
       itcAtStake,
       statusCounts: countStatuses(invoices),
@@ -780,19 +815,24 @@ export async function preventiveAlerts(
   // inside a band, never lifts a reliable supplier above an unreliable one.
   suppliers.sort(
     (a, b) =>
-      BAND_ORDER.indexOf(a.risk.band) - BAND_ORDER.indexOf(b.risk.band) ||
+      BAND_ORDER.indexOf(a.alertBand) - BAND_ORDER.indexOf(b.alertBand) ||
       b.urgencyRank - a.urgencyRank ||
       Math.abs(b.itcAtStake) - Math.abs(a.itcAtStake) ||
       a.gstin.localeCompare(b.gstin)
   );
 
   const bands = BAND_ORDER.map((band) => {
-    const members = suppliers.filter((entry) => entry.risk.band === band);
+    const members = suppliers.filter((entry) => entry.alertBand === band);
     return {
       band,
       supplierCount: members.length,
       invoiceCount: members.reduce((sum, entry) => sum + entry.invoiceCount, 0),
       itcAtStake: members.reduce((sum, entry) => sum + entry.itcAtStake, 0),
+      // How many are here because their cut-off passed rather than because of
+      // their filing record. The group header says so rather than applying a
+      // record-based sentence to somebody whose record is clean.
+      escalatedCount: members.filter((entry) => entry.escalated).length,
+      pastCutOffCount: members.filter((entry) => entry.preCutOff === false).length,
       suppliers: members
     };
   });

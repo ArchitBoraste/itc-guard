@@ -33,9 +33,11 @@ import {
 import { rebuildSupplierPeriods } from '../../src/services/supplierStats.js';
 import {
   ALERT_STATUS,
+  BAND_ORDER,
   RISK_BAND_THRESHOLDS,
   RISK_BANDS,
   URGENCY,
+  alertBandFor,
   preventiveAlerts,
   scoreSupplierRisk
 } from '../../src/services/preventive.js';
@@ -422,6 +424,118 @@ describe('preventive alerts through the filing month', () => {
     });
   });
 
+  // --- which GROUP a supplier lands in --------------------------------------
+  //
+  // "Normal for this point in the month" is a claim about the calendar as much as
+  // about the supplier: unreported, but their deadline has not arrived. Grouping
+  // on the risk band alone made it a claim about the supplier only, so the three
+  // groups held identical members on the 5th and the 16th. On the 16th "Normal"
+  // still contained a supplier whose cut-off had passed a week earlier and who
+  // had still filed nothing — while their own card, correctly, showed a red
+  // "Cut-off passed" chip and a GSTR-1A consequence.
+  //
+  // The risk band itself is untouched by any of this. It describes their filing
+  // RECORD, which does not change because the calendar moved.
+
+  const groupOf = (alerts, key) => {
+    const gstin = byKey(key).gstin;
+    const band = alerts.bands.find((entry) =>
+      entry.suppliers.some((supplier) => supplier.gstin === gstin)
+    );
+    return band?.band ?? null;
+  };
+
+  describe('group membership follows the as-of date', () => {
+    it('puts a reliable supplier in Normal while their cut-off is still ahead', () => {
+      expect(groupOf(onThe5th, 'RELIABLE')).toBe(RISK_BANDS.LOW);
+      expect(supplierIn(onThe5th, 'RELIABLE').preCutOff).toBe(true);
+      expect(supplierIn(onThe5th, 'RELIABLE').escalated).toBe(false);
+    });
+
+    it('takes them OUT of Normal once their cut-off has passed', () => {
+      const reliable = supplierIn(onThe16th, 'RELIABLE');
+      expect(reliable.preCutOff).toBe(false);
+
+      // The bug, stated directly.
+      expect(groupOf(onThe16th, 'RELIABLE')).not.toBe(RISK_BANDS.LOW);
+      expect(groupOf(onThe16th, 'RELIABLE')).toBe(RISK_BANDS.MEDIUM);
+
+      // Their RECORD is unchanged — they are still a reliable filer who is simply
+      // out of time, and the screen has to keep being able to say so.
+      expect(reliable.risk.band).toBe(RISK_BANDS.LOW);
+      expect(reliable.escalated).toBe(true);
+    });
+
+    it('moves a supplier between groups as the date crosses their own cut-off', () => {
+      // The QRMP supplier is the one that proves this is per-supplier and not one
+      // global date: on the 12th the monthly filers are past their 11th and this
+      // one still has a day left on their 13th.
+      expect(supplierIn(onThe12th, 'QRMP').preCutOff).toBe(true);
+      expect(supplierIn(onThe12th, 'RELIABLE').preCutOff).toBe(false);
+
+      expect(groupOf(onThe12th, 'QRMP')).toBe(RISK_BANDS.LOW);
+      expect(groupOf(onThe12th, 'RELIABLE')).toBe(RISK_BANDS.MEDIUM);
+
+      // One day later their own cut-off has gone too, and they move.
+      expect(groupOf(onThe16th, 'QRMP')).toBe(RISK_BANDS.MEDIUM);
+      expect(supplierIn(onThe16th, 'QRMP').escalated).toBe(true);
+    });
+
+    it('shrinks Normal and grows the concern groups as the month advances', () => {
+      const size = (alerts, band) =>
+        alerts.bands.find((entry) => entry.band === band).supplierCount;
+
+      const normal = [onThe5th, onThe10th, onThe12th, onThe16th].map((a) =>
+        size(a, RISK_BANDS.LOW)
+      );
+      const concern = [onThe5th, onThe10th, onThe12th, onThe16th].map(
+        (a) => size(a, RISK_BANDS.HIGH) + size(a, RISK_BANDS.MEDIUM)
+      );
+
+      // Monotonic, and it actually moves rather than merely not increasing.
+      for (let i = 1; i < normal.length; i += 1) {
+        expect(normal[i]).toBeLessThanOrEqual(normal[i - 1]);
+        expect(concern[i]).toBeGreaterThanOrEqual(concern[i - 1]);
+      }
+      expect(normal.at(-1)).toBeLessThan(normal[0]);
+      expect(concern.at(-1)).toBeGreaterThan(concern[0]);
+
+      // By the 16th every cut-off has gone, so nothing can still be "normal for
+      // this point in the month".
+      expect(normal.at(-1)).toBe(0);
+    });
+
+    it('never leaves a past-cut-off supplier in Normal, on any of the four days', () => {
+      for (const alerts of [onThe5th, onThe10th, onThe12th, onThe16th]) {
+        const normal = alerts.bands.find((entry) => entry.band === RISK_BANDS.LOW);
+        for (const supplier of normal.suppliers) {
+          expect(supplier.preCutOff).not.toBe(false);
+        }
+      }
+    });
+
+    it('keeps the totals whole — regrouping moves suppliers, it does not lose them', () => {
+      for (const alerts of [onThe5th, onThe10th, onThe12th, onThe16th]) {
+        const grouped = alerts.bands.reduce((sum, band) => sum + band.supplierCount, 0);
+        const groupedItc = alerts.bands.reduce((sum, band) => sum + band.itcAtStake, 0);
+        expect(grouped).toBe(alerts.totals.supplierCount);
+        expect(groupedItc).toBe(alerts.totals.itcAtStake);
+      }
+      // Same suppliers throughout — only their grouping moved.
+      expect(onThe16th.totals.supplierCount).toBe(onThe5th.totals.supplierCount);
+      expect(onThe16th.totals.itcAtStake).toBe(onThe5th.totals.itcAtStake);
+    });
+
+    it('counts the escalated members on the band, for the group header to use', () => {
+      const medium = onThe16th.bands.find((entry) => entry.band === RISK_BANDS.MEDIUM);
+      expect(medium.escalatedCount).toBeGreaterThan(0);
+      expect(medium.pastCutOffCount).toBe(medium.supplierCount);
+      expect(medium.escalatedCount).toBe(
+        medium.suppliers.filter((supplier) => supplier.escalated).length
+      );
+    });
+  });
+
   // --- saved is not safe ----------------------------------------------------
 
   it('reports a supplier who has SAVED but not FILED as not yet safe', () => {
@@ -461,6 +575,39 @@ describe('preventive alerts through the filing month', () => {
         expect(supplier.chaseMessage).not.toContain('₹');
       }
     });
+  });
+});
+
+// The escalation rule on its own, including the two branches the fixture cannot
+// reach: a HIGH supplier (already at the top, nowhere to go) and an unresolvable
+// cut-off.
+describe('alertBandFor', () => {
+  it('leaves everyone where they are while the cut-off is ahead', () => {
+    for (const band of BAND_ORDER) {
+      expect(alertBandFor(band, true)).toBe(band);
+    }
+  });
+
+  it('moves a supplier up exactly one band once their cut-off has passed', () => {
+    expect(alertBandFor(RISK_BANDS.LOW, false)).toBe(RISK_BANDS.MEDIUM);
+    expect(alertBandFor(RISK_BANDS.MEDIUM, false)).toBe(RISK_BANDS.HIGH);
+  });
+
+  it('does not promote past the top band', () => {
+    // Everything is past its cut-off after the 13th. Sending them all to HIGH
+    // would leave one group holding the entire screen on the day it matters
+    // most, which is the ranking doing no work at all.
+    expect(alertBandFor(RISK_BANDS.HIGH, false)).toBe(RISK_BANDS.HIGH);
+  });
+
+  it('does not escalate on an unresolved cut-off', () => {
+    // null is "could not work it out", not "passed". Moving somebody into a
+    // concern group on the strength of a failed calculation is the same class of
+    // mistake as leaving them in Normal after their deadline.
+    for (const band of BAND_ORDER) {
+      expect(alertBandFor(band, null)).toBe(band);
+      expect(alertBandFor(band, undefined)).toBe(band);
+    }
   });
 });
 

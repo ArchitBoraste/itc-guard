@@ -269,11 +269,20 @@ export const RISK_BAND_LABEL = {
   UNPROVEN: 'Too early to say'
 };
 
-export const RISK_BAND_HELP = {
+// What a band says about the SUPPLIER'S RECORD. True whichever day it is read on,
+// which is the point: everything calendar-dependent has been lifted out into
+// bandHelp() below.
+//
+// These used to carry the calendar too, and it contradicted the cards underneath
+// them. LOW read "Not reported yet, and that is normal — GSTR-1 is not due until
+// their cut-off" while Mahavir Sales Corp inside it showed a red "Cut-off passed"
+// chip and a GSTR-1A consequence: the header said nothing was wrong, the card
+// said the credit had slipped a month. HIGH promised "a phone call today is free"
+// on a date when it was not.
+export const RISK_BAND_CLAIM = {
   HIGH:
     'These suppliers have a filing record that says the invoice may not arrive, ' +
-    'or may arrive too late to count. A phone call today is free; after their ' +
-    'cut-off it costs a month.',
+    'or may arrive too late to count.',
   MEDIUM:
     'Some history of filing late or short. Worth a message if the amount ' +
     'matters to you.',
@@ -281,9 +290,72 @@ export const RISK_BAND_HELP = {
     'Not enough filing history to judge yet. Not a concern and not a clean ' +
     'bill of health — just too early to say either way.',
   LOW:
-    'Not reported yet, and that is normal — GSTR-1 is not due until their ' +
-    'cut-off. Listed so nothing is hidden, not because anything is wrong.'
+    'Nothing in their filing record suggests a problem. Listed so nothing is ' +
+    'hidden, not because anything is wrong.'
 };
+
+// bandHelp(band, suppliers) -> the sentence shown above a group on Before cut-off.
+//
+// Exactly the shape of actionHelp() above, and for exactly the same reason. The
+// engine already decides per supplier whether their own cut-off has passed —
+// 11th for a monthly filer, 13th for QRMP — so a group can hold both kinds at
+// once and no single static sentence is true of it. This counts what is actually
+// in the group and says that.
+//
+// preCutOff is true / false / null, and null means the date could not be
+// resolved rather than "not passed". Unknowns are excluded from BOTH sides of the
+// count: claiming nothing is past its cut-off because we failed to work it out is
+// the same class of mistake this function exists to remove.
+export function bandHelp(band, suppliers = []) {
+  const claim = RISK_BAND_CLAIM[band] ?? '';
+
+  // Suppliers the API moved up a band because their own cut-off passed. Their
+  // filing record is not why they are in this group, so the band's record-based
+  // claim is not about them.
+  const escalated = suppliers.filter((supplier) => supplier?.escalated === true).length;
+
+  if (suppliers.length && escalated === suppliers.length) {
+    return (
+      'Every supplier here is past their own cut-off with nothing reported. Their ' +
+      'filing record is not what put them in this group — the deadline is. Chasing ' +
+      'still matters, because it is how the credit reaches a later period instead ' +
+      'of being lost, but it can no longer land in this one.'
+    );
+  }
+
+  const known = suppliers.filter(
+    (supplier) => supplier?.preCutOff === true || supplier?.preCutOff === false
+  );
+  if (!known.length) return claim;
+
+  const past = known.filter((supplier) => supplier.preCutOff === false).length;
+
+  let clause;
+  if (past === 0) {
+    clause =
+      'None of them are past their own cut-off yet, so there is still time for ' +
+      'the invoice to land in this period.';
+  } else if (past === known.length) {
+    clause =
+      'All of them are past their own cut-off: chasing still matters — it is how ' +
+      'the credit reaches a later period instead of being lost — but it can no ' +
+      'longer land in this one.';
+  } else {
+    clause =
+      `${past} of ${known.length} are past their supplier's cut-off — for those, a ` +
+      'correction now reaches a later period, not this one. The rest are still ' +
+      'inside the window where it costs nothing.';
+  }
+
+  // A group holding both kinds has to say so, or the record-based claim silently
+  // gets applied to somebody whose record is clean.
+  const note = escalated
+    ? ` ${escalated} of them moved up from a calmer group because their cut-off ` +
+      'passed, not because of their filing record.'
+    : '';
+
+  return `${claim} ${clause}${note}`;
+}
 
 export const URGENCY_LABEL = {
   EARLY: 'Time in hand',

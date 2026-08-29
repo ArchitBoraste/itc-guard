@@ -4,9 +4,9 @@ import { rupees, rupeesCompact } from '../lib/money.js';
 import { formatDate, formatPeriod, runClock } from '../lib/calendar.js';
 import {
   ALERT_STATUS_LABEL,
-  RISK_BAND_HELP,
   RISK_BAND_LABEL,
-  URGENCY_LABEL
+  URGENCY_LABEL,
+  bandHelp
 } from '../lib/vocab.js';
 import { Empty, ErrorBox, Loading } from '../components/States.jsx';
 
@@ -189,7 +189,13 @@ function Band({ band }) {
               {band.invoiceCount} document{band.invoiceCount === 1 ? '' : 's'}
             </span>
           </h2>
-          <p className="muted">{RISK_BAND_HELP[band.band]}</p>
+          {/* Counted from the suppliers actually in this group, not looked up
+              from a table. Their cut-offs differ — 11th monthly, 13th QRMP — so
+              a group genuinely can hold both, and a fixed sentence would be
+              wrong for whichever half it did not describe. */}
+          <p className="muted" data-testid={`band-help-${band.band}`}>
+            {bandHelp(band.band, band.suppliers)}
+          </p>
         </div>
         <div className="change-total">
           <strong data-testid={`band-itc-${band.band}`}>{rupees(band.itcAtStake)}</strong>

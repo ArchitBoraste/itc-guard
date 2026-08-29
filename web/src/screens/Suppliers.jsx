@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { rupees } from '../lib/money.js';
 import { formatDate, formatPeriod } from '../lib/calendar.js';
@@ -87,6 +87,26 @@ function LateTrend({ periods }) {
 // supplier should not be filed under "normal"; but there is nothing to act on
 // either, so they must not push a genuine concern down the page.
 const SORT_BAND_ORDER = ['HIGH', 'MEDIUM', 'UNPROVEN', 'LOW', null];
+
+// The table's columns, in order.
+//
+// Declared once rather than written out in the <thead>, because the expanded
+// detail row spans them with a colSpan and the two have to agree. Hard-coding
+// colSpan={11} works right up until someone adds a column, at which point the
+// panel silently stops spanning the table and nothing fails.
+const SUPPLIER_COLUMNS = [
+  { label: 'Supplier' },
+  { label: 'Risk' },
+  { label: 'Scheme' },
+  { label: 'Periods', num: true },
+  { label: 'Docs', num: true },
+  { label: 'Late', num: true },
+  { label: 'Missed', num: true },
+  { label: 'Mismatches', num: true },
+  { label: 'Avg timing', num: true },
+  { label: 'Days-late trend' },
+  { label: 'Tax observed', num: true }
+];
 
 function rowCounts(supplier) {
   const features = supplier.risk?.features;
@@ -419,17 +439,11 @@ export function SuppliersScreen({ run = null }) {
           <table className="table suppliers-table" data-testid="suppliers-table">
             <thead>
               <tr>
-                <th>Supplier</th>
-                <th>Risk</th>
-                <th>Scheme</th>
-                <th className="num">Periods</th>
-                <th className="num">Docs</th>
-                <th className="num">Late</th>
-                <th className="num">Missed</th>
-                <th className="num">Mismatches</th>
-                <th className="num">Avg timing</th>
-                <th>Days-late trend</th>
-                <th className="num">Tax observed</th>
+                {SUPPLIER_COLUMNS.map((column) => (
+                  <th key={column.label} className={column.num ? 'num' : undefined}>
+                    {column.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -438,11 +452,13 @@ export function SuppliersScreen({ run = null }) {
                 const avg =
                   counts.avgDaysLate === null ? null : Math.round(counts.avgDaysLate);
                 const late = lateness(avg);
+                const isOpen = selected === supplier.gstin;
                 return (
+                  <Fragment key={supplier.gstin}>
                   <tr
-                    key={supplier.gstin}
-                    className={`is-clickable ${selected === supplier.gstin ? 'is-selected' : ''}`}
+                    className={`is-clickable ${isOpen ? 'is-selected' : ''}`}
                     data-testid={`supplier-${supplier.gstin}`}
+                    aria-expanded={isOpen}
                     onClick={() =>
                       setSelected((current) => (current === supplier.gstin ? null : supplier.gstin))
                     }
@@ -479,6 +495,24 @@ export function SuppliersScreen({ run = null }) {
                     </td>
                     <td className="num mono">{rupees(supplier.stats.observedTotalTax)}</td>
                   </tr>
+
+                  {/* Directly beneath the row it belongs to.
+                      It used to render after the whole table. On 64 suppliers
+                      that meant clicking a row appeared to do nothing at all,
+                      and the panel was a full page-scroll away from the name it
+                      described. Only one is ever open — `selected` holds a single
+                      gstin — so there is no question of which row it belongs to. */}
+                  {isOpen ? (
+                    <tr className="detail-row" data-testid={`supplier-detail-row-${supplier.gstin}`}>
+                      <td colSpan={SUPPLIER_COLUMNS.length}>
+                        <SupplierDetail
+                          gstin={supplier.gstin}
+                          onClose={() => setSelected(null)}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -486,8 +520,6 @@ export function SuppliersScreen({ run = null }) {
           </div>
         )}
       </section>
-
-      {selected ? <SupplierDetail gstin={selected} onClose={() => setSelected(null)} /> : null}
     </div>
   );
 }

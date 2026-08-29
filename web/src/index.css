@@ -586,7 +586,12 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 .table.dense td { padding: 4px 8px; }
 .table tbody tr:hover { background: var(--wash); }
 .table tr.is-clickable { cursor: pointer; }
-.table tr.is-selected { background: var(--accent-wash); }
+/* `:hover` above is (0,2,2) and this used to be (0,2,1), so hovering an open row
+   made it look closed — exactly while the pointer is on it, which is exactly
+   when the reader is asking which row the panel below belongs to. `tbody` here
+   only exists to win that match. */
+.table tbody tr.is-selected,
+.table tbody tr.is-selected:hover { background: var(--accent-wash); }
 .table tr.is-missed { background: var(--bad-wash); }
 .cell-strong { font-weight: 600; }
 
@@ -607,6 +612,21 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 
 .suppliers-table td { vertical-align: middle; }
 .supplier-detail { border-color: var(--accent); }
+
+/* The expanded per-supplier panel, sitting in its own row under the supplier it
+   describes. The cell carries no padding of its own so the panel's border lines
+   up with the row above rather than floating in a gutter, and the accent rule on
+   the left ties the two together down the length of the panel. */
+.table tbody tr.detail-row > td { padding: 0 0 10px; background: var(--accent-wash); }
+.table tbody tr.detail-row:hover > td { background: var(--accent-wash); }
+.detail-row .supplier-detail {
+  margin: 0 0 0 3px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+}
+/* The inner periods table is narrow content inside an already-scrolling wrapper;
+   it must not inherit the outer table's 780px floor and force a second scrollbar. */
+.detail-row .table-wrap > .table { min-width: 0; }
 
 /* --- what changed since your review ------------------------------------- *
  *
