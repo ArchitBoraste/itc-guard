@@ -53,8 +53,45 @@ export const config = {
     database: process.env.DB_NAME ?? 'itc_guard'
   },
   fixturesDir:
-    process.env.FIXTURES_DIR ?? FIXTURE_CANDIDATES.find((path) => existsSync(path)) ?? null
+    process.env.FIXTURES_DIR ?? FIXTURE_CANDIDATES.find((path) => existsSync(path)) ?? null,
+
+  // Per-visitor demo tenancy. Off by default so `npm test` and a local dev run
+  // keep the old single-org behaviour; the public deployment sets DEMO_TENANCY=on.
+  //
+  // Read lazily, unlike the db block above. These are deployment knobs rather
+  // than connection settings, nothing caches them across a request, and reading
+  // them at access time means a test can turn tenancy on without having to win a
+  // race against module load order.
+  get demo() {
+    return demoConfig();
+  }
 };
+
+function demoConfig() {
+  return {
+    enabled: (process.env.DEMO_TENANCY ?? 'off').toLowerCase() === 'on',
+    cookieName: process.env.DEMO_COOKIE_NAME ?? 'itcg_session',
+    // No built-in default on purpose. A hard-coded fallback secret in a public
+    // repo is a forgeable cookie; an absent one is replaced by a random key at
+    // boot, which merely means cookies do not survive a restart.
+    secret: process.env.DEMO_SESSION_SECRET ?? null,
+    cookieSecure: (process.env.DEMO_COOKIE_SECURE ?? 'false').toLowerCase() === 'true',
+    sessionHours: Number(process.env.DEMO_SESSION_HOURS ?? 12),
+    // How many seeded orgs sit ready. Each one costs a seed up front and roughly
+    // a purchase register's worth of rows in MySQL.
+    poolSize: Number(process.env.DEMO_POOL_SIZE ?? 3),
+    // Hard ceiling on live demo orgs (POOL + CLAIMED + PROVISIONING). Org 1 and
+    // the reserved test orgs are not demo orgs and never count towards it.
+    maxOrgs: Number(process.env.DEMO_MAX_ORGS ?? 40),
+    // A claimed org untouched for this long is deleted.
+    idleMinutes: Number(process.env.DEMO_IDLE_MINUTES ?? 180),
+    // How often the reaper runs and the pool is topped back up.
+    sweepMinutes: Number(process.env.DEMO_SWEEP_MINUTES ?? 5),
+    // Concurrent seeds. This is a 1 GB / 2 vCPU box; a seed parses an xlsx and
+    // two JSON downloads, so more than a couple at once is how it falls over.
+    seedConcurrency: Number(process.env.DEMO_SEED_CONCURRENCY ?? 2)
+  };
+}
 
 // user@host:port/database — never the password.
 export function connectionTarget() {

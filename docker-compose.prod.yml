@@ -1,0 +1,169 @@
+# ITC Guard — production stack for the public judging deployment.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Four services on one origin:
+#
+#   caddy  :443/:80  TLS, and the only thing exposed to the internet
+#     |-- /api/*, /health  ->  api:3000
+#     '-- everything else  ->  web:8080   (the built static bundle)
+#   db     internal only
+#
+# Nothing but caddy publishes a port. The API and MySQL are reachable only on the
+# compose network, so the database is not on the internet even briefly — which is
+# not true of docker-compose.yml, where db is mapped to the host for local tools.
+#
+# MEMORY. This targets a t3.micro: 1 GB total, of which Ubuntu and the Docker
+# daemon take roughly 200 MB, leaving ~760 MB for containers. The limits below
+# add up to 752 MB, and every one of them is a hard cgroup cap — a service that
+# runs away is killed and restarted rather than taking the box down with it.
+# DEPLOY.md says what to lower first if the box is under pressure.
+
+# A project name distinct from the dev stack's. Without it both stacks resolve to
+# the directory name and SHARE `itc-guard_db_data` — running this locally would
+# quietly point production containers at the development database.
+name: itc-guard-prod
+
+services:
+  # ---------------------------------------------------------------------------
+  db:
+    # Built, not pulled, purely so the tuning is baked in with the right file
+    # mode. MySQL silently ignores a world-writable option file and runs on stock
+    # defaults instead — which does not fit on this box. See deploy/mysql/Dockerfile.
+    build:
+      context: ./deploy/mysql
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env.prod}
+      MYSQL_DATABASE: ${DB_NAME:-itc_guard}
+      MYSQL_USER: ${DB_USER:-itc}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.prod}
+    healthcheck:
+      # Authenticated ping. `mysqladmin ping` answers "mysqld is alive" even while
+      # the server is still refusing connections during first-boot initialisation,
+      # so the credentials are supplied to make this a real readiness check.
+      test:
+        ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root",
+         "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # First boot initialises the data directory, which on a t3.micro's burst
+      # credits is not quick. Nothing is marked unhealthy during this window.
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEM_LIMIT:-384M}
+    logging: &logging
+      driver: json-file
+      options:
+        # An 8 GB root volume and a stack that must stay up until 5 September:
+        # uncapped container logs are a slow way to fill the disk and take the
+        # whole thing down on the last day.
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      # Repo root, not ./api — the image mirrors the checkout layout so the
+      # fixtures and the risk model resolve. See api/Dockerfile.prod.
+      context: .
+      dockerfile: api/Dockerfile.prod
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        # Not merely "started". The API opens a pool on first use and migrations
+        # run by hand after this, but a container that boots against a MySQL still
+        # initialising its data directory spends its first minute restart-looping.
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-itc}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.prod}
+      DB_NAME: ${DB_NAME:-itc_guard}
+
+      # --- per-visitor demo data ---------------------------------------------
+      # Every one of these is read on access rather than cached at import, so
+      # changing a value here and restarting the container is the whole procedure.
+      DEMO_TENANCY: ${DEMO_TENANCY:-on}
+      DEMO_SESSION_SECRET: ${DEMO_SESSION_SECRET:?set DEMO_SESSION_SECRET in .env.prod}
+      DEMO_COOKIE_SECURE: ${DEMO_COOKIE_SECURE:-true}
+      DEMO_SESSION_HOURS: ${DEMO_SESSION_HOURS:-12}
+      DEMO_POOL_SIZE: ${DEMO_POOL_SIZE:-2}
+      DEMO_MAX_ORGS: ${DEMO_MAX_ORGS:-20}
+      DEMO_IDLE_MINUTES: ${DEMO_IDLE_MINUTES:-180}
+      DEMO_SWEEP_MINUTES: ${DEMO_SWEEP_MINUTES:-5}
+      DEMO_SEED_CONCURRENCY: ${DEMO_SEED_CONCURRENCY:-1}
+
+      NODE_OPTIONS: ${API_NODE_OPTIONS:---max-old-space-size=192}
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEM_LIMIT:-256M}
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    # Static files only. It holds no state, talks to nothing, and is rebuilt from
+    # source on every deploy.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /config
+      - /data
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEM_LIMIT:-48M}
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      # Caddy always listens on 80/443 INSIDE the container; SITE_ADDRESS decides
+      # whether it serves TLS there. Only the host side varies, so a local run can
+      # sit on 8080 without the container's ports and the Caddyfile disagreeing.
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      # HTTP/3. Harmless if the security group does not open UDP; Caddy falls
+      # back to TCP and nothing notices.
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      # ':80' locally, 'itc.example.com' in production. Caddy switches between
+      # plain HTTP and automatic HTTPS on the shape of this value alone.
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Issued certificates. Without this volume every restart re-runs ACME, and
+      # Let's Encrypt's rate limit (5 per domain per week) is reachable in an
+      # afternoon of restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: ${CADDY_MEM_LIMIT:-64M}
+    logging: *logging
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

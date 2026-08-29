@@ -1,0 +1,85 @@
+# MySQL 8 on a 1 GB box.
+#
+# Stock MySQL 8 assumes it owns the machine and settles around 400-450 MB RSS
+# before it has stored anything. On a t3.micro that is most of the instance, and
+# it is the reason an untuned stack here gets OOM-killed rather than "runs a bit
+# slow". Measured with this file: ~210 MB RSS steady, against ~400 MB stock.
+#
+# The workload this is sized for: ~5 MB per demo org (rows, indexes, and the
+# uploaded files, which are stored as BLOBs), a couple of dozen orgs live at
+# once, every query filtered on org_id and served from an index. It is a small,
+# index-driven, mostly-read workload — not something that needs a large cache.
+
+[mysqld]
+
+# --- the big one -----------------------------------------------------------
+# Performance Schema pre-allocates its instrumentation tables at startup and is
+# worth ~150-200 MB on its own. Nothing here reads it. Turning it off is the
+# single largest saving available and costs only the ability to introspect the
+# server's own timings, which is not something a hackathon demo does.
+performance_schema = OFF
+
+# --- InnoDB ---------------------------------------------------------------
+# The whole dataset at the org cap is a couple of hundred MB, so the buffer pool
+# cannot hold it all whatever we choose. 96 MB comfortably holds the working set
+# — one visitor's org at a time, reached by index — and the rest is served from
+# the page cache. Raising this is the first thing to try if reads feel slow AND
+# there is memory to spare; it is also the first thing to lower if the box is
+# thrashing.
+innodb_buffer_pool_size = 96M
+# One instance: below ~1 GB MySQL would collapse them anyway, and multiple
+# instances only add per-instance overhead at this size.
+innodb_buffer_pool_instances = 1
+
+innodb_log_buffer_size = 8M
+# Replaces innodb_log_file_size on 8.0.30+. 64 MB is far more redo than this
+# write volume needs, and keeps checkpoint flushing off the critical path during
+# a seed, which is the only burst of writes this app ever does.
+innodb_redo_log_capacity = 64M
+
+# Skip the OS page cache for InnoDB's own pages: on a box this small, having the
+# same page cached twice is memory we do not have.
+innodb_flush_method = O_DIRECT
+# EBS is not a spinning disk; neighbour flushing is pointless write amplification.
+innodb_flush_neighbors = 0
+
+# Durability. The default (1) fsyncs every commit and is the safe choice; this is
+# a demo whose entire contents can be rebuilt with one button, and 2 removes a
+# per-commit fsync from a burst of thousands of inserts. The exposure is losing
+# up to a second of writes if the HOST dies — a MySQL crash alone loses nothing.
+innodb_flush_log_at_trx_commit = 2
+
+# --- connections and caches ------------------------------------------------
+# The API pool is capped at 10 connections and it is the only client. 40 leaves
+# room for a mysql shell and the healthcheck without reserving per-connection
+# buffers for hundreds of sessions that will never exist.
+max_connections = 40
+thread_cache_size = 8
+table_open_cache = 200
+table_definition_cache = 200
+# No DNS lookups on connect, and no cache to hold the results in.
+skip_name_resolve = ON
+host_cache_size = 0
+
+# --- per-connection buffers ------------------------------------------------
+# These are allocated PER CONNECTION when used, so defaults multiply. Queries
+# here are index-driven and return at most a few hundred rows.
+sort_buffer_size = 512K
+join_buffer_size = 512K
+read_buffer_size = 128K
+read_rnd_buffer_size = 256K
+
+# Temporary tables. The largest is the results page (500 rows joined three ways).
+tmp_table_size = 16M
+max_heap_table_size = 16M
+
+# --- binary log ------------------------------------------------------------
+# On by default in MySQL 8. There is no replica and no point-in-time recovery
+# story for demo data, so it is pure write amplification and disk growth.
+disable_log_bin
+
+# --- uploads ---------------------------------------------------------------
+# Uploaded files are stored as LONGBLOB. The API caps a file at 25 MB, so a
+# single INSERT can approach that; the default 64 MB packet already covers it,
+# but it is stated here so the two limits are visibly related.
+max_allowed_packet = 64M

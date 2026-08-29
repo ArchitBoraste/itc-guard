@@ -52,6 +52,20 @@ export const api = {
   health: () => request('/health'),
   org: () => request('/api/org'),
 
+  // --- this visitor's session ----------------------------------------------
+  //
+  // The first call the app makes. On a public deployment it mints a private org
+  // and sets an httpOnly cookie; the cookie rides on every later request because
+  // Vite proxies /api to the same origin, so fetch sends it by default.
+  //
+  // Returns { session: { orgId, state, isNew, error, perVisitor }, pool }.
+  // state is READY or PROVISIONING — see PreparingScreen.
+  session: () => request('/api/session').then((body) => body.session),
+
+  // Reloads the sample data into the caller's own org. Answers immediately with
+  // PROVISIONING; the app polls session() until it is READY again.
+  resetSession: () => json('POST', '/api/session/reset').then((body) => body.session),
+
   // --- uploads -------------------------------------------------------------
   listUploads: () => request('/api/uploads').then((body) => body.uploads),
 

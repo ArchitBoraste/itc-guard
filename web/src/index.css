@@ -100,6 +100,10 @@ body { margin: 0; }
 .nav-item.is-active { background: var(--ink); color: #fff; }
 .nav-item:disabled { opacity: 0.35; cursor: not-allowed; }
 
+/* "Reset my data" arms on the first click and confirms on the second, so the
+   row has to hold three items without pushing the period picker off the bar. */
+.reset-confirm { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+
 .period-picker { display: flex; align-items: center; gap: 8px; }
 .period-picker label { font-size: 0.78rem; color: var(--ink-3); }
 

@@ -1,0 +1,70 @@
+# Edge reverse proxy: TLS termination, and one origin for the whole app.
+#
+# SITE_ADDRESS is the only thing that changes between a laptop and the server,
+# which is what lets this exact file be the one that was tested locally:
+#
+#   local   SITE_ADDRESS=:8080          plain HTTP, no certificate, no ACME
+#   server  SITE_ADDRESS=itc.example.com  automatic HTTPS from Let's Encrypt
+#
+# Caddy decides between those on the form of the address alone: a bare port means
+# HTTP, a hostname means it should go and get a certificate. There is no "prod
+# mode" flag to forget to set.
+
+{
+	# The admin API is a local-only control socket. Nothing here uses it, and off
+	# is a few MB and one less listener.
+	admin off
+
+	# NO `email` DIRECTIVE HERE, deliberately.
+	#
+	# `email {$ACME_EMAIL}` is the obvious thing to write and it breaks the local
+	# run: with ACME_EMAIL unset the placeholder expands to nothing, `email`
+	# becomes a directive with zero arguments, and Caddy refuses to load the file
+	# at all — the same file that has to work in both places. There is no
+	# conditional syntax in a Caddyfile to guard it with.
+	#
+	# Caddy registers an ACME account without a contact address instead, which
+	# Let's Encrypt has supported for years. The only thing given up is expiry
+	# email, and Caddy renews at two thirds of the certificate's life on its own,
+	# so that notice would arrive about something already handled. If you want it
+	# anyway, add a literal `email you@example.com` line here.
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# --- the API ------------------------------------------------------------
+	#
+	# Same origin as the app, which is the point: the session cookie is httpOnly
+	# and SameSite=Lax, and it rides on every request without a CORS preflight or
+	# a credentials dance because the browser considers this all one site.
+	#
+	# The router in the API is mounted AT /api, so the prefix is passed through
+	# rather than stripped — matching how the Vite dev proxy behaved.
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	# /health sits outside the /api router and needs its own route.
+	handle /health {
+		reverse_proxy api:3000
+	}
+
+	# --- everything else is the built frontend ------------------------------
+	handle {
+		reverse_proxy web:8080
+	}
+
+	header {
+		# Don't advertise the stack.
+		-Server
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

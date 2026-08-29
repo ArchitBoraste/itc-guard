@@ -25,6 +25,38 @@ const TRADER = Object.freeze({
 
 export const DEMO_PERIOD = '2026-04';
 
+// organizations.gstin is globally UNIQUE, and it has to stay that way — two
+// traders sharing a GSTIN is not a thing. So each demo tenant gets its own valid
+// GSTIN under the same PAN prefix, varying the PAN's four serial digits and
+// recomputing the check digit. That is a real registration pattern (one PAN, many
+// registrations), and it keeps the trader's NAME identical on every judge's
+// screen while the identity underneath is genuinely distinct.
+//
+// Org 1 keeps the canonical fixture GSTIN so the presenter's own demo, every
+// screenshot and the README all still say 27AABCS1429F1Z8.
+const GSTIN_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+// GSTIN check digit: weights alternate 1,2 across the first 14 characters; each
+// product contributes its quotient and remainder mod 36.
+function gstinCheckDigit(first14) {
+  let sum = 0;
+  for (let i = 0; i < 14; i += 1) {
+    const value = GSTIN_ALPHABET.indexOf(first14[i]);
+    if (value < 0) throw new Error(`invalid GSTIN character '${first14[i]}'`);
+    const product = value * (i % 2 === 0 ? 1 : 2);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return GSTIN_ALPHABET[(36 - (sum % 36)) % 36];
+}
+
+export function traderGstinFor(orgId) {
+  if (Number(orgId) === 1) return TRADER.gstin;
+  // 27 AABCS <dddd> F 1 Z <check> — indices 7..10 are the PAN serial digits.
+  const serial = String(Number(orgId) % 10000).padStart(4, '0');
+  const first14 = `27AABCS${serial}F1Z`;
+  return first14 + gstinCheckDigit(first14);
+}
+
 const SOURCES = Object.freeze([
   { kind: 'PURCHASE_REGISTER', filename: 'purchase_register.xlsx' },
   { kind: 'IMS', filename: 'ims.json' },
@@ -50,13 +82,20 @@ export function availableDemoPeriods() {
   return periods;
 }
 
-async function ensureOrg(orgId) {
+// Creates the org if it is not there, and otherwise leaves it completely alone.
+//
+// It used to be an INSERT ... ON DUPLICATE KEY UPDATE writing the one hard-coded
+// trader GSTIN. With more than one org that is a cross-tenant write, not an
+// upsert: the duplicate key it hits is the UNIQUE on gstin, which belongs to a
+// DIFFERENT org's row, so seeding org N would rename org 1. Nothing here has any
+// business editing an org that already exists.
+export async function ensureOrg(orgId) {
+  const [existing] = await pool.query('SELECT id FROM organizations WHERE id = ?', [orgId]);
+  if (existing.length) return;
   await pool.query(
-    `INSERT INTO organizations (id, gstin, legal_name, trade_name, state_code, filer_type)
-     VALUES (?, ?, ?, ?, ?, 'MONTHLY')
-     ON DUPLICATE KEY UPDATE gstin = VALUES(gstin), legal_name = VALUES(legal_name),
-       trade_name = VALUES(trade_name), state_code = VALUES(state_code)`,
-    [orgId, TRADER.gstin, TRADER.legalName, TRADER.tradeName, TRADER.stateCode]
+    `INSERT IGNORE INTO organizations (id, gstin, legal_name, trade_name, state_code, filer_type)
+     VALUES (?, ?, ?, ?, ?, 'MONTHLY')`,
+    [orgId, traderGstinFor(orgId), TRADER.legalName, TRADER.tradeName, TRADER.stateCode]
   );
 }
 

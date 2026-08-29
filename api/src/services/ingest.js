@@ -19,6 +19,10 @@ export class ServiceError extends Error {
     super(message);
     this.status = status;
     this.code = code;
+    // Every ServiceError message is copy written for the trader, so it is safe
+    // to send back as-is. The production error responder redacts everything
+    // NOT marked this way — see createApp() in app.js.
+    this.expose = true;
   }
 }
 

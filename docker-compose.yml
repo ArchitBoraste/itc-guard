@@ -38,6 +38,16 @@ services:
       DB_NAME: ${DB_NAME:-itc_guard}
       PORT: 3000
       NODE_ENV: ${NODE_ENV:-development}
+      # Per-visitor demo data. Off locally — a dev run stays on org 1, which is
+      # what npm run demo:reset seeds and what every screenshot is of. The public
+      # judging deployment sets DEMO_TENANCY=on in its own .env, and must also set
+      # DEMO_SESSION_SECRET or sessions die on every restart.
+      DEMO_TENANCY: ${DEMO_TENANCY:-off}
+      DEMO_SESSION_SECRET: ${DEMO_SESSION_SECRET:-}
+      DEMO_COOKIE_SECURE: ${DEMO_COOKIE_SECURE:-false}
+      DEMO_POOL_SIZE: ${DEMO_POOL_SIZE:-3}
+      DEMO_MAX_ORGS: ${DEMO_MAX_ORGS:-40}
+      DEMO_IDLE_MINUTES: ${DEMO_IDLE_MINUTES:-180}
     ports:
       - "3000:3000"
     volumes:

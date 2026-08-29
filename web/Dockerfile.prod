@@ -1,0 +1,42 @@
+# ITC Guard web — production image.
+#
+# Stage 1 runs `npm run build`; stage 2 serves the static output. No Vite dev
+# server, no HMR websocket, no source in the shipped image.
+#
+# Measured: the build peaks at ~163 MB RSS and finishes in about 1.5 s, and still
+# succeeds under a 192 MB hard cap (V8 sizes its heap to the cgroup). It is not
+# the thing that will run the t3.micro out of memory.
+#
+#   docker build -f web/Dockerfile.prod -t itc-guard-web ./web
+
+# syntax=docker/dockerfile:1
+
+# ---- build ----------------------------------------------------------------
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Manifests first so the install layer survives source edits.
+COPY package.json package-lock.json ./
+# The build needs vite and @vitejs/plugin-react, which are devDependencies, so
+# this install is deliberately NOT --omit=dev. None of it reaches stage 2.
+RUN npm ci --no-audit --no-fund
+
+COPY index.html vite.config.js ./
+COPY src ./src
+
+# No VITE_* variables are baked in. The app calls '/api/...' and '/health' as
+# same-origin relative paths, so the API host is whatever origin served the page —
+# which is the whole reason Caddy fronts both. Nothing here needs to know the
+# production domain, and there is no build to redo if it changes.
+RUN npm run build
+
+# ---- serve ----------------------------------------------------------------
+FROM caddy:2-alpine AS runtime
+
+COPY --from=build /app/dist /srv
+COPY Caddyfile /etc/caddy/Caddyfile
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1

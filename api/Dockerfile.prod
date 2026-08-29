@@ -1,0 +1,76 @@
+# ITC Guard API — production image.
+#
+# Built from the REPO ROOT, not from api/, because the image mirrors the repo's
+# own layout:
+#
+#   /app/api/{package.json,node_modules,src}   the service
+#   /app/tools                                 demo:reset and the fixture generator
+#   /app/ml/model.json                         the supplier risk model
+#   /app/fixtures/<period>/...                 the demo data, generated at build
+#
+# That layout is not cosmetic. api/src/config.js resolves the fixtures directory
+# and api/src/risk/score.js resolves ml/model.json by walking up from their own
+# module URLs, and both land on the right file only if api/ sits one level under
+# the repo root. Flattening this image to /app/src would silently drop the risk
+# model — the app keeps working, on the phase 7 hand-weighted fallback, and says
+# nothing about it.
+#
+#   docker build -f api/Dockerfile.prod -t itc-guard-api .
+
+# syntax=docker/dockerfile:1
+
+# ---- dependencies ---------------------------------------------------------
+FROM node:20-alpine AS deps
+WORKDIR /app/api
+COPY api/package.json api/package-lock.json ./
+# --omit=dev drops vitest and its tree: roughly 90 MB that a production image
+# has no use for.
+RUN npm ci --omit=dev --no-audit --no-fund
+
+# ---- demo fixtures --------------------------------------------------------
+# fixtures/ is generated and gitignored, so a fresh clone does not have it. It is
+# built HERE rather than on the server: the generator is deterministic (one seeded
+# RNG), so baking it in means every deploy of a given commit serves byte-identical
+# demo data, and the box never has to run a build step to have something to show.
+#
+# It needs `xlsx`, which is a production dependency, so this stage reuses deps
+# rather than installing anything of its own.
+FROM deps AS fixtures
+WORKDIR /app
+COPY tools ./tools
+RUN node tools/generate-fixtures.js
+
+# ---- runtime --------------------------------------------------------------
+FROM node:20-alpine AS runtime
+
+ENV NODE_ENV=production
+# V8 sizes its heap from the cgroup limit, but only approximately, and the number
+# it picks assumes it is the only thing in the container. Being explicit keeps a
+# seed that allocates hard inside the memory limit compose sets, so it gets a
+# clean GC rather than an OOM kill. Overridable per deployment.
+ENV NODE_OPTIONS=--max-old-space-size=192
+
+WORKDIR /app/api
+
+COPY --from=deps /app/api/node_modules ./node_modules
+COPY api/package.json ./package.json
+COPY api/src ./src
+
+# tools/ ships so the operator can run demo-reset against org 1 on the box.
+COPY tools /app/tools
+COPY ml /app/ml
+COPY --from=fixtures /app/fixtures /app/fixtures
+
+# Nothing is written to disk at runtime — uploads are stored as BLOBs in MySQL —
+# so the service has no reason to own its own files.
+USER node
+
+EXPOSE 3000
+
+# /health reports whether MySQL is reachable, which is what "is this container
+# useful" actually means here. Compose restarts on the process dying; this is for
+# the operator reading `docker compose ps`.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1
+
+CMD ["node", "src/index.js"]

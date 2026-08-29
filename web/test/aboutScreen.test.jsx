@@ -13,6 +13,8 @@ vi.mock('../src/api.js', async (importOriginal) => {
   return {
     ...actual,
     api: {
+      session: vi.fn(),
+      resetSession: vi.fn(),
       org: vi.fn(),
       listRuns: vi.fn(),
       getRunByPeriod: vi.fn(),
@@ -37,6 +39,9 @@ import { AboutScreen, TEST_COUNTS } from '../src/screens/About.jsx';
 
 beforeEach(() => {
   window.location.hash = '';
+  // Single-org deployment: the session resolves immediately and the app carries
+  // on exactly as it did before per-visitor demo data existed.
+  api.session.mockResolvedValue({ orgId: 1, state: 'READY', isNew: false, error: null, perVisitor: false });
   api.org.mockResolvedValue({ org: { id: 1, gstin: '27AABCS1429F1Z8', tradeName: 'Sharma' }, demoPeriods: [] });
   api.listRuns.mockResolvedValue([]);
   api.listUploads.mockResolvedValue([]);

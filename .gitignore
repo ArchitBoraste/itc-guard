@@ -7,10 +7,16 @@ node_modules/
 .pnp.*
 
 # env & secrets
+#
+# `*.env` only matches names ENDING in .env, so it did NOT cover `.env.prod` —
+# the file holding the production DB password and the session signing secret.
+# `.env.*` covers every suffix; the negations re-admit the committed templates.
 .env
 .env.local
 *.env
+.env.*
 !.env.example
+!.env.prod.example
 
 # build output
 dist/

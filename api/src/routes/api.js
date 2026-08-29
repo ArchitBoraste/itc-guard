@@ -22,6 +22,9 @@ import {
 import { listChangesForRun } from '../services/syncDiff.js';
 import { preventiveAlerts } from '../services/preventive.js';
 import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
+import { config } from '../config.js';
+import { demoSession, requireReadySession } from '../http/session.js';
+import { resetSession, tenancyStats } from '../services/demoTenancy.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
 import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
@@ -38,12 +41,19 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }
 });
 
-// Stubbed single user. No login yet — every request is org 1.
+// Single-user fallback: every request is org 1.
+//
+// Still the default when DEMO_TENANCY is off, which is how a local dev run and
+// the whole test suite behave. The public deployment turns tenancy on and gets
+// demoSession instead, which resolves the org from a signed cookie.
 export function stubAuth(req, res, next) {
   req.orgId = 1;
   req.userId = null;
+  req.sessionState = 'READY';
   next();
 }
+
+const defaultAuth = () => (config.demo.enabled ? demoSession : stubAuth);
 
 // Wraps an async handler so a rejected promise reaches the error middleware
 // instead of hanging the request.
@@ -54,9 +64,54 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
 // in test/helpers/db.js). Without a seam here the only way to exercise a route
 // end to end would be against the demo's own data. Production still gets
 // stubAuth; only tests pass anything else. Real auth will use this too.
-export function apiRouter({ auth = stubAuth } = {}) {
+export function apiRouter({ auth = defaultAuth() } = {}) {
   const router = Router();
   router.use(auth);
+
+  // --- this visitor's session ---------------------------------------------
+
+  // The first call the web app makes. It is what mints a session, so it is
+  // mounted ABOVE requireReadySession — it has to answer while the org it just
+  // created is still being seeded, since saying "not ready yet" is its whole job
+  // in that case.
+  //
+  // state: READY        use the app
+  //        PROVISIONING show "preparing your demo data" and poll this again
+  router.get('/session', wrap(async (req, res) => {
+    res.json({
+      session: {
+        orgId: req.orgId,
+        state: req.sessionState ?? 'READY',
+        isNew: Boolean(req.sessionIsNew),
+        // Set when a seed or a reset failed. The screen shows it with a retry
+        // rather than dropping the visitor into an empty app with no explanation.
+        error: req.sessionError ?? null,
+        // Whether this deployment gives each visitor their own copy at all. The
+        // UI hides "Reset my data" when it does not — on a single-org dev run the
+        // button would wipe the developer's own data.
+        perVisitor: config.demo.enabled
+      },
+      pool: config.demo.enabled ? await tenancyStats() : null
+    });
+  }));
+
+  // "Reset my data". Wipes and rebuilds the CALLER's org and nothing else, then
+  // answers PROVISIONING so the UI switches to the same preparing screen a cold
+  // first visit uses.
+  router.post('/session/reset', wrap(async (req, res) => {
+    if (!config.demo.enabled) {
+      throw new ServiceError(
+        'per-visitor demo data is not enabled on this deployment — use "npm run demo:reset"',
+        409,
+        'conflict'
+      );
+    }
+    const result = await resetSession(req.orgId);
+    res.status(202).json({ session: { orgId: req.orgId, state: result.state, error: null } });
+  }));
+
+  // From here down, every route needs an org whose data is actually there.
+  router.use(requireReadySession);
 
   // --- who this is ---------------------------------------------------------
 

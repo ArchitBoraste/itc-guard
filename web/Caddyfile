@@ -1,0 +1,27 @@
+# Static file server inside the web image. Plain HTTP on :8080 — TLS is
+# terminated one hop up by the edge Caddy, which is the only thing that talks to
+# this container.
+:8080 {
+	root * /srv
+
+	encode zstd gzip
+
+	# The app routes on the hash (#/summary), so the server only ever sees "/".
+	# The fallback is here anyway: it costs nothing, and it means a deep link
+	# still lands on the app if routing ever moves to the history API.
+	try_files {path} /index.html
+	file_server
+
+	# Vite fingerprints every asset filename, so they can be cached forever.
+	# index.html must not be, or a deploy is invisible until the browser decides
+	# to look again.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header /index.html Cache-Control "no-cache"
+
+	log {
+		output stdout
+		format console
+		level ERROR
+	}
+}
