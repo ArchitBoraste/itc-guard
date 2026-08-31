@@ -371,13 +371,44 @@ export const ALERT_STATUS_LABEL = {
   SAVED_VALUE_MISMATCH: 'Saved with different amounts'
 };
 
-// Why a document that is absent from IMS can never arrive there. Mirrors
-// neverEntersImsReason() in api/src/services/preventive.js.
-export const NEVER_IN_IMS_LABEL = {
-  REVERSE_CHARGE: 'Reverse charge — never enters IMS',
-  ITC_INELIGIBLE: 'ITC unavailable — never enters IMS',
-  NON_IMS_SECTION: 'ISD or import — never enters IMS'
+// Why a document was kept OFF Before cut-off entirely. Mirrors EXCLUDED_REASONS
+// and excludedReasonFor() in api/src/services/preventive.js.
+//
+// None of these are concerns. Each one is a document that reaches GSTR-2B
+// directly and never enters IMS, so its absence from IMS is the finished state
+// rather than a supplier running late.
+export const EXCLUDED_REASON_LABEL = {
+  REVERSE_CHARGE: 'reverse charge',
+  ITC_INELIGIBLE: 'ITC unavailable',
+  NON_IMS_SECTION: 'ISD or imports'
 };
+
+// excludedSentence(excluded) -> the informational line under the summary cards,
+// or null when nothing was set aside.
+//
+// Written out rather than dropped silently: on the April sample this removes 32
+// of 36 documents and 21 of 24 suppliers, and a screen whose headline falls from
+// Rs 13.29 L to Rs 79,211 between two versions has to say where the difference
+// went, or it reads as data loss.
+export function excludedSentence(excluded, formatMoney) {
+  if (!excluded?.invoiceCount) return null;
+
+  const parts = Object.entries(excluded.byReason ?? {})
+    .filter(([, part]) => part.count > 0)
+    .map(([reason, part]) => `${part.count} ${EXCLUDED_REASON_LABEL[reason] ?? reason}`);
+
+  const docs = `${excluded.invoiceCount} document${excluded.invoiceCount === 1 ? '' : 's'}`;
+  const suppliers = excluded.supplierCount
+    ? ` from ${excluded.supplierCount} supplier${excluded.supplierCount === 1 ? '' : 's'}`
+    : '';
+
+  return (
+    `Set aside: ${docs}${suppliers}, ${formatMoney(Math.abs(excluded.itcAtStake))} — ` +
+    `${parts.join(', ')}. These reach GSTR-2B directly and never enter IMS, so there is ` +
+    'no IMS record to accept and nobody to chase. They are not counted in any figure ' +
+    'above; Summary accounts for them under Outside IMS and Ineligible.'
+  );
+}
 
 // --- why the two screens count different things -----------------------------
 //
@@ -397,15 +428,18 @@ export const CROSS_SCREEN_NOTE = {
     'that exists before the cut-off, and the only one that shows a record a ' +
     'supplier has merely saved. Summary reconciles against GSTR-2B as well, so an ' +
     'invoice already in 2B counts as reported there while still being unsafe ' +
-    'here: until the supplier files, they can still change it. These totals are ' +
+    'here: until the supplier files, they can still change it. Records that can ' +
+    'never enter IMS — reverse charge, ITC-ineligible, ISD and imports — are left ' +
+    'off this screen entirely and live on Summary instead. So these totals are ' +
     'not a subset of Summary’s and Summary’s are not a subset of these.',
   SUMMARY:
     'These totals reconcile your books against IMS and GSTR-2B together, which is ' +
-    'what exists once 2B has generated on the 14th. Before cut-off compares ' +
-    'against IMS alone, so it counts documents that are already filed into 2B and ' +
-    'settled here — and reverse-charge and ITC-ineligible records, which reach 2B ' +
-    'directly and never enter IMS at all. Neither screen’s figures are a subset ' +
-    'of the other’s.'
+    'what exists once 2B has generated on the 14th, and they account for every ' +
+    'document — including reverse-charge, ISD, import and ITC-ineligible records, ' +
+    'under Outside IMS and Ineligible below. Before cut-off compares against IMS ' +
+    'alone and lists only what can still be chased, so it leaves those out and ' +
+    'counts drafts a supplier can still change. Neither screen’s figures are a ' +
+    'subset of the other’s.'
 };
 
 export const SECTION_LABEL = {

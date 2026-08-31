@@ -52,7 +52,7 @@ const invoice = (over = {}) => ({
   deltaTotalTax: null,
   inGstr2b: false,
   gstr2bFiledOn: null,
-  neverEntersImsReason: null,
+  excludedReason: null,
   note: 'Not in IMS at all — the supplier has not even saved it yet.',
   ...over
 });
@@ -93,8 +93,17 @@ function alertsBody(invoices, totalsOver = {}) {
       expectedInvoices: 400,
       imsRecords: 380,
       inGstr2bCount: invoices.filter((one) => one.inGstr2b).length,
-      neverEntersImsCount: invoices.filter((one) => one.neverEntersImsReason).length,
       ...totalsOver
+    },
+    excluded: {
+      invoiceCount: 0,
+      supplierCount: 0,
+      itcAtStake: 0,
+      byReason: {
+        REVERSE_CHARGE: { count: 0, itcAtStake: 0 },
+        ITC_INELIGIBLE: { count: 0, itcAtStake: 0 },
+        NON_IMS_SECTION: { count: 0, itcAtStake: 0 }
+      }
     },
     bands: [
       {
@@ -148,17 +157,21 @@ describe('Before cut-off explains itself against Summary', () => {
 
     const note = await screen.findByTestId('alerts-cross-screen');
     expect(note.textContent).toMatch(/Summary reconciles against GSTR-2B as well/);
+    expect(note.textContent).toMatch(/left off this screen entirely/);
     expect(note.textContent).toMatch(/not a subset/);
   });
 
-  it('says on the row whether GSTR-2B already has the invoice', async () => {
+  // Everything that can never enter IMS is off this screen now, so a "Yes" here
+  // means exactly one thing: filed, in 2B, and missing from a stale IMS download.
+  it('says on the row when GSTR-2B already has the invoice', async () => {
     api.listAlerts.mockResolvedValue(
       alertsBody([
         invoice({
           inGstr2b: true,
           gstr2bFiledOn: '2026-08-09',
-          neverEntersImsReason: 'REVERSE_CHARGE',
-          note: 'Already in your GSTR-2B — the supplier filed it on 9 Aug 2026.'
+          note:
+            'Already in your GSTR-2B — the supplier filed it on 9 Aug 2026 — but ' +
+            'missing from this IMS download. re-download IMS before chasing.'
         })
       ])
     );
@@ -167,8 +180,9 @@ describe('Before cut-off explains itself against Summary', () => {
     const cell = await screen.findByTestId('in2b-11');
     expect(cell.textContent).toMatch(/Yes/);
     expect(cell.textContent).toMatch(/filed 9 Aug 2026/);
-    // The insight, not the contradiction: it is in 2B AND it can never be in IMS.
-    expect(cell.textContent).toMatch(/never enters IMS/);
+    // The action is a re-download, not a phone call, and the card says so.
+    const count = await screen.findByTestId('alerts-in2b-count');
+    expect(count.parentElement.textContent).toMatch(/re-download IMS before phoning/);
   });
 
   it('marks a document that is genuinely nowhere as not in 2B either', async () => {
@@ -180,15 +194,60 @@ describe('Before cut-off explains itself against Summary', () => {
     expect(cell.textContent).not.toMatch(/never enters IMS/);
   });
 
-  it('does not write "32, and 32 of those" when the two counts are equal', async () => {
-    const rcm = invoice({ inGstr2b: true, neverEntersImsReason: 'REVERSE_CHARGE' });
-    api.listAlerts.mockResolvedValue(alertsBody([rcm]));
+  // The set-aside line is informational and must stay that way: no band, no
+  // chase message, and not inside any figure above it.
+  it('reports what it kept off the screen, without making it a concern group', async () => {
+    const body = alertsBody([invoice()]);
+    body.excluded = {
+      invoiceCount: 32,
+      supplierCount: 21,
+      itcAtStake: 125027897,
+      byReason: {
+        REVERSE_CHARGE: { count: 21, itcAtStake: 88088389 },
+        ITC_INELIGIBLE: { count: 11, itcAtStake: 36939508 },
+        NON_IMS_SECTION: { count: 0, itcAtStake: 0 }
+      }
+    };
+    api.listAlerts.mockResolvedValue(body);
     render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
 
-    const count = await screen.findByTestId('alerts-in2b-count');
-    expect(count.textContent).toBe('1 of 1');
-    expect(count.parentElement.textContent).toMatch(/none of them can ever enter IMS/);
-    expect(count.parentElement.textContent).not.toMatch(/1 of those/);
+    const note = await screen.findByTestId('excluded-note');
+    expect(note.textContent).toMatch(/Set aside: 32 documents from 21 suppliers/);
+    expect(note.textContent).toMatch(/21 reverse charge, 11 ITC unavailable/);
+    expect(note.textContent).toMatch(/not counted in any figure above/i);
+    // Not a card, not a band, and carrying no tone that would read as a warning.
+    expect(note.className).not.toMatch(/total-card|tone-|band-/);
+    expect(note.querySelector('button')).toBeNull();
+  });
+
+  it('says nothing when there was nothing to set aside', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([invoice()]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+    await screen.findByTestId('alert-summary');
+    expect(screen.queryByTestId('excluded-note')).toBeNull();
+  });
+
+  it('does not claim everything was filed when the list is empty only by exclusion', async () => {
+    const body = alertsBody([]);
+    body.totals.supplierCount = 0;
+    body.suppliers = [];
+    body.bands = body.bands.map((band) => ({ ...band, supplierCount: 0, suppliers: [] }));
+    body.excluded = {
+      invoiceCount: 5,
+      supplierCount: 4,
+      itcAtStake: 900000,
+      byReason: {
+        REVERSE_CHARGE: { count: 5, itcAtStake: 900000 },
+        ITC_INELIGIBLE: { count: 0, itcAtStake: 0 },
+        NON_IMS_SECTION: { count: 0, itcAtStake: 0 }
+      }
+    };
+    api.listAlerts.mockResolvedValue(body);
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+
+    const empty = await screen.findByTestId('empty-alerts');
+    expect(empty.textContent).toMatch(/that could be chased/);
+    expect(empty.textContent).toMatch(/need nothing from anybody/);
   });
 });
 
@@ -198,6 +257,8 @@ describe('Summary explains itself against Before cut-off', () => {
     const note = screen.getByTestId('summary-cross-screen');
     expect(note.textContent).toMatch(/IMS and GSTR-2B together/);
     expect(note.textContent).toMatch(/Before cut-off compares against IMS alone/);
+    // Summary is where the excluded records live, and it has to claim them.
+    expect(note.textContent).toMatch(/Outside IMS and Ineligible/);
     expect(note.textContent).toMatch(/Neither screen.s figures are a subset/);
   });
 

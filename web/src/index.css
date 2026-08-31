@@ -897,3 +897,12 @@ details.model-note[open] > summary { margin-bottom: 6px; }
 .howto-steps li { max-width: 88ch; }
 .howto-steps h4 { margin: 0 0 4px; font-size: 0.95rem; }
 .howto-steps p { margin: 0 0 8px; line-height: 1.55; }
+
+/* What Before cut-off deliberately does not count. Muted and borderless — a
+   tone class or a card would make it read as a fourth concern group, which is
+   the opposite of what it says. */
+.excluded-note {
+  margin: 10px 0 0;
+  max-width: 92ch;
+  line-height: 1.5;
+}

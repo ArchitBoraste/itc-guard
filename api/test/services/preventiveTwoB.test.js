@@ -1,18 +1,23 @@
-// What "not in IMS" actually means on the Before cut-off screen.
+// What Before cut-off is allowed to put in front of a trader.
 //
-// The screen matches the books against IMS ALONE — correctly, because IMS is the
-// only source that exists before the cut-off and the only one that shows a record
-// a supplier has merely SAVED. But every books row with no IMS record was then
-// told "the supplier has not even saved it yet", and on the April sample that
-// sentence was false on 32 of 34 rows: those documents had been FILED weeks
-// earlier and were sitting in GSTR-2B. Most of them are reverse-charge or
-// Sec 17(5) records, which per docs/gst-lifecycle-reference.md never enter IMS at
-// all — absence from IMS is their correct and permanent state.
+// The screen means one thing: credit the books expect that has not safely reached
+// IMS yet AND that somebody can still do something about. Reverse-charge,
+// ITC-ineligible, ISD and import records reach GSTR-2B directly and never enter
+// IMS (CLAUDE.md domain fact 5). Absence from IMS is their correct, permanent,
+// finished state — there is no IMS row to accept, no supplier error to correct,
+// and nobody to phone.
 //
-// So the fix is not to the matching, and deliberately not to the counts. Every
-// row still appears and every total is unchanged; what changes is what the row is
-// allowed to CLAIM about why it is there. This suite pins both halves of that:
-// the annotation is right, and the arithmetic did not move.
+// They were listed anyway, because the two guards in alertItemFor() that were
+// meant to catch them read the purchase register, and the GSTN v2.4 template has
+// eleven columns and carries neither reverse charge nor ITC eligibility. On the
+// April sample that put 32 of 36 documents and 21 of 24 suppliers on a screen
+// headed "who to chase", offered a copy-ready chase message for each of them, and
+// counted Rs 12.50 L of their money as "at stake".
+//
+// The fix is exclusion, not annotation: out of the bands, out of every supplier's
+// invoice list, out of every rupee total. A supplier whose every document is one
+// of these disappears from this screen. Summary still accounts for all of them
+// under Outside IMS and Ineligible, and is untouched.
 //
 // Owns org 13.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -29,11 +34,12 @@ import { TEST_ORGS, ensureOrg, requireDatabase, resetOrg } from '../helpers/db.j
 const ORG_ID = TEST_ORGS.preventiveTwoB;
 const TRADER_GSTIN = '27AABCS1429F7Z2';
 const PERIOD = '2026-07';
-// Past every supplier's cut-off, which is when this screen is at its most wrong:
-// each of these rows is being called an emergency.
+// Past every supplier's cut-off, which is when this screen was at its most wrong:
+// each of these rows was being called an emergency.
 const AS_OF = '2026-08-16';
 
 // One supplier per shape, so a failure names the shape rather than a row number.
+// `chaseable` is the whole assertion: only the last two belong on this screen.
 const CASES = [
   {
     key: 'RCM',
@@ -43,6 +49,7 @@ const CASES = [
     taxable: 52146800,
     tax: 7422591,
     twoB: { reverseCharge: 1, itcAvailable: 1, section: 'b2b' },
+    chaseable: false,
     reason: 'REVERSE_CHARGE'
   },
   {
@@ -54,6 +61,7 @@ const CASES = [
     tax: 3705759,
     // Sec 17(5) blocked credit: filed, in 2B, ITC unavailable, never in IMS.
     twoB: { reverseCharge: 0, itcAvailable: 0, section: 'b2b' },
+    chaseable: false,
     reason: 'ITC_INELIGIBLE'
   },
   {
@@ -64,6 +72,7 @@ const CASES = [
     taxable: 9000000,
     tax: 1620000,
     twoB: { reverseCharge: 0, itcAvailable: 1, section: 'impg' },
+    chaseable: false,
     reason: 'NON_IMS_SECTION'
   },
   {
@@ -74,9 +83,10 @@ const CASES = [
     taxable: 4000000,
     tax: 720000,
     // An ordinary B2B invoice: filed, in 2B, and absent from IMS only because
-    // this IMS download is older than the 2B one. Chasing is the wrong advice —
-    // re-downloading is the right one.
+    // this IMS download is older than the 2B one. This one IS actionable — by
+    // re-downloading, not by phoning — so it stays.
     twoB: { reverseCharge: 0, itcAvailable: 1, section: 'b2b' },
+    chaseable: true,
     reason: null
   },
   {
@@ -86,17 +96,24 @@ const CASES = [
     invoiceNo: 'KT/26/7003',
     taxable: 1000000,
     tax: 180000,
-    // In neither IMS nor 2B. The one shape the original sentence was true of.
+    // In neither IMS nor 2B. The genuine article: somebody has to phone them.
     twoB: null,
+    chaseable: true,
     reason: null
   }
 ];
 
+const chaseable = CASES.filter((entry) => entry.chaseable);
+const setAside = CASES.filter((entry) => !entry.chaseable);
+
 const byKey = (key) => CASES.find((entry) => entry.key === key);
 
+function supplierIn(alerts, key) {
+  return alerts.suppliers.find((entry) => entry.gstin === byKey(key).gstin) ?? null;
+}
+
 function invoiceFor(alerts, key) {
-  const supplier = alerts.suppliers.find((entry) => entry.gstin === byKey(key).gstin);
-  return supplier?.invoices?.[0] ?? null;
+  return supplierIn(alerts, key)?.invoices?.[0] ?? null;
 }
 
 // --- fixture ---------------------------------------------------------------
@@ -121,11 +138,12 @@ function booksRow(entry) {
   };
 }
 
-// The trader's purchase register carries no reverse-charge and no ITC-eligibility
-// column — the GSTN v2.4 template has eleven columns and neither is among them.
-// That is not an oversight in the fixture, it is the reason the guards inside
-// alertItemFor() never fired on the real data: the only place those two facts
-// exist is the 2B record.
+// reverse_charge is written as 0 on EVERY books row on purpose. That is not a
+// lazy fixture — it is the real shape of the input. The GSTN v2.4 purchase
+// register has no reverse-charge and no ITC-eligibility column, so the trader's
+// own file cannot say which of these are RCM, and the 2B record is the only place
+// the fact exists. A fixture that helpfully set the flag on the books side would
+// pass while the production path stayed broken.
 function twoBRow(entry, books) {
   return {
     ...books,
@@ -199,7 +217,7 @@ async function seed() {
 
 // --- suite -----------------------------------------------------------------
 
-describe('what "not in IMS" is allowed to claim', () => {
+describe('Before cut-off lists only what can actually be chased', () => {
   let alerts;
 
   beforeAll(async () => {
@@ -215,56 +233,77 @@ describe('what "not in IMS" is allowed to claim', () => {
     await closePool();
   });
 
-  it('still lists every unreported document — the counts do not move', () => {
-    // The whole point of doing this as an annotation rather than a filter. A
-    // reverse-charge purchase IS still credit the trader has to account for; it
-    // is only the sentence about chasing the supplier that was wrong.
-    expect(alerts.totals.invoiceCount).toBe(CASES.length);
-    expect(alerts.totals.supplierCount).toBe(CASES.length);
+  it.each(setAside.map((entry) => [entry.key, entry.gstin]))(
+    'drops the %s supplier from the screen entirely',
+    (key, gstin) => {
+      expect(supplierIn(alerts, key)).toBeNull();
+      // Not merely absent from the supplier list — absent from every band too,
+      // which is what the screen actually renders.
+      for (const band of alerts.bands) {
+        expect(band.suppliers.map((entry) => entry.gstin)).not.toContain(gstin);
+      }
+    }
+  );
+
+  it.each(setAside.map((entry) => [entry.key, entry.invoiceNo]))(
+    'leaves no trace of the %s invoice in any group',
+    (key, invoiceNo) => {
+      const rendered = JSON.stringify({ bands: alerts.bands, suppliers: alerts.suppliers });
+      expect(rendered).not.toContain(invoiceNo);
+    }
+  );
+
+  it('counts only the chaseable documents in the totals', () => {
+    expect(alerts.totals.invoiceCount).toBe(chaseable.length);
+    expect(alerts.totals.supplierCount).toBe(chaseable.length);
     expect(alerts.totals.itcAtStake).toBe(
-      CASES.reduce((sum, entry) => sum + entry.tax, 0)
+      chaseable.reduce((sum, entry) => sum + entry.tax, 0)
     );
+    // And not one rupee of the set-aside money leaked into a band.
+    const banded = alerts.bands.reduce((sum, band) => sum + band.itcAtStake, 0);
+    expect(banded).toBe(alerts.totals.itcAtStake);
   });
 
-  it('counts how many of them GSTR-2B already carries', () => {
-    expect(alerts.totals.inGstr2bCount).toBe(4);
-    expect(alerts.totals.neverEntersImsCount).toBe(3);
+  it('reports what it set aside rather than dropping it silently', () => {
+    expect(alerts.excluded.invoiceCount).toBe(setAside.length);
+    expect(alerts.excluded.supplierCount).toBe(setAside.length);
+    expect(alerts.excluded.itcAtStake).toBe(
+      setAside.reduce((sum, entry) => sum + entry.tax, 0)
+    );
+    for (const entry of setAside) {
+      expect(alerts.excluded.byReason[entry.reason].count).toBe(1);
+    }
+    // The tally is INFORMATIONAL. If it were ever folded into the headline the
+    // screen would be back to claiming this money is at stake.
+    expect(alerts.excluded.itcAtStake).not.toBe(alerts.totals.itcAtStake);
   });
 
-  it.each([
-    ['RCM', 'REVERSE_CHARGE'],
-    ['INELIGIBLE', 'ITC_INELIGIBLE'],
-    ['IMPORT', 'NON_IMS_SECTION']
-  ])('says a %s record can never enter IMS at all', (key, reason) => {
-    const invoice = invoiceFor(alerts, key);
-    expect(invoice.status).toBe('NOT_REPORTED');
-    expect(invoice.inGstr2b).toBe(true);
-    expect(invoice.neverEntersImsReason).toBe(reason);
-    expect(invoice.gstr2bFiledOn).toBe('2026-08-07');
-    // The claim that was false: the supplier filed this three weeks ago.
-    expect(invoice.note).not.toContain('has not even saved it yet');
-    expect(invoice.note).toContain('Already in your GSTR-2B');
-    // "never enters IMS" for a single record, "never enter IMS" for the ISD and
-    // import sections, which the note speaks about as a class.
-    expect(invoice.note).toContain('never enter');
-  });
-
-  it('blames the IMS download, not the supplier, for an ordinary filed invoice', () => {
+  it('keeps a filed invoice that is only missing from a stale IMS download', () => {
     const invoice = invoiceFor(alerts, 'STALE_IMS_FILE');
+    expect(invoice).not.toBeNull();
     expect(invoice.inGstr2b).toBe(true);
-    // Filed and IMS-eligible: it should be in IMS, so this one really is worth
-    // acting on — but by re-downloading, not by phoning anybody.
-    expect(invoice.neverEntersImsReason).toBeNull();
+    expect(invoice.excludedReason).toBeNull();
+    // Actionable, but the action is a re-download rather than a phone call.
     expect(invoice.note).toContain('Already in your GSTR-2B');
     expect(invoice.note).toContain('re-download IMS');
-    expect(invoice.note).not.toContain('has not even saved it yet');
   });
 
-  it('keeps the original sentence for a document that is genuinely nowhere', () => {
+  it('keeps a document that is genuinely nowhere, and still says so plainly', () => {
     const invoice = invoiceFor(alerts, 'NOWHERE');
+    expect(invoice).not.toBeNull();
     expect(invoice.inGstr2b).toBe(false);
-    expect(invoice.gstr2bFiledOn).toBeNull();
-    expect(invoice.neverEntersImsReason).toBeNull();
+    expect(invoice.excludedReason).toBeNull();
     expect(invoice.note).toBe(STATUS_NOTE.NOT_REPORTED);
+  });
+
+  it('offers a chase message only to suppliers there is something to chase about', () => {
+    for (const supplier of alerts.suppliers) {
+      expect(supplier.chaseMessage).toBeTruthy();
+      // Every invoice quoted in a chase message must be one the supplier can
+      // actually act on. The reverse-charge rows used to end up in here.
+      for (const entry of setAside) {
+        expect(supplier.chaseMessage).not.toContain(entry.invoiceNo);
+      }
+    }
   });
 });

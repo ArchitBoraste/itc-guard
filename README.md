@@ -171,7 +171,7 @@ Docker Compose.
 
 ## Test status
 
-**606 API tests and 124 front-end tests**, all passing. The count is not the point; what
+**646 API tests and 126 front-end tests**, all passing. The count is not the point; what
 they hold is:
 
 | Suite | What it actually verifies |
@@ -446,7 +446,7 @@ supplier fix or a reject.
 
 ## Running the tests
 
-606 API tests and 124 front-end tests. What each suite holds is tabulated under
+646 API tests and 126 front-end tests. What each suite holds is tabulated under
 [Test status](#test-status); this section is about running them.
 
 The front end has its own suite. It runs in the web container, which is where its

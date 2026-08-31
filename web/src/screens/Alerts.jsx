@@ -5,10 +5,10 @@ import { formatDate, formatPeriod, runClock } from '../lib/calendar.js';
 import {
   ALERT_STATUS_LABEL,
   CROSS_SCREEN_NOTE,
-  NEVER_IN_IMS_LABEL,
   RISK_BAND_LABEL,
   URGENCY_LABEL,
-  bandHelp
+  bandHelp,
+  excludedSentence
 } from '../lib/vocab.js';
 import { Empty, ErrorBox, Loading } from '../components/States.jsx';
 
@@ -93,22 +93,17 @@ function InvoiceLines({ supplier }) {
               <td>{formatDate(invoice.invoiceDate)}</td>
               <td className="num mono">{rupees(invoice.taxableValue)}</td>
               <td className="num mono">{rupees(invoice.totalTax)}</td>
-              {/* Absence from IMS has three different causes and they need
-                  different answers. Saying which one this is here is what turns
-                  the apparent contradiction with Summary into the actual
-                  insight — already filed into 2B, and in most cases a document
-                  that can never enter IMS at all. */}
+              {/* Everything that can never enter IMS is off this screen, so a
+                  "Yes" here means only one thing and it is worth flagging: the
+                  supplier FILED this and it is in 2B, but this IMS download does
+                  not have it. That is a stale download, not a late supplier —
+                  the row's note says to re-download rather than to phone. */}
               <td data-testid={`in2b-${invoice.expectedInvoiceId}`}>
                 {invoice.inGstr2b ? (
                   <>
                     <span className="chip chip-in2b">Yes</span>
                     {invoice.gstr2bFiledOn ? (
                       <div className="muted small">filed {formatDate(invoice.gstr2bFiledOn)}</div>
-                    ) : null}
-                    {invoice.neverEntersImsReason ? (
-                      <div className="muted small">
-                        {NEVER_IN_IMS_LABEL[invoice.neverEntersImsReason]}
-                      </div>
                     ) : null}
                   </>
                 ) : invoice.status === 'NOT_REPORTED' ? (
@@ -276,6 +271,8 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
 
   useEffect(load, [load]);
 
+  const excludedNote = alerts ? excludedSentence(alerts.excluded, rupeesCompact) : null;
+
   if (!period) {
     return (
       <Empty title="No period selected" testId="empty-alerts-period">
@@ -338,26 +335,18 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
               </div>
               <p className="total-help">
                 Credit your books expect that is not in IMS, or is in IMS as a draft the
-                supplier can still change.
+                supplier can still change — and that somebody can still do something
+                about.
                 {alerts.totals.inGstr2bCount ? (
                   <>
                     {' '}
                     <strong data-testid="alerts-in2b-count">
                       {alerts.totals.inGstr2bCount} of {alerts.totals.invoiceCount}
                     </strong>{' '}
-                    are already in your GSTR-2B, filed
-                    {/* When every 2B row is also a never-in-IMS row — the usual
-                        case — saying "32, and 32 of those" reads as an error. */}
-                    {alerts.totals.neverEntersImsCount === alerts.totals.inGstr2bCount
-                      ? ', and none of them can ever enter IMS'
-                      : alerts.totals.neverEntersImsCount
-                        ? `, and ${alerts.totals.neverEntersImsCount} of those can never enter IMS`
-                        : ''}
-                    {alerts.totals.neverEntersImsCount
-                      ? ' — reverse charge, ISD, imports, or credit the portal marks ' +
-                        'unavailable. Summary counts them as settled'
-                      : ''}
-                    . Each row below says which.
+                    {alerts.totals.inGstr2bCount === 1 ? 'is' : 'are'} already filed into
+                    your GSTR-2B but missing from this IMS download — re-download IMS
+                    before phoning anyone about{' '}
+                    {alerts.totals.inGstr2bCount === 1 ? 'it' : 'those'}.
                   </>
                 ) : null}
               </p>
@@ -376,6 +365,14 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
               ))}
           </div>
         ) : null}
+
+        {/* Informational, and deliberately not a card: it is not a concern, it
+            has no chase message, and none of it is inside the figures above. */}
+        {excludedNote ? (
+          <p className="muted small excluded-note" data-testid="excluded-note">
+            {excludedNote}
+          </p>
+        ) : null}
       </section>
 
       <ErrorBox error={error} onRetry={load} title="Could not load alerts" />
@@ -384,8 +381,14 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
 
       {alerts && alerts.totals.supplierCount === 0 ? (
         <Empty title="Nothing to chase" testId="empty-alerts">
-          Every {formatPeriod(period)} purchase in your books has been reported in IMS and
-          filed. Anything still unresolved is on the Actions screen, not here.
+          {/* "Everything has been filed" would be false when the list is empty
+              only because everything on it was reverse charge. */}
+          {alerts.excluded?.invoiceCount
+            ? `Every ${formatPeriod(period)} purchase in your books that could be chased ` +
+              'has been reported in IMS and filed. The documents set aside above need ' +
+              'nothing from anybody. Anything still unresolved is on the Actions screen.'
+            : `Every ${formatPeriod(period)} purchase in your books has been reported in ` +
+              'IMS and filed. Anything still unresolved is on the Actions screen, not here.'}
         </Empty>
       ) : null}
 

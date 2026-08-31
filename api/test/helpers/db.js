@@ -58,7 +58,8 @@ export const TEST_ORGS = Object.freeze({
   preventive: 9,
   supplierRisk: 11,
   suppliersRoute: 12,
-  preventiveTwoB: 13
+  preventiveTwoB: 13,
+  alertPopulation: 14
 });
 
 export async function ensureOrg(orgId, gstin) {

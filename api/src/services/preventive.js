@@ -748,26 +748,43 @@ export async function preventiveAlerts(
   // been SAVED — exactly what this mode looks for — never appears in 2B at all.
   const imsRecords = portal.filter((record) => record.source === 'IMS');
 
-  // The 2B side is NOT matched against — it is only read, per invoice, to say
-  // what the row's absence from IMS actually means.
+  // The 2B side is NOT matched against. It is read per invoice for one purpose:
+  // to find out whether a document missing from IMS is missing because a supplier
+  // is late, or because it was never going to be there.
   //
-  // Without it every books row with no IMS record was told "the supplier has not
-  // even saved it yet", and on the April sample that sentence was false on 32 of
-  // 34 rows: those documents were filed weeks earlier and were sitting in 2B.
-  // Most of them are reverse-charge or Sec 17(5) records, which per
-  // docs/gst-lifecycle-reference.md NEVER enter IMS at all — absence from IMS is
-  // their correct and permanent state, not a supplier who is late.
-  //
-  // Nothing here changes which rows are listed or what any total comes to. It
-  // changes what the row is allowed to claim about why it is there.
+  // Reverse-charge, ITC-ineligible, ISD and import records reach GSTR-2B directly
+  // and NEVER enter IMS (CLAUDE.md domain fact 5, docs/gst-lifecycle-reference.md).
+  // Absence from IMS is their correct, permanent, finished state. The purchase
+  // register cannot tell us this on its own — the GSTN v2.4 template has eleven
+  // columns and carries neither a reverse-charge nor an ITC-eligibility one — so
+  // the 2B record is the only place the fact exists.
   const twoB = twoBIndex(portal);
 
   const results = reconcile(expected, imsRecords, { asOfDate: asOf, taxPeriod });
 
+  // This screen means one thing: credit the books expect that has not safely
+  // reached IMS yet. A record that can never enter IMS is not unsafe, it is
+  // COMPLETE — there is no IMS row to accept, no supplier error to correct, and
+  // nobody to phone. Listing it made the screen offer a chase message to a
+  // supplier who had done nothing wrong, and counted their money as "at stake".
+  //
+  // So they leave the population entirely rather than being annotated: out of the
+  // bands, out of every supplier's invoice list, and out of every rupee total. A
+  // supplier whose every document is one of these disappears from this screen.
+  // They are still fully accounted for on Summary, under Outside IMS and
+  // Ineligible, which is the correct home for them and is untouched.
+  //
+  // `excluded` keeps the tally, so the screen can say what it set aside instead
+  // of silently dropping four fifths of its own rows.
   const bySupplier = new Map();
+  const excluded = newExcludedTally();
   for (const result of results) {
     const item = alertItemFor(result, twoB);
     if (!item) continue;
+    if (item.excludedReason) {
+      addToExcludedTally(excluded, item);
+      continue;
+    }
     const gstin = result.expected.supplierGstin;
     if (!bySupplier.has(gstin)) bySupplier.set(gstin, []);
     bySupplier.get(gstin).push(item);
@@ -866,36 +883,37 @@ export async function preventiveAlerts(
       itcAtStake: suppliers.reduce((sum, entry) => sum + entry.itcAtStake, 0),
       expectedInvoices: expected.length,
       imsRecords: imsRecords.length,
-      // How many of the listed documents GSTR-2B already carries, and how many of
-      // those can never enter IMS at all. This is what makes this screen's count
-      // reconcile with the Summary screen's — see the note both screens carry.
-      inGstr2bCount: countInvoices(suppliers, (invoice) => invoice.inGstr2b),
-      neverEntersImsCount: countInvoices(
-        suppliers,
-        (invoice) => invoice.neverEntersImsReason !== null
-      )
+      // Of the documents that ARE listed, how many GSTR-2B already carries. These
+      // are the odd ones out: filed, IMS-eligible, and absent from this IMS
+      // download only because it is older than the 2B one. The fix is to
+      // re-download IMS, not to phone the supplier, and the row says so.
+      inGstr2bCount: countInvoices(suppliers, (invoice) => invoice.inGstr2b)
     },
+    // What this screen deliberately does not count. INFORMATIONAL ONLY — it is
+    // not a band, it carries no chase message, and none of it is inside
+    // totals.itcAtStake above.
+    excluded,
     bands,
     suppliers
   };
 }
 
-// One match result -> one alert item, or null when there is nothing to chase.
+// One match result -> one alert item, or null when the result has no bearing on
+// this screen at all.
 //
-// Skipped on purpose:
+// Not applicable, and returns null:
 //   * anything with no books side. MISSING_IN_BOOKS is a reactive-mode problem;
 //     there is nothing for the supplier to do about it.
-//   * reverse-charge and ITC-ineligible purchases. Per docs/, RCM records never
-//     enter IMS at all, so "not in IMS" is their correct state and an alert on
-//     them would be permanently wrong.
 //   * anything the supplier has already FILED. Their fix now needs GSTR-1A and
 //     lands next period; see consequenceFor().
+//
+// Applicable but NOT CHASEABLE returns an item carrying `excludedReason`. The
+// caller keeps those out of the bands and out of every total — see the comment on
+// `excluded` in preventiveAlerts(). They are returned rather than dropped here so
+// the screen can report how much it set aside and why.
 function alertItemFor(result, twoB = null) {
   const { expected, portal, bucket } = result;
   if (!expected) return null;
-  if (expected.reverseCharge) return null;
-  if (String(expected.itcEligibility ?? '').toLowerCase().startsWith('ineligible')) return null;
-  if (portal?.reverseCharge || portal?.itcAvailable === false) return null;
 
   let status = null;
   if (bucket === BUCKETS.MISSING_IN_PORTAL) {
@@ -909,11 +927,13 @@ function alertItemFor(result, twoB = null) {
   if (!status) return null;
 
   const inTwoB = status === ALERT_STATUS.NOT_REPORTED ? lookupTwoB(twoB, expected) : null;
+  const excludedReason = excludedReasonFor({ expected, portal, inTwoB });
 
   return {
     expectedInvoiceId: expected.id,
     portalRecordId: portal?.id ?? null,
     status,
+    supplierGstin: expected.supplierGstin,
     supplierName: expected.supplierName ?? null,
     docType: expected.docType,
     invoiceNo: expected.invoiceNo,
@@ -937,31 +957,113 @@ function alertItemFor(result, twoB = null) {
     inGstr2b: Boolean(inTwoB),
     gstr2bFiledOn: inTwoB?.supplierFiledOn ?? null,
     gstr2bSection: inTwoB?.section ?? null,
-    // Why it can never appear in IMS, or null when it simply has not yet.
-    neverEntersImsReason: inTwoB ? neverEntersImsReason(inTwoB) : null,
+    // Non-null means this document can never enter IMS, so it is not this
+    // screen's business. The caller drops it from every group and every total.
+    excludedReason,
     // Said in words on the row, because the three statuses look identical to
     // anyone who does not already know what srcfilstatus means.
     note: noteFor(status, inTwoB)
   };
 }
 
-// The 2B record for the same document, or null.
+// Why a document cannot be chased, or null when it can.
 //
-// Keyed on supplier GSTIN + normalised invoice number — the same identity the
-// engine blocks on. This is a lookup for an explanation, not a match: a near
-// miss is left as "not in 2B either", which is the cautious answer.
+// Checked in three places because the fact lives in three places depending on
+// what the trader actually uploaded. The books columns are authoritative when
+// present — the GSTR-2 offline-tool CSV carries both — but the GSTN v2.4
+// spreadsheet has neither, which is what the fixtures use, so in practice it is
+// almost always the 2B record that answers.
+function excludedReasonFor({ expected, portal, inTwoB }) {
+  if (expected.reverseCharge) return EXCLUDED_REASONS.REVERSE_CHARGE;
+  if (String(expected.itcEligibility ?? '').toLowerCase().startsWith('ineligible')) {
+    return EXCLUDED_REASONS.ITC_INELIGIBLE;
+  }
+  if (portal?.reverseCharge) return EXCLUDED_REASONS.REVERSE_CHARGE;
+  if (portal?.itcAvailable === false) return EXCLUDED_REASONS.ITC_INELIGIBLE;
+  return inTwoB ? neverEntersImsReason(inTwoB) : null;
+}
+
+export const EXCLUDED_REASONS = Object.freeze({
+  REVERSE_CHARGE: 'REVERSE_CHARGE',
+  ITC_INELIGIBLE: 'ITC_INELIGIBLE',
+  NON_IMS_SECTION: 'NON_IMS_SECTION'
+});
+
+function newExcludedTally() {
+  const byReason = {};
+  for (const reason of Object.values(EXCLUDED_REASONS)) {
+    byReason[reason] = { count: 0, itcAtStake: 0 };
+  }
+  return { invoiceCount: 0, supplierCount: 0, itcAtStake: 0, byReason, gstins: [] };
+}
+
+function addToExcludedTally(tally, item) {
+  tally.invoiceCount += 1;
+  tally.itcAtStake += item.itcAtStake;
+  const bucket = tally.byReason[item.excludedReason];
+  if (bucket) {
+    bucket.count += 1;
+    bucket.itcAtStake += item.itcAtStake;
+  }
+  // Suppliers, not supplier-documents: the sentence on screen is about how many
+  // businesses came off the list, and one supplier can contribute six invoices.
+  if (item.supplierGstin && !tally.gstins.includes(item.supplierGstin)) {
+    tally.gstins.push(item.supplierGstin);
+    tally.supplierCount += 1;
+  }
+}
+
+// The 2B records for one supplier + normalised invoice number, keyed on the same
+// identity the engine blocks on.
+//
+// A LIST per key, not a single record. Duplicate invoice numbers are real and the
+// engine already has a DUPLICATE_INV_NO flag for them: Navkar Agencies bills
+// 06-17/PNQ/1081 twice in February 2026, once reverse-charge on the 1st and once
+// ordinary on the 3rd. Keeping one record per key silently let the ordinary one
+// mask the reverse-charge one, and the reverse-charge document went back onto a
+// screen it has no business being on. Collapsing duplicates here is exactly the
+// kind of shortcut this product exists to criticise GSTN's own matcher for.
 function twoBIndex(portal) {
   const index = new Map();
   for (const record of portal) {
     if (record.source !== 'GSTR2B') continue;
-    index.set(`${record.supplierGstin}|${record.invoiceNoNorm}`, record);
+    const key = `${record.supplierGstin}|${record.invoiceNoNorm}`;
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push(record);
   }
   return index;
 }
 
+// Which of those records is THIS books row, or null.
+//
+// Date and amounts break the tie, because that is all that separates two
+// documents sharing a number. Scored rather than filtered: with a single
+// candidate the identity key is already strong evidence — same GSTIN, same
+// normalised number — and demanding an exact date would throw away the ordinary
+// one-record case over a day's drift.
 function lookupTwoB(index, expected) {
   if (!index) return null;
-  return index.get(`${expected.supplierGstin}|${expected.invoiceNoNorm}`) ?? null;
+  const candidates = index.get(`${expected.supplierGstin}|${expected.invoiceNoNorm}`) ?? [];
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  let best = null;
+  let bestScore = -1;
+  for (const record of candidates) {
+    let score = 0;
+    if (record.invoiceDate === expected.invoiceDate) score += 2;
+    if (
+      record.taxableValue === expected.taxableValue &&
+      record.totalTax === expected.totalTax
+    ) {
+      score += 1;
+    }
+    if (score > bestScore) {
+      best = record;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 // Per CLAUDE.md domain fact 5 and docs/gstr2b-schema.md: reverse charge, records
