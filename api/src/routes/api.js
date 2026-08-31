@@ -122,7 +122,20 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
       'SELECT id, gstin, legal_name, trade_name, state_code, filer_type FROM organizations WHERE id = ?',
       [req.orgId]
     );
+    // Which periods in THIS org were loaded from the bundled sample files rather
+    // than from something the visitor uploaded. Recognised by the seeder's own
+    // filenames (services/demo.js SOURCES), which is enough for a screen that
+    // wants to say "the data you are looking at is the sample" without claiming
+    // it about a register the visitor dropped in themselves.
+    const [seeded] = await pool.query(
+      `SELECT DISTINCT tax_period FROM uploads
+        WHERE org_id = ? AND tax_period IS NOT NULL
+          AND original_filename IN ('purchase_register.xlsx', 'ims.json', 'gstr2b.json')
+        ORDER BY tax_period`,
+      [req.orgId]
+    );
     res.json({
+      seededPeriods: seeded.map((row) => row.tax_period),
       org: rows.length
         ? {
             id: rows[0].id,

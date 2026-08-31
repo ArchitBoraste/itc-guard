@@ -92,8 +92,14 @@ describe('while this visitor\'s copy is being seeded', () => {
     expect(screen.queryByTestId('upload-screen')).not.toBeInTheDocument();
 
     // The poll takes over without anyone clicking anything.
+    //
+    // The budget is wall clock, not the thing under test: App polls every 1500ms
+    // and the assertion is that NOBODY had to click. Five seconds was three
+    // intervals, and with the suite running files in parallel inside the
+    // container a slow render turned this red roughly one run in three. Raising
+    // it does not weaken the assertion — a poll that never fires still fails.
     await waitFor(() => expect(screen.queryByTestId('preparing')).not.toBeInTheDocument(), {
-      timeout: 5000
+      timeout: 20000
     });
     expect(api.listRuns).toHaveBeenCalled();
   });

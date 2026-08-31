@@ -119,6 +119,25 @@ says so in one sentence and stops.
 
 To stop everything: `docker compose down`.
 
+## Sample files
+
+`samples/2026-04/` holds one tax period's three files, committed so there is something to
+look at without running the generator. They are the same files the **Load sample period**
+button feeds through the app.
+
+| File | What it is | Where a trader gets the real one |
+|---|---|---|
+| `purchase_register.xlsx` | The trader's own books — every inward document they recorded for the month, one row per invoice × tax rate. GSTN template v2.4. | Exported from their accounting software (Tally, Busy, Zoho Books, Marg). GSTN's own v2.4 template ships inside the GSTR-2B offline matching tool, and every package can export to something close to it. |
+| `ims.json` | What suppliers have put into the **Invoice Management System** — including records they have only *saved* and not yet filed. This is the source that exists before the cut-off. | gst.gov.in → Returns → Invoice Management System (IMS) → Download, or through the IMS offline utility. Available from the moment a supplier saves; there is no waiting for a generation date. |
+| `gstr2b.json` | The month's **GSTR-2B** — the static, filed-only statement of the credit available. Ten sections, including the reverse-charge, ISD and import records that never pass through IMS. | gst.gov.in → Returns Dashboard → GSTR-2B → Download JSON. Generated on the **14th** of the month after the tax period and never changes afterwards. |
+
+The other five periods are generated rather than committed — `npm run gen:fixtures` writes
+all six into `fixtures/`, which is gitignored. `samples/` is not: the `fixtures/` ignore
+rule matches a directory of that name, not this one.
+
+The data is synthetic end to end. No real GSTIN, invoice or filing appears in any of it —
+see **Limitations** below and the About screen in the app.
+
 ## Architecture
 
 ```
@@ -152,7 +171,7 @@ Docker Compose.
 
 ## Test status
 
-**566 API tests and 86 front-end tests**, all passing. The count is not the point; what
+**606 API tests and 124 front-end tests**, all passing. The count is not the point; what
 they hold is:
 
 | Suite | What it actually verifies |
@@ -427,7 +446,7 @@ supplier fix or a reject.
 
 ## Running the tests
 
-566 API tests and 86 front-end tests. What each suite holds is tabulated under
+606 API tests and 124 front-end tests. What each suite holds is tabulated under
 [Test status](#test-status); this section is about running them.
 
 The front end has its own suite. It runs in the web container, which is where its

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
-import { formatPeriod } from './lib/calendar.js';
+import { formatDate, formatPeriod } from './lib/calendar.js';
 import {
   ConfirmationResetBanner,
   DeemedAcceptanceBanner
@@ -14,6 +14,7 @@ import { ActionsScreen } from './screens/Actions.jsx';
 import { SuppliersScreen } from './screens/Suppliers.jsx';
 import { AlertsScreen } from './screens/Alerts.jsx';
 import { AboutScreen } from './screens/About.jsx';
+import { HowToUseScreen } from './screens/HowToUse.jsx';
 
 const ROUTES = [
   { id: 'upload', label: 'Upload' },
@@ -23,8 +24,11 @@ const ROUTES = [
   { id: 'alerts', label: 'Before cut-off' },
   { id: 'actions', label: 'Actions' },
   { id: 'suppliers', label: 'Suppliers' },
-  // Needs no run and no data, so it stays clickable on a cold start — which is
-  // exactly when someone is most likely to want to know what they are looking at.
+  // Both need no run and no data, so they stay clickable on a cold start — which
+  // is exactly when someone is most likely to want to know what they are looking
+  // at. "How to use" is the walkthrough; About is the provenance and the
+  // synthetic-data caveat, and they are deliberately not merged.
+  { id: 'howto', label: 'How to use', alwaysEnabled: true },
   { id: 'about', label: 'About', alwaysEnabled: true }
 ];
 
@@ -36,6 +40,10 @@ const ROUTES = [
 // survives navigating away and back (it did not, and the Before cut-off screen
 // silently snapped back to the run's date), it survives a reload, and it makes a
 // particular point in the filing month a link someone can send.
+// The real clock, read once at module load. Everything else in the app runs on
+// the run's as-of date, which is 2026 sample data.
+const TODAY = new Date().toISOString().slice(0, 10);
+
 function readHash() {
   const raw = window.location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = raw.split('?');
@@ -259,18 +267,31 @@ export default function App() {
 
   const afterIngest = useCallback(
     async (taxPeriod) => {
-      const runList = await api.listRuns();
+      // org is re-read, not just the run list: seededPeriods on it is what tells
+      // Summary which period's SAMPLE data is on screen, and a period that was
+      // just loaded is not in the copy fetched at boot.
+      const [runList, orgBody] = await Promise.all([api.listRuns(), api.org()]);
       setRuns(runList);
+      setOrg(orgBody);
+      // The as-of date in the URL belongs to the period that WAS loaded. Carrying
+      // it into a new one reads the new period's filing month at the old one's
+      // date — July's data judged on 16 May. Clearing it hands the clock back to
+      // the run's own as-of date, which the seeder sets to the 16th of the month
+      // AFTER the tax period: past 2B on the 14th, before GSTR-3B on the 20th.
+      //
+      // Cleared BEFORE navigating, because navigate() carries the query across.
+      setAsOf(null);
       if (taxPeriod) {
         setPeriod(taxPeriod);
         await loadRun(taxPeriod);
       }
       navigate('summary');
     },
-    [loadRun, navigate]
+    [loadRun, navigate, setAsOf]
   );
 
   const goToActions = useCallback(() => navigate('actions'), [navigate]);
+  const goToUpload = useCallback(() => navigate('upload'), [navigate]);
 
   const hasData = Boolean(runs?.length);
   const periods = useMemo(() => runs?.map((entry) => entry.taxPeriod) ?? [], [runs]);
@@ -282,7 +303,17 @@ export default function App() {
   // the two seconds before the data lands.
   useEffect(() => {
     if (!sessionReady) return;
-    if (!booting && !hasData && route !== 'upload' && route !== 'about') navigate('upload');
+    if (booting || hasData) return;
+
+    // The hash is read LIVE here rather than trusting the `route` this effect
+    // closed over. About and How to use are enabled from the very first paint —
+    // that is the point of them — so someone can click one while boot is still in
+    // flight. When boot then finished, this effect ran with the route captured
+    // BEFORE that click and redirected them to Upload, undoing it. The window is
+    // a few hundred milliseconds on a cold load, which is exactly when a judge
+    // who has never seen the app is most likely to click "How to use".
+    const current = readHash().route;
+    if (current !== 'upload' && current !== 'about' && current !== 'howto') navigate('upload');
   }, [sessionReady, booting, hasData, route, navigate]);
 
   return (
@@ -296,6 +327,12 @@ export default function App() {
               {org?.org
                 ? `${org.org.tradeName ?? org.org.legalName} · ${org.org.gstin}`
                 : 'GST input tax credit reconciliation'}
+            </div>
+            {/* Every date the app shows is 2026 sample data. Saying what day it
+                really is, once, is the cheapest way to stop a judge reading a
+                simulated filing calendar as a live one. */}
+            <div className="brand-today" data-testid="real-today">
+              Today is {formatDate(TODAY)} · all dates below are sample data
             </div>
           </div>
         </div>
@@ -377,6 +414,8 @@ export default function App() {
             else in the app can load. */}
         {route === 'about' ? (
           <AboutScreen />
+        ) : route === 'howto' ? (
+          <HowToUseScreen onGoTo={navigate} hasData={hasData} />
         ) : session?.state === 'PROVISIONING' ? (
           /* This visitor's private copy is being built. Rare — the pool usually
              has one ready — but it is what a reset always goes through. */
@@ -393,6 +432,7 @@ export default function App() {
           <UploadScreen
             org={org}
             runs={runs}
+            activePeriod={period}
             onIngested={afterIngest}
             onDataChanged={afterDataChanged}
           />
@@ -405,7 +445,9 @@ export default function App() {
             run={run}
             results={results}
             onGoToActions={goToActions}
+            onGoToUpload={goToUpload}
             onRefresh={refreshRun}
+            seededPeriods={org?.seededPeriods ?? []}
           />
         ) : route === 'alerts' ? (
           <AlertsScreen run={run} taxPeriod={period} asOf={asOf} onAsOfChange={setAsOf} />

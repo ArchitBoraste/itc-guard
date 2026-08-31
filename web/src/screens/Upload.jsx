@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from './../api.js';
 import { Empty, ErrorBox, InlineError, Loading } from '../components/States.jsx';
-import { formatPeriod } from '../lib/calendar.js';
+import { formatDate, formatPeriod, nextPeriod } from '../lib/calendar.js';
 
 // Three sources, in the order the trader actually has them: their own books
 // first, then what the portal says.
@@ -253,13 +253,21 @@ function describeStored(entry) {
   return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
 }
 
+// The reconciliation window: the 16th of the month AFTER the tax period. Mirrors
+// seedDemoPeriod() in api/src/services/demo.js and the default in reconcile()
+// below, so what this screen promises is what the run is actually built at.
+function asOfFor(taxPeriod) {
+  const next = nextPeriod(taxPeriod);
+  return next ? `${next}-16` : null;
+}
+
 function periodOf(committed, preview) {
   return committed?.taxPeriod ?? preview?.taxPeriod ?? preview?.rows?.[0]?.taxPeriod ?? null;
 }
 
 // --- screen ----------------------------------------------------------------
 
-export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
+export function UploadScreen({ org, runs, activePeriod = null, onIngested, onDataChanged }) {
   const [zones, setZones] = useState({});
   const [mapper, setMapper] = useState(null); // { kind, uploadId, columns, draft }
   const [mapperBusy, setMapperBusy] = useState(false);
@@ -289,13 +297,23 @@ export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
     refreshHistory();
   }, [refreshHistory]);
 
-  // Defaults once, when the org's fixture list arrives, and then leaves the
-  // trader's own choice alone.
+  // Follows the period the app is actually showing, so the dropdown and the
+  // header can never contradict each other — it read "April 2026" while the
+  // header read "July 2026", which makes both look wrong.
+  //
+  // Only ever snaps to a period that has sample files, and only when the loaded
+  // period changes. A choice the trader made inside this screen is left alone
+  // until they load something else.
+  const demoPeriodList = org?.demoPeriods;
   useEffect(() => {
-    setSamplePeriod(
-      (current) => current || org?.defaultDemoPeriod || org?.demoPeriods?.[0] || ''
-    );
-  }, [org]);
+    const available = demoPeriodList ?? [];
+    if (!available.length) return;
+    if (activePeriod && available.includes(activePeriod)) {
+      setSamplePeriod(activePeriod);
+      return;
+    }
+    setSamplePeriod((current) => current || org?.defaultDemoPeriod || available[0] || '');
+  }, [activePeriod, demoPeriodList, org?.defaultDemoPeriod]);
 
   const setZone = useCallback((kind, patch) => {
     setZones((current) => ({ ...current, [kind]: { ...current[kind], ...patch } }));
@@ -438,9 +456,11 @@ export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
     try {
       // Mid-window by default: after 2B generates on the 14th, before GSTR-3B on
       // the 20th. That is the window the recommendations are written for.
-      const [year, month] = committedPeriod.split('-').map(Number);
-      const next = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
-      await api.createRun({ taxPeriod: committedPeriod, mode: 'REACTIVE', asOfDate: `${next}-16` });
+      await api.createRun({
+        taxPeriod: committedPeriod,
+        mode: 'REACTIVE',
+        asOfDate: asOfFor(committedPeriod)
+      });
       await refreshHistory();
       await onIngested(committedPeriod);
     } catch (err) {
@@ -468,6 +488,17 @@ export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
 
   const nothingLoaded = !runs?.length && !existing?.length && !committed.length;
   const demoPeriods = org?.demoPeriods ?? [];
+
+  // Twelve rows across three periods is a wall of near-identical filenames that
+  // says nothing. Scope it to the period in view — what was uploaded for THIS
+  // month is the only question this table answers — and say how many rows that
+  // hid rather than dropping them silently.
+  const historyPeriod = committedPeriod ?? activePeriod ?? null;
+  const scopedUploads = historyPeriod
+    ? (existing ?? []).filter((upload) => upload.tax_period === historyPeriod)
+    : (existing ?? []);
+  const visibleUploads = scopedUploads.slice(0, 6);
+  const hiddenUploads = (existing?.length ?? 0) - visibleUploads.length;
 
   return (
     <div className="screen screen-upload">
@@ -536,11 +567,17 @@ export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
                 type="button"
                 className="btn"
                 data-testid="load-sample-inline"
-                disabled={seeding}
+                disabled={seeding || !samplePeriod}
                 onClick={() => seed(samplePeriod)}
               >
                 {seeding ? 'Loading…' : 'Load sample period'}
               </button>
+              <p className="muted small seed-inline-help" data-testid="seed-inline-help">
+                Loads all three files for {formatPeriod(samplePeriod)} through the same path
+                your own would take, reconciles, and shows you the result as of{' '}
+                {formatDate(asOfFor(samplePeriod))} — after GSTR-2B generates on the 14th,
+                before GSTR-3B is due on the 20th.
+              </p>
             </div>
           ) : null}
         </header>
@@ -618,12 +655,23 @@ export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
       ) : null}
 
       <section className="panel">
-        <h2>Previously uploaded</h2>
+        <h2>
+          Previously uploaded
+          {historyPeriod ? (
+            <span className="group-count" data-testid="history-scope">
+              {formatPeriod(historyPeriod)}
+              {hiddenUploads ? ` · ${hiddenUploads} more hidden` : ''}
+            </span>
+          ) : null}
+        </h2>
         {existing === null ? (
           <Loading label="Reading upload history" rows={2} />
-        ) : existing.length === 0 ? (
+        ) : visibleUploads.length === 0 ? (
           <Empty title="No uploads yet" testId="empty-uploads">
-            Files you load show up here with their detected format and row count.
+            {existing.length
+              ? `Nothing has been uploaded for ${formatPeriod(historyPeriod)}. ` +
+                `${existing.length} file${existing.length === 1 ? '' : 's'} loaded for other periods.`
+              : 'Files you load show up here with their detected format and row count.'}
           </Empty>
         ) : (
           <div className="table-wrap">
@@ -639,7 +687,7 @@ export function UploadScreen({ org, runs, onIngested, onDataChanged }) {
               </tr>
             </thead>
             <tbody>
-              {existing.slice(0, 12).map((upload) => (
+              {visibleUploads.map((upload) => (
                 <tr key={upload.id}>
                   <td>{upload.kind.replace(/_/g, ' ').toLowerCase()}</td>
                   <td className="mono ellipsis">{upload.original_filename}</td>

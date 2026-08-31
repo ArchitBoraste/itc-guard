@@ -10,6 +10,13 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./test/setup.js'],
-    include: ['test/**/*.test.{js,jsx}']
+    include: ['test/**/*.test.{js,jsx}'],
+    // Vitest's 5s default is per test and measured in wall clock, which is the
+    // wrong unit here for the same reason as asyncUtilTimeout in test/setup.js:
+    // the files run in parallel inside the web container, and the handful of
+    // tests that drive `userEvent` against a full <App /> render occasionally
+    // lose a couple of seconds to that contention. Nothing here is asserting a
+    // performance budget — a test that genuinely hangs still fails, just later.
+    testTimeout: 20000
   }
 });

@@ -371,6 +371,43 @@ export const ALERT_STATUS_LABEL = {
   SAVED_VALUE_MISMATCH: 'Saved with different amounts'
 };
 
+// Why a document that is absent from IMS can never arrive there. Mirrors
+// neverEntersImsReason() in api/src/services/preventive.js.
+export const NEVER_IN_IMS_LABEL = {
+  REVERSE_CHARGE: 'Reverse charge — never enters IMS',
+  ITC_INELIGIBLE: 'ITC unavailable — never enters IMS',
+  NON_IMS_SECTION: 'ISD or import — never enters IMS'
+};
+
+// --- why the two screens count different things -----------------------------
+//
+// The single most confusing thing in the app, and it is not a bug in either
+// screen: Before cut-off reconciles the books against IMS ALONE, because IMS is
+// the only source that exists before the cut-off and the only one that shows a
+// record a supplier has merely SAVED. Summary reconciles against IMS and
+// GSTR-2B together, because by the 14th both exist.
+//
+// So a document already filed into 2B is "reported" on Summary while still
+// counting here — and the reverse-charge and ITC-ineligible ones never enter IMS
+// at all. Neither figure contains the other. Both screens say so, in each
+// other's terms, or the totals read as a contradiction.
+export const CROSS_SCREEN_NOTE = {
+  ALERTS:
+    'This screen compares your books against IMS alone — IMS is the only source ' +
+    'that exists before the cut-off, and the only one that shows a record a ' +
+    'supplier has merely saved. Summary reconciles against GSTR-2B as well, so an ' +
+    'invoice already in 2B counts as reported there while still being unsafe ' +
+    'here: until the supplier files, they can still change it. These totals are ' +
+    'not a subset of Summary’s and Summary’s are not a subset of these.',
+  SUMMARY:
+    'These totals reconcile your books against IMS and GSTR-2B together, which is ' +
+    'what exists once 2B has generated on the 14th. Before cut-off compares ' +
+    'against IMS alone, so it counts documents that are already filed into 2B and ' +
+    'settled here — and reverse-charge and ITC-ineligible records, which reach 2B ' +
+    'directly and never enter IMS at all. Neither screen’s figures are a subset ' +
+    'of the other’s.'
+};
+
 export const SECTION_LABEL = {
   b2b: 'B2B',
   b2ba: 'B2B amendment',

@@ -33,7 +33,7 @@
 // NOTHING IS SENT from here. buildChaseMessage() RETURNS text. No email, no
 // WhatsApp, no integration — the trader copies it and sends it themselves.
 import { pool } from '../db/pool.js';
-import { BUCKETS } from '../matching/buckets.js';
+import { BUCKETS, NON_IMS_SECTIONS } from '../matching/buckets.js';
 import {
   FILING_SCHEMES,
   cutoffDate,
@@ -748,11 +748,25 @@ export async function preventiveAlerts(
   // been SAVED — exactly what this mode looks for — never appears in 2B at all.
   const imsRecords = portal.filter((record) => record.source === 'IMS');
 
+  // The 2B side is NOT matched against — it is only read, per invoice, to say
+  // what the row's absence from IMS actually means.
+  //
+  // Without it every books row with no IMS record was told "the supplier has not
+  // even saved it yet", and on the April sample that sentence was false on 32 of
+  // 34 rows: those documents were filed weeks earlier and were sitting in 2B.
+  // Most of them are reverse-charge or Sec 17(5) records, which per
+  // docs/gst-lifecycle-reference.md NEVER enter IMS at all — absence from IMS is
+  // their correct and permanent state, not a supplier who is late.
+  //
+  // Nothing here changes which rows are listed or what any total comes to. It
+  // changes what the row is allowed to claim about why it is there.
+  const twoB = twoBIndex(portal);
+
   const results = reconcile(expected, imsRecords, { asOfDate: asOf, taxPeriod });
 
   const bySupplier = new Map();
   for (const result of results) {
-    const item = alertItemFor(result);
+    const item = alertItemFor(result, twoB);
     if (!item) continue;
     const gstin = result.expected.supplierGstin;
     if (!bySupplier.has(gstin)) bySupplier.set(gstin, []);
@@ -851,7 +865,15 @@ export async function preventiveAlerts(
       invoiceCount: suppliers.reduce((sum, entry) => sum + entry.invoiceCount, 0),
       itcAtStake: suppliers.reduce((sum, entry) => sum + entry.itcAtStake, 0),
       expectedInvoices: expected.length,
-      imsRecords: imsRecords.length
+      imsRecords: imsRecords.length,
+      // How many of the listed documents GSTR-2B already carries, and how many of
+      // those can never enter IMS at all. This is what makes this screen's count
+      // reconcile with the Summary screen's — see the note both screens carry.
+      inGstr2bCount: countInvoices(suppliers, (invoice) => invoice.inGstr2b),
+      neverEntersImsCount: countInvoices(
+        suppliers,
+        (invoice) => invoice.neverEntersImsReason !== null
+      )
     },
     bands,
     suppliers
@@ -868,7 +890,7 @@ export async function preventiveAlerts(
 //     them would be permanently wrong.
 //   * anything the supplier has already FILED. Their fix now needs GSTR-1A and
 //     lands next period; see consequenceFor().
-function alertItemFor(result) {
+function alertItemFor(result, twoB = null) {
   const { expected, portal, bucket } = result;
   if (!expected) return null;
   if (expected.reverseCharge) return null;
@@ -885,6 +907,8 @@ function alertItemFor(result) {
         : ALERT_STATUS.SAVED_NOT_FILED;
   }
   if (!status) return null;
+
+  const inTwoB = status === ALERT_STATUS.NOT_REPORTED ? lookupTwoB(twoB, expected) : null;
 
   return {
     expectedInvoiceId: expected.id,
@@ -907,10 +931,79 @@ function alertItemFor(result) {
     portalTotalTax: portal?.totalTax ?? null,
     deltaTaxableValue: portal ? portal.taxableValue - expected.taxableValue : null,
     deltaTotalTax: portal ? portal.totalTax - expected.totalTax : null,
+    // What GSTR-2B says about the same document. Only ever populated for
+    // NOT_REPORTED — for the SAVED_* statuses an IMS record exists and 2B adds
+    // nothing to the row.
+    inGstr2b: Boolean(inTwoB),
+    gstr2bFiledOn: inTwoB?.supplierFiledOn ?? null,
+    gstr2bSection: inTwoB?.section ?? null,
+    // Why it can never appear in IMS, or null when it simply has not yet.
+    neverEntersImsReason: inTwoB ? neverEntersImsReason(inTwoB) : null,
     // Said in words on the row, because the three statuses look identical to
     // anyone who does not already know what srcfilstatus means.
-    note: STATUS_NOTE[status]
+    note: noteFor(status, inTwoB)
   };
+}
+
+// The 2B record for the same document, or null.
+//
+// Keyed on supplier GSTIN + normalised invoice number — the same identity the
+// engine blocks on. This is a lookup for an explanation, not a match: a near
+// miss is left as "not in 2B either", which is the cautious answer.
+function twoBIndex(portal) {
+  const index = new Map();
+  for (const record of portal) {
+    if (record.source !== 'GSTR2B') continue;
+    index.set(`${record.supplierGstin}|${record.invoiceNoNorm}`, record);
+  }
+  return index;
+}
+
+function lookupTwoB(index, expected) {
+  if (!index) return null;
+  return index.get(`${expected.supplierGstin}|${expected.invoiceNoNorm}`) ?? null;
+}
+
+// Per CLAUDE.md domain fact 5 and docs/gstr2b-schema.md: reverse charge, records
+// the portal marks ITC-unavailable, and the ISD/import sections reach 2B directly
+// and never pass through IMS. For these, "not in IMS" is the correct end state.
+function neverEntersImsReason(record) {
+  if (record.reverseCharge) return 'REVERSE_CHARGE';
+  if (record.itcAvailable === false) return 'ITC_INELIGIBLE';
+  if (NON_IMS_SECTIONS.has(record.section)) return 'NON_IMS_SECTION';
+  return null;
+}
+
+const NEVER_IN_IMS_NOTE = Object.freeze({
+  REVERSE_CHARGE:
+    'Reverse charge — the tax is yours to pay and self-assess, so this reaches ' +
+    'GSTR-2B directly and never enters IMS. Nothing to chase.',
+  ITC_INELIGIBLE:
+    'The portal marks ITC as unavailable on this record, so it reaches GSTR-2B ' +
+    'directly and never enters IMS. It was never claimable. Nothing to chase.',
+  NON_IMS_SECTION:
+    'An ISD or import record. These reach GSTR-2B directly and never enter IMS. ' +
+    'Nothing to chase.'
+});
+
+// The row's own sentence. NOT_REPORTED means "no IMS record", and that has three
+// quite different causes — only one of which is a supplier who has not saved it.
+function noteFor(status, inTwoB) {
+  if (status !== ALERT_STATUS.NOT_REPORTED || !inTwoB) return STATUS_NOTE[status];
+
+  const filed = inTwoB.supplierFiledOn ? ` on ${formatDate(inTwoB.supplierFiledOn)}` : '';
+  const reason = neverEntersImsReason(inTwoB);
+  if (reason) {
+    return `Already in your GSTR-2B — the supplier filed it${filed}. ${NEVER_IN_IMS_NOTE[reason]}`;
+  }
+  // Filed, in 2B, and an ordinary IMS-eligible document. The IMS download is
+  // simply older than the 2B one, which is the usual cause and is fixed by
+  // re-downloading rather than by phoning anybody.
+  return (
+    `Already in your GSTR-2B — the supplier filed it${filed} — but missing from ` +
+    'this IMS download. The IMS file is most likely older than the 2B one; ' +
+    're-download IMS before chasing.'
+  );
 }
 
 export const STATUS_NOTE = Object.freeze({
@@ -922,6 +1015,12 @@ export const STATUS_NOTE = Object.freeze({
     'Saved in IMS with different amounts, and not filed yet. While it is a draft ' +
     'the supplier can correct it for free.'
 });
+
+function countInvoices(suppliers, predicate) {
+  let n = 0;
+  for (const supplier of suppliers) for (const invoice of supplier.invoices) if (predicate(invoice)) n += 1;
+  return n;
+}
 
 function countStatuses(invoices) {
   const counts = { NOT_REPORTED: 0, SAVED_NOT_FILED: 0, SAVED_VALUE_MISMATCH: 0 };

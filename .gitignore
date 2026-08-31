@@ -23,7 +23,9 @@ dist/
 build/
 web/dist/
 
-# generated fixtures — reproducible via tools/generate-fixtures.js
+# generated fixtures — reproducible via tools/generate-fixtures.js.
+# `fixtures/` matches a directory of that NAME at any depth, so it does not
+# touch samples/, which holds one period's three files committed on purpose.
 fixtures/
 
 # API response dumps. /api/suppliers writes {suppliers, model} and a curl of it

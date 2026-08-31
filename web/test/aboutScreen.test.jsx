@@ -95,6 +95,37 @@ describe('reaching About', () => {
     await waitFor(() => expect(screen.getByTestId('nav-about')).toHaveClass('is-active'));
   });
 
+  // The bug this pins: About and How to use are enabled from the first paint, so
+  // a click can land while boot is still in flight. The empty-state redirect then
+  // ran with the route it had closed over BEFORE that click and sent the visitor
+  // to Upload — a few hundred milliseconds on a cold load, which is exactly when
+  // someone who has never seen the app clicks one of these two. It showed up as a
+  // suite that went red about half the time on an assertion that was correct.
+  it('is not bounced back to Upload by a redirect that ran after the click', async () => {
+    // Boot resolves AFTER the click, which is the ordering that used to lose it.
+    let finishBoot;
+    api.listRuns.mockImplementation(
+      () => new Promise((resolve) => { finishBoot = () => resolve([]); })
+    );
+
+    render(<App />);
+    await userEvent.click(await screen.findByTestId('nav-about'));
+
+    finishBoot();
+
+    expect(await screen.findByTestId('about-synthetic')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('nav-about')).toHaveClass('is-active'));
+    expect(screen.queryByTestId('first-run')).not.toBeInTheDocument();
+  });
+
+  it('reaches How to use on a cold start too', async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByTestId('nav-howto'));
+
+    expect(await screen.findByTestId('howto-steps')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('nav-howto')).toHaveClass('is-active'));
+  });
+
   it('renders when the API is unreachable', async () => {
     api.org.mockRejectedValue(new Error('Failed to fetch'));
     api.listRuns.mockRejectedValue(new Error('Failed to fetch'));

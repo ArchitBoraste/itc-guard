@@ -851,3 +851,49 @@ details.model-note[open] > summary { margin-bottom: 6px; }
    the thing being qualified. */
 .panel-caution { border-color: #f3d38a; background: var(--warn-wash); }
 .panel-caution h3 { color: var(--warn); }
+
+/* --- cross-screen reconciliation notes ---------------------------------- */
+/*
+ * Summary and Before cut-off count different things, and the totals read as a
+ * contradiction without a sentence saying so on each of them. Sized to be read
+ * once rather than to compete with the numbers underneath.
+ */
+.cross-screen-note {
+  margin: 6px 0 0;
+  max-width: 92ch;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+/* Does GSTR-2B already carry this document. "Yes" is not good news here — it
+   means filed, and often means a record that can never enter IMS at all — so it
+   is informational blue, never green. */
+.chip-in2b { background: var(--info-wash); border-color: #b3e0f2; color: var(--info); }
+.chip-not2b { background: var(--warn-wash); border-color: #f3d38a; color: var(--warn); }
+
+/* --- which sample period is loaded -------------------------------------- */
+/* Above the deemed-acceptance banner's subject matter and deliberately quieter
+   than it: this is information, not a warning. */
+.sample-note {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--wash);
+  color: var(--ink-2);
+  font-size: 0.82rem;
+}
+.sample-note .link { font-size: inherit; }
+
+.brand-today { font-size: 0.72rem; color: var(--ink-3); margin-top: 1px; }
+
+.seed-inline { flex-wrap: wrap; }
+.seed-inline-help { flex-basis: 100%; margin: 4px 0 0; max-width: 62ch; }
+
+/* --- how to use ---------------------------------------------------------- */
+.howto-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 16px; }
+.howto-steps li { max-width: 88ch; }
+.howto-steps h4 { margin: 0 0 4px; font-size: 0.95rem; }
+.howto-steps p { margin: 0 0 8px; line-height: 1.55; }

@@ -4,8 +4,10 @@ import {
   BUCKETS,
   BUCKET_HELP,
   BUCKET_LABEL,
+  CROSS_SCREEN_NOTE,
   DOC_TYPE_LABEL
 } from '../lib/vocab.js';
+import { SAMPLES_URL } from '../lib/links.js';
 import { Empty } from '../components/States.jsx';
 import { ImsDownload } from '../components/ImsDownload.jsx';
 import { RerunButton } from '../components/RerunControl.jsx';
@@ -116,7 +118,35 @@ function TotalCard({ id, label, help, total, breakdown, tone = 'neutral', denomi
   );
 }
 
-export function SummaryScreen({ run, results, onGoToActions, onRefresh }) {
+// Where the sample period came from and how to load another. Deliberately quiet
+// — it sits above the deemed-acceptance banner's subject matter, not in
+// competition with it, and it is information rather than a warning.
+function SampleDataNote({ taxPeriod, isSample, onGoToUpload }) {
+  if (!isSample) return null;
+  return (
+    <p className="sample-note" data-testid="sample-note">
+      Showing the bundled sample data for <strong>{formatPeriod(taxPeriod)}</strong>. Another
+      period can be loaded from the{' '}
+      <button type="button" className="link" onClick={onGoToUpload}>
+        Upload tab
+      </button>
+      , and the three files behind it —{' '}
+      <a href={SAMPLES_URL} target="_blank" rel="noreferrer noopener">
+        purchase register, IMS and GSTR-2B
+      </a>{' '}
+      — are in the repository.
+    </p>
+  );
+}
+
+export function SummaryScreen({
+  run,
+  results,
+  onGoToActions,
+  onRefresh,
+  onGoToUpload = null,
+  seededPeriods = []
+}) {
   if (!run) {
     return (
       <Empty title="No run for this period" testId="empty-run">
@@ -132,6 +162,12 @@ export function SummaryScreen({ run, results, onGoToActions, onRefresh }) {
 
   return (
     <div className="screen screen-summary">
+      <SampleDataNote
+        taxPeriod={run.taxPeriod}
+        isSample={seededPeriods.includes(run.taxPeriod)}
+        onGoToUpload={onGoToUpload}
+      />
+
       <section className="panel">
         <header className="panel-head">
           <div>
@@ -151,6 +187,9 @@ export function SummaryScreen({ run, results, onGoToActions, onRefresh }) {
                   </span>
                 </>
               ) : null}
+            </p>
+            <p className="muted cross-screen-note" data-testid="summary-cross-screen">
+              {CROSS_SCREEN_NOTE.SUMMARY}
             </p>
           </div>
           <div className="head-actions">

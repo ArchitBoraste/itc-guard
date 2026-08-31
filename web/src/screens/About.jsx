@@ -8,7 +8,7 @@
 
 // Counted from the suites, not estimated. `cd api && npm test` and
 // `docker compose exec web npm test` print these totals as their last line.
-export const TEST_COUNTS = { api: 566, web: 86 };
+export const TEST_COUNTS = { api: 606, web: 124 };
 
 const SCHEMA_SOURCES = [
   {

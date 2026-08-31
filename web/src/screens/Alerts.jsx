@@ -4,6 +4,8 @@ import { rupees, rupeesCompact } from '../lib/money.js';
 import { formatDate, formatPeriod, runClock } from '../lib/calendar.js';
 import {
   ALERT_STATUS_LABEL,
+  CROSS_SCREEN_NOTE,
+  NEVER_IN_IMS_LABEL,
   RISK_BAND_LABEL,
   URGENCY_LABEL,
   bandHelp
@@ -80,6 +82,7 @@ function InvoiceLines({ supplier }) {
             <th>Date</th>
             <th className="num">Taxable</th>
             <th className="num">Tax</th>
+            <th>In GSTR-2B?</th>
             <th>State on the portal</th>
           </tr>
         </thead>
@@ -90,6 +93,30 @@ function InvoiceLines({ supplier }) {
               <td>{formatDate(invoice.invoiceDate)}</td>
               <td className="num mono">{rupees(invoice.taxableValue)}</td>
               <td className="num mono">{rupees(invoice.totalTax)}</td>
+              {/* Absence from IMS has three different causes and they need
+                  different answers. Saying which one this is here is what turns
+                  the apparent contradiction with Summary into the actual
+                  insight — already filed into 2B, and in most cases a document
+                  that can never enter IMS at all. */}
+              <td data-testid={`in2b-${invoice.expectedInvoiceId}`}>
+                {invoice.inGstr2b ? (
+                  <>
+                    <span className="chip chip-in2b">Yes</span>
+                    {invoice.gstr2bFiledOn ? (
+                      <div className="muted small">filed {formatDate(invoice.gstr2bFiledOn)}</div>
+                    ) : null}
+                    {invoice.neverEntersImsReason ? (
+                      <div className="muted small">
+                        {NEVER_IN_IMS_LABEL[invoice.neverEntersImsReason]}
+                      </div>
+                    ) : null}
+                  </>
+                ) : invoice.status === 'NOT_REPORTED' ? (
+                  <span className="chip chip-not2b">No</span>
+                ) : (
+                  <span className="muted small">—</span>
+                )}
+              </td>
               <td>
                 <span className={`chip status-${invoice.status}`}>
                   {ALERT_STATUS_LABEL[invoice.status] ?? invoice.status}
@@ -269,6 +296,9 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
               purpose: IMS shows a record the moment a supplier saves it, days before 2B
               exists.
             </p>
+            <p className="muted cross-screen-note" data-testid="alerts-cross-screen">
+              {CROSS_SCREEN_NOTE.ALERTS}
+            </p>
           </div>
           <div className="filters">
             <label className="checkline" htmlFor="as-of">
@@ -309,6 +339,27 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
               <p className="total-help">
                 Credit your books expect that is not in IMS, or is in IMS as a draft the
                 supplier can still change.
+                {alerts.totals.inGstr2bCount ? (
+                  <>
+                    {' '}
+                    <strong data-testid="alerts-in2b-count">
+                      {alerts.totals.inGstr2bCount} of {alerts.totals.invoiceCount}
+                    </strong>{' '}
+                    are already in your GSTR-2B, filed
+                    {/* When every 2B row is also a never-in-IMS row — the usual
+                        case — saying "32, and 32 of those" reads as an error. */}
+                    {alerts.totals.neverEntersImsCount === alerts.totals.inGstr2bCount
+                      ? ', and none of them can ever enter IMS'
+                      : alerts.totals.neverEntersImsCount
+                        ? `, and ${alerts.totals.neverEntersImsCount} of those can never enter IMS`
+                        : ''}
+                    {alerts.totals.neverEntersImsCount
+                      ? ' — reverse charge, ISD, imports, or credit the portal marks ' +
+                        'unavailable. Summary counts them as settled'
+                      : ''}
+                    . Each row below says which.
+                  </>
+                ) : null}
               </p>
             </div>
             {alerts.bands
