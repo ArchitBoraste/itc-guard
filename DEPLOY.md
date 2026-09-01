@@ -187,7 +187,7 @@ Must read `performance_schema OFF`, `innodb_buffer_pool_size 100663296`,
 `log_bin OFF`, `max_connections 40`. If it says `ON` / `134217728`, the config
 was not read — check `docker compose ... logs db | grep -i world-writable`.
 
-Finally, open the URL and click through Summary, Before cut-off, Actions,
+Finally, open the URL and click through Summary, Still fixable, Actions,
 Suppliers, Upload, About.
 
 ---

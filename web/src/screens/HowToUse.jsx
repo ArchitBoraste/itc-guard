@@ -49,12 +49,12 @@ const SCREENS = [
   },
   {
     to: 'alerts',
-    name: 'Before cut-off',
+    name: 'Still fixable',
     what:
-      'Who to phone while their return is still a draft, ranked by how reliably each ' +
-      'supplier files rather than by amount. Compared against IMS alone, because IMS shows ' +
-      'a record the moment a supplier saves it — days before GSTR-2B exists.',
-    look: 'The “In GSTR-2B?” column, and the copy-ready chase message on each supplier card. Nothing is ever sent — you copy it and send it yourself.'
+      'Purchases your supplier has not filed yet, so they can still put them right ' +
+      'themselves — no amendment, and no waiting a month for the credit. Sorted by ' +
+      'which suppliers are least reliable rather than by amount.',
+    look: 'The ready-made message on each supplier card. Nothing is ever sent — you copy it and send it however you already talk to them.'
   },
   {
     to: 'actions',
@@ -119,10 +119,10 @@ export function HowToUseScreen({ onGoTo = null, hasData = false }) {
           <div>
             <h3>What to look at on each screen</h3>
             <p className="muted">
-              Two of them count different things on purpose, and each says so in the
-              other&rsquo;s terms — Summary reconciles against IMS and GSTR-2B together,
-              Before cut-off against IMS alone. Neither set of totals is a subset of the
-              other.
+              Summary and Still fixable count different things on purpose, so their
+              totals will not match and neither is part of the other. Each screen says
+              so, and Still fixable spells it out under &ldquo;Why these numbers differ
+              from Summary&rdquo;.
             </p>
           </div>
         </header>

@@ -67,10 +67,17 @@ Then it writes **`ims-actions.json`** — the exact upload format GSTN's own IMS
 utility produces, so the trader's decisions go back to the portal as a file rather than
 as four hundred clicks.
 
-And before any of that, a **preventive mode**: from the 1st of the month it lists the
-invoices that have not appeared on the portal yet, ranked by which suppliers historically
-fail to file, with a pre-written chase message per supplier. The suppliers never need an
-account, a login, or to know the tool exists.
+And before any of that, the **Still fixable** screen: from the 1st of the month it lists
+the purchases the supplier has not filed yet — not on the portal at all, or sitting there
+as a draft they can still change — ranked by which suppliers historically fail to file,
+with a pre-written chase message per supplier. Nothing on it is final, so a phone call
+still fixes it for free; once the supplier files, correcting it needs a GSTR-1A amendment
+and the credit slips a month, so it leaves that screen for Actions. The suppliers never
+need an account, a login, or to know the tool exists.
+
+The name is deliberate. It was called "Before cut-off", which read as a date filter —
+but records stay on it after the cut-off passes. What the cut-off changes is the urgency,
+not the membership.
 
 ## Why the government's own tool cannot do this
 
@@ -162,7 +169,8 @@ GSTR-2B download ──┘   (the only     (ExpectedInvoice   (pure: no db,     
   supplier statistics, the IMS action writer.
 - **`api/src/risk/`** — serves a logistic regression fitted offline in Python. `ml/train.py`
   writes `ml/model.json`, that file is committed, and Node reads it. No Python at runtime.
-- **`web/src/screens/`** — Upload, Summary, Before cut-off, Actions, Suppliers, About.
+- **`web/src/screens/`** — Upload, Summary, Still fixable, Actions, Suppliers, About,
+  How to use.
   React 18, one stylesheet, no component library.
 - **MySQL 8**, raw SQL, no ORM. Money is `BIGINT` integer paise end to end.
 
@@ -171,7 +179,7 @@ Docker Compose.
 
 ## Test status
 
-**666 API tests and 132 front-end tests**, all passing. The count is not the point; what
+**666 API tests and 135 front-end tests**, all passing. The count is not the point; what
 they hold is:
 
 | Suite | What it actually verifies |
@@ -258,7 +266,7 @@ correct alert. The trader sees it; the number does not move under them.
 requires three or more observed periods — one late month is not a pattern — so the
 demo tops out at MEDIUM. That is the guard working, not a bug, but it means the risk
 screen shows a narrower range than the model can produce. Seeding 6–12 periods of filing
-history is deferred work and is what the preventive screen needs to show its full range.
+history is deferred work and is what the Still fixable screen needs to show its full range.
 
 **Also not built, deliberately:** no login (every request is one stubbed trader), no
 multi-user or roles, no GSP/portal API integration (files move by hand, which is what
@@ -463,7 +471,7 @@ supplier fix or a reject.
 
 ## Running the tests
 
-666 API tests and 132 front-end tests. What each suite holds is tabulated under
+666 API tests and 135 front-end tests. What each suite holds is tabulated under
 [Test status](#test-status); this section is about running them.
 
 The front end has its own suite. It runs in the web container, which is where its
@@ -697,6 +705,25 @@ Controls are gated so the API's 409s are unreachable: `PENDING` is disabled wher
 the portal blocks it (with the reason on hover), and a record that never entered
 IMS — reverse charge, ISD, imports — gets no action buttons at all, because there
 is nothing there to accept or reject. Rejecting a whole group takes a second click.
+
+**Still fixable** — purchases the supplier has not filed yet, so they can still put
+them right themselves. Grouped by how reliably each supplier files rather than by
+amount: on the 5th, a missing invoice from a reliable supplier is normal, and a screen
+that shouts about all forty is a screen nobody opens on the 12th.
+
+Amounts are added by size, never netted. This is an exposure screen — an unreported
+invoice and an unreported credit note are two problems pulling opposite ways, and
+cancelling them understated April by 42% and gave Fortune Hardware a card headlined
+−₹17,128.92. The two directions are split wherever the figure appears, including the
+chase message, which asks for opposite things: an unreported invoice is credit the
+trader is owed, an unreported credit note is credit they are still claiming and
+should not be.
+
+Everything schema-level — that it reads IMS rather than GSTR-2B, that reverse charge,
+imports, ISD and blocked credit never appear on it, that its totals are not part of
+Summary's — is folded into a **Why these numbers differ from Summary** disclosure,
+collapsed by default. The screen itself opens with three sentences in a shopkeeper's
+words.
 
 **Suppliers** — filing history per supplier with a days-late sparkline, drawn
 against *that supplier's* own cut-off (the 11th monthly, the 13th for QRMP).

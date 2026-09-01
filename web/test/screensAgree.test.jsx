@@ -1,19 +1,17 @@
 // Two screens count the same-sounding thing and disagree, and both of them are
-// right. Summary reconciles the books against IMS and GSTR-2B together; Before
-// cut-off reconciles against IMS alone, because IMS is the only source that
-// exists before the cut-off. So a document already filed into 2B is settled on
-// one screen and unsafe on the other, and the reverse-charge and ITC-ineligible
-// ones never enter IMS at all.
+// right. Summary reads IMS and GSTR-2B together; Still fixable reads IMS alone,
+// because IMS is the only list that exists before the cut-off. So an invoice the
+// supplier has filed is settled on one screen and gone from the other, and
+// reverse-charge and blocked-credit purchases never reach IMS at all.
 //
 // Nothing here is a bug in either calculation. What was a bug was neither screen
-// saying so — "In your books, never reported: 1 record" sat two clicks from
-// "36 documents not yet safe" with no way to reconcile them, and every row on the
-// second screen claimed the supplier had not even saved the invoice when most of
-// them had filed it weeks earlier.
+// saying so — and then, once they did say so, saying it in three paragraphs of
+// our own vocabulary that nobody running a shop would read.
 //
-// These tests hold the explanations in place. If a rewrite drops them the numbers
-// go back to reading as a contradiction, which is worse than either number being
-// wrong, because it makes a judge distrust both.
+// So these tests hold two things: that the explanations are still there and still
+// accurate, and that the copy a judge meets first is still in ordinary words. The
+// jargon guard at the bottom is the one that will annoy a future author, and it is
+// the one most worth keeping.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
@@ -39,7 +37,7 @@ import { SummaryScreen } from '../src/screens/Summary.jsx';
 import { UploadScreen } from '../src/screens/Upload.jsx';
 import { HowToUseScreen } from '../src/screens/HowToUse.jsx';
 
-// --- Before cut-off ---------------------------------------------------------
+// --- Still fixable ----------------------------------------------------------
 
 const invoice = (over = {}) => ({
   expectedInvoiceId: 11,
@@ -171,15 +169,25 @@ beforeEach(() => {
   api.listPeriods.mockResolvedValue([]);
 });
 
-describe('Before cut-off explains itself against Summary', () => {
-  it('names the other screen and says its totals are not a subset of it', async () => {
+describe('Still fixable explains itself against Summary', () => {
+  it('folds the schema-level detail into a disclosure, closed to begin with', async () => {
     api.listAlerts.mockResolvedValue(alertsBody([invoice()]));
     render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
 
-    const note = await screen.findByTestId('alerts-cross-screen');
-    expect(note.textContent).toMatch(/Summary reconciles against GSTR-2B as well/);
-    expect(note.textContent).toMatch(/left off this screen entirely/);
-    expect(note.textContent).toMatch(/not a subset/);
+    const details = await screen.findByTestId('why-totals-differ');
+    // Closed by default. It is worth being exact about and it is not what anybody
+    // needs in the first ten seconds.
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary').textContent).toMatch(
+      /Why these numbers differ from Summary/
+    );
+
+    // Still accurate once opened - all three claims survived the rewrite.
+    const body = details.textContent;
+    expect(body).toMatch(/IMS/);
+    expect(body).toMatch(/GSTR-2B/);
+    expect(body).toMatch(/reverse charge/);
+    expect(body).toMatch(/neither one is part of the other/);
   });
 
   // Everything that can never enter IMS is off this screen now, so a "Yes" here
@@ -201,9 +209,9 @@ describe('Before cut-off explains itself against Summary', () => {
     const cell = await screen.findByTestId('in2b-11');
     expect(cell.textContent).toMatch(/Yes/);
     expect(cell.textContent).toMatch(/filed 9 Aug 2026/);
-    // The action is a re-download, not a phone call, and the card says so.
+    // The action is a fresh download, not a phone call, and the card says so.
     const count = await screen.findByTestId('alerts-in2b-count');
-    expect(count.parentElement.textContent).toMatch(/re-download IMS before phoning/);
+    expect(count.parentElement.textContent).toMatch(/Download IMS again before phoning/);
   });
 
   it('marks a document that is genuinely nowhere as not in 2B either', async () => {
@@ -233,9 +241,10 @@ describe('Before cut-off explains itself against Summary', () => {
     render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
 
     const note = await screen.findByTestId('excluded-note');
-    expect(note.textContent).toMatch(/Set aside: 32 documents from 21 suppliers/);
-    expect(note.textContent).toMatch(/21 reverse charge, 11 ITC unavailable/);
-    expect(note.textContent).toMatch(/not counted in any figure above/i);
+    expect(note.textContent).toMatch(/Left out: 32 documents from 21 suppliers/);
+    expect(note.textContent).toMatch(/21 on reverse charge/);
+    expect(note.textContent).toMatch(/cannot claim the credit/);
+    expect(note.textContent).toMatch(/nothing above counts them/i);
     // Not a card, not a band, and carrying no tone that would read as a warning.
     expect(note.className).not.toMatch(/total-card|tone-|band-/);
     expect(note.querySelector('button')).toBeNull();
@@ -267,12 +276,12 @@ describe('Before cut-off explains itself against Summary', () => {
     render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
 
     const empty = await screen.findByTestId('empty-alerts');
-    expect(empty.textContent).toMatch(/that could be chased/);
+    expect(empty.textContent).toMatch(/your supplier could still change/);
     expect(empty.textContent).toMatch(/need nothing from anybody/);
   });
 });
 
-describe('Before cut-off shows exposure, not a net', () => {
+describe('Still fixable shows exposure, not a net', () => {
   const CREDIT_NOTE = {
     expectedInvoiceId: 12,
     status: 'NOT_REPORTED',
@@ -344,32 +353,92 @@ describe('Before cut-off shows exposure, not a net', () => {
   });
 });
 
-describe('each screen says which documents it is about', () => {
-  it('Before cut-off names its population and points at Actions', async () => {
+describe('each screen says what is on it', () => {
+  it('Still fixable opens with what is here and why it matters', async () => {
     api.listAlerts.mockResolvedValue(alertsBody([invoice()]));
     render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
-    const note = await screen.findByTestId('alerts-population');
-    expect(note.textContent).toMatch(/IMS position is not final/);
-    expect(note.textContent).toMatch(/also appears on Actions/);
+
+    expect((await screen.findByTestId('alerts-lede')).textContent).toMatch(
+      /has not filed yet/
+    );
+    // The point of the whole screen: nothing here is final, so a call still works.
+    expect(screen.getByTestId('alerts-why').textContent).toMatch(/phone call/);
+    expect(screen.getByTestId('alerts-why').textContent).toMatch(/Actions/);
   });
 
-  it('Summary says Actions is the same set, not a subset', () => {
+  it('says the date changes the time left, not the list', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([invoice()]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+    expect((await screen.findByTestId('alerts-date-help')).textContent).toMatch(
+      /does not change what is listed/
+    );
+  });
+
+  it('Summary points at Actions as the same list seen differently', () => {
     render(<SummaryScreen run={RUN} results={[]} />);
-    const note = screen.getByTestId('summary-population');
-    expect(note.textContent).toMatch(/same set/);
-    expect(note.textContent).toMatch(/neither screen is a subset/);
+    expect(screen.getByTestId('summary-population').textContent).toMatch(
+      /Actions tab is the same list/
+    );
+    expect(screen.getByTestId('summary-cross-screen').textContent).toMatch(
+      /Still fixable tab/
+    );
   });
 });
 
-describe('Summary explains itself against Before cut-off', () => {
-  it('says what its totals reconcile against and names the other screen', () => {
+// The constraint that is easiest to lose and hardest to notice losing: this app is
+// for somebody who runs a shop, not for whoever wrote the schema docs. Every word
+// below is ours, and none of them belong in the copy a judge meets first.
+describe('the copy a judge meets first stays in ordinary words', () => {
+  const OURS = [
+    'population',
+    'subset',
+    'reconcile',
+    'books rows',
+    'ims position',
+    'portal record',
+    'netted'
+  ];
+
+  it('keeps our vocabulary out of what Still fixable opens with', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([invoice()]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+
+    const heading = (await screen.findByRole('heading', { level: 2 })).textContent;
+    expect(heading).toMatch(/Still fixable/);
+    expect(heading).not.toMatch(/Before cut-off/);
+
+    const opening = [
+      screen.getByTestId('alerts-lede'),
+      screen.getByTestId('alerts-why'),
+      screen.getByTestId('alerts-date-help')
+    ]
+      .map((node) => node.textContent)
+      .join(' ')
+      .toLowerCase();
+
+    for (const word of OURS) expect(opening).not.toContain(word);
+  });
+
+  it('keeps it out of the one-liners on Summary too', () => {
+    render(<SummaryScreen run={RUN} results={[]} />);
+    const lines = [
+      screen.getByTestId('summary-population').textContent,
+      screen.getByTestId('summary-cross-screen').textContent
+    ]
+      .join(' ')
+      .toLowerCase();
+    for (const word of OURS) expect(lines).not.toContain(word);
+  });
+});
+
+describe('Summary explains itself against Still fixable', () => {
+  it('claims the purchases the other screen leaves out, and says so plainly', () => {
     render(<SummaryScreen run={RUN} results={[]} />);
     const note = screen.getByTestId('summary-cross-screen');
-    expect(note.textContent).toMatch(/IMS and GSTR-2B together/);
-    expect(note.textContent).toMatch(/Before cut-off compares against IMS alone/);
-    // Summary is where the excluded records live, and it has to claim them.
-    expect(note.textContent).toMatch(/Outside IMS and Ineligible/);
-    expect(note.textContent).toMatch(/Neither screen.s figures are a subset/);
+    // The kinds Still fixable drops have to be claimed by somebody.
+    expect(note.textContent).toMatch(/reverse charge, imports and credit you cannot claim/);
+    expect(note.textContent).toMatch(/Still fixable tab/);
+    expect(note.textContent).toMatch(/not a part of these/);
   });
 
   it('says which sample period is loaded and where the files are', () => {
@@ -465,7 +534,7 @@ describe('How to use', () => {
     expect(steps).toMatch(/Load sample period/);
 
     const screens = screen.getByTestId('howto-screens').textContent;
-    for (const name of ['Summary', 'Before cut-off', 'Actions', 'Suppliers']) {
+    for (const name of ['Summary', 'Still fixable', 'Actions', 'Suppliers']) {
       expect(screens).toContain(name);
     }
   });

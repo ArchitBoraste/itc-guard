@@ -4,10 +4,9 @@ import { rupees, rupeesCompact } from '../lib/money.js';
 import { formatDate, formatPeriod, runClock } from '../lib/calendar.js';
 import {
   ALERT_STATUS_LABEL,
-  CROSS_SCREEN_NOTE,
-  POPULATION_NOTE,
   RISK_BAND_LABEL,
   URGENCY_LABEL,
+  WHY_TOTALS_DIFFER,
   bandHelp,
   excludedSentence,
   exposureSplit
@@ -343,19 +342,34 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
       <section className="panel">
         <header className="panel-head">
           <div>
-            <h2>Before the cut-off — {formatPeriod(period)}</h2>
-            <p className="muted">
-              What your books expect that has not safely reached IMS yet, ranked by how
-              reliably each supplier files. Compared against IMS rather than GSTR-2B on
-              purpose: IMS shows a record the moment a supplier saves it, days before 2B
-              exists.
+            <h2>Still fixable — {formatPeriod(period)}</h2>
+            {/* Three sentences, in a shopkeeper's words: what is here, why it
+                matters, what the date control does. Everything a judge needs on
+                first read, and nothing they do not. The schema-level truth — IMS
+                versus GSTR-2B, what never appears here, why the totals cannot be
+                added to Summary's — lives in the disclosure below, where it is
+                still exact but no longer in the way. */}
+            <p className="lede" data-testid="alerts-lede">
+              Purchases in your books that your supplier has not filed yet — either not
+              on the portal at all, or sitting there as a draft they can still change.
             </p>
-            <p className="muted population-note" data-testid="alerts-population">
-              {POPULATION_NOTE.ALERTS}
+            <p className="lede" data-testid="alerts-why">
+              Nothing here is final, so one phone call can still put it right. Once the
+              supplier files it, it is locked: fixing it after that needs an amendment,
+              and your credit turns up a month late — so it leaves this screen and moves
+              to Actions.
             </p>
-            <p className="muted cross-screen-note" data-testid="alerts-cross-screen">
-              {CROSS_SCREEN_NOTE.ALERTS}
+            <p className="muted small" data-testid="alerts-date-help">
+              The date below changes how much time is left. It does not change what is
+              listed.
             </p>
+
+            <details className="disclosure" data-testid="why-totals-differ">
+              <summary>Why these numbers differ from Summary</summary>
+              {WHY_TOTALS_DIFFER.map((paragraph) => (
+                <p key={paragraph.slice(0, 40)}>{paragraph}</p>
+              ))}
+            </details>
           </div>
           <div className="filters">
             <label className="checkline" htmlFor="as-of">
@@ -400,20 +414,21 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
                 testId="totals-split"
               />
               <p className="total-help">
-                Credit your books expect that is not in IMS, or is in IMS as a draft the
-                supplier can still change — and that somebody can still do something
-                about. Documents are added by size, never netted: an unreported invoice
-                and an unreported credit note are two problems, not one small one.
+                Credit you are waiting on that your supplier can still sort out.
+                Amounts are added up, never cancelled against each other: an invoice
+                you are owed and a credit note you owe back are two separate problems,
+                not one small one.
                 {alerts.totals.inGstr2bCount ? (
                   <>
                     {' '}
                     <strong data-testid="alerts-in2b-count">
                       {alerts.totals.inGstr2bCount} of {alerts.totals.invoiceCount}
                     </strong>{' '}
-                    {alerts.totals.inGstr2bCount === 1 ? 'is' : 'are'} already filed into
-                    your GSTR-2B but missing from this IMS download — re-download IMS
-                    before phoning anyone about{' '}
-                    {alerts.totals.inGstr2bCount === 1 ? 'it' : 'those'}.
+                    {alerts.totals.inGstr2bCount === 1 ? 'is' : 'are'} already in your
+                    GSTR-2B, so your supplier has filed{' '}
+                    {alerts.totals.inGstr2bCount === 1 ? 'it' : 'them'}. Download IMS
+                    again before phoning anyone — the copy you loaded looks older than
+                    your GSTR-2B.
                   </>
                 ) : null}
               </p>
@@ -457,11 +472,11 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
           {/* "Everything has been filed" would be false when the list is empty
               only because everything on it was reverse charge. */}
           {alerts.excluded?.invoiceCount
-            ? `Every ${formatPeriod(period)} purchase in your books that could be chased ` +
-              'has been reported in IMS and filed. The documents set aside above need ' +
-              'nothing from anybody. Anything still unresolved is on the Actions screen.'
-            : `Every ${formatPeriod(period)} purchase in your books has been reported in ` +
-              'IMS and filed. Anything still unresolved is on the Actions screen, not here.'}
+            ? `Every ${formatPeriod(period)} purchase your supplier could still change ` +
+              'has been filed. The ones left out above need nothing from anybody. ' +
+              'Anything still undecided is on the Actions tab.'
+            : `Every ${formatPeriod(period)} purchase in your books has been filed by ` +
+              'your suppliers. Anything still undecided is on the Actions tab, not here.'}
         </Empty>
       ) : null}
 

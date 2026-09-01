@@ -299,7 +299,7 @@ export const CHANGE_MONEY_FIELDS = new Set([
 // exposureSplit(entry) -> the two components behind an "at stake" figure, or
 // null when nothing pulls the other way.
 //
-// Before cut-off measures EXPOSURE — how much credit is unsettled and still
+// Still fixable measures EXPOSURE — how much credit is unsettled and still
 // chaseable — not what a period can claim. So the headline is the gross, and
 // this says what it is made of. An unreported invoice and an unreported credit
 // note are two problems, and the net of them describes neither: Patel Systems'
@@ -362,7 +362,7 @@ export const RISK_BAND_CLAIM = {
     'hidden, not because anything is wrong.'
 };
 
-// bandHelp(band, suppliers) -> the sentence shown above a group on Before cut-off.
+// bandHelp(band, suppliers) -> the sentence shown above a group on Still fixable.
 //
 // Exactly the shape of actionHelp() above, and for exactly the same reason. The
 // engine already decides per supplier whether their own cut-off has passed —
@@ -439,25 +439,25 @@ export const ALERT_STATUS_LABEL = {
   SAVED_VALUE_MISMATCH: 'Saved with different amounts'
 };
 
-// Why a document was kept OFF Before cut-off entirely. Mirrors EXCLUDED_REASONS
+// Why a document was kept OFF Still fixable entirely. Mirrors EXCLUDED_REASONS
 // and excludedReasonFor() in api/src/services/preventive.js.
 //
 // None of these are concerns. Each one is a document that reaches GSTR-2B
 // directly and never enters IMS, so its absence from IMS is the finished state
 // rather than a supplier running late.
 export const EXCLUDED_REASON_LABEL = {
-  REVERSE_CHARGE: 'reverse charge',
-  ITC_INELIGIBLE: 'ITC unavailable',
-  NON_IMS_SECTION: 'ISD or imports'
+  REVERSE_CHARGE: 'on reverse charge',
+  ITC_INELIGIBLE: 'where the portal says you cannot claim the credit',
+  NON_IMS_SECTION: 'imports, or credit passed down from a head office'
 };
 
-// excludedSentence(excluded) -> the informational line under the summary cards,
-// or null when nothing was set aside.
+// excludedSentence(excluded) -> the quiet line under the summary cards, or null
+// when nothing was left out.
 //
-// Written out rather than dropped silently: on the April sample this removes 32
-// of 36 documents and 21 of 24 suppliers, and a screen whose headline falls from
+// Said out loud rather than dropped silently: this removes 32 of 36 documents and
+// 21 of 24 suppliers on the April sample, and a screen whose headline falls from
 // Rs 13.29 L to Rs 79,211 between two versions has to say where the difference
-// went, or it reads as data loss.
+// went or it reads as lost data.
 export function excludedSentence(excluded, formatMoney) {
   if (!excluded?.invoiceCount) return null;
 
@@ -471,17 +471,16 @@ export function excludedSentence(excluded, formatMoney) {
     : '';
 
   return (
-    `Set aside: ${docs}${suppliers}, ${formatMoney(Math.abs(excluded.itcAtStake))} — ` +
-    `${parts.join(', ')}. These reach GSTR-2B directly and never enter IMS, so there is ` +
-    'no IMS record to accept and nobody to chase. They are not counted in any figure ' +
-    'above; Summary accounts for them under Outside IMS and Ineligible.'
+    `Left out: ${docs}${suppliers}, ${formatMoney(Math.abs(excluded.itcAtStake))} — ` +
+    `${parts.join(', ')}. Your supplier cannot change these and there is nothing for ` +
+    'you to accept, so nothing above counts them. Summary still does.'
   );
 }
 
 // --- why the two screens count different things -----------------------------
 //
 // The single most confusing thing in the app, and it is not a bug in either
-// screen: Before cut-off reconciles the books against IMS ALONE, because IMS is
+// screen: Still fixable reconciles the books against IMS ALONE, because IMS is
 // the only source that exists before the cut-off and the only one that shows a
 // record a supplier has merely SAVED. Summary reconciles against IMS and
 // GSTR-2B together, because by the 14th both exist.
@@ -490,51 +489,56 @@ export function excludedSentence(excluded, formatMoney) {
 // counting here — and the reverse-charge and ITC-ineligible ones never enter IMS
 // at all. Neither figure contains the other. Both screens say so, in each
 // other's terms, or the totals read as a contradiction.
-// One line per screen saying WHICH DOCUMENTS it is about. Deliberately separate
-// from CROSS_SCREEN_NOTE below, which explains the IMS-vs-2B difference: this one
-// answers "what am I looking at", that one answers "why do the numbers differ".
+// One line per screen saying what is on it, in a shopkeeper's words.
 //
-// The boundary, confirmed against the engine rather than assumed:
-//   Summary and Actions are the SAME set of results, grouped differently —
-//   by how each document matched, and by what to do about it. Neither is a
-//   subset of the other.
-//   Before cut-off is the books rows whose IMS position is not final, and every
-//   one of them also appears on Actions.
+// The rule for every string in this file that a trader reads: if a sentence needs
+// a second read, it is not finished. No "population", no "subset", no "records
+// whose IMS position is not final" — those are our words, for our own benefit,
+// and somebody who runs a shop should not have to decode them to use the app.
+//
+// The boundary underneath, for whoever maintains this: Summary and Actions are
+// the SAME result set grouped two ways; Still fixable is the part of it a
+// supplier can still correct without an amendment, and all of it is on Actions
+// too.
 export const POPULATION_NOTE = {
   SUMMARY:
-    'Every document in this period’s reconciliation, grouped by how it matched. ' +
-    'Actions shows this same set grouped by what to do about each one — neither ' +
-    'screen is a subset of the other.',
+    'Everything this month’s check compared, grouped by how your books and the ' +
+    'portal lined up. The Actions tab is the same list, sorted by what to do about ' +
+    'each one.',
   ACTIONS:
-    'The same documents as Summary, grouped by what to do rather than by how they ' +
-    'matched. Before cut-off is the part of this set whose IMS position is not yet ' +
-    'final; every document on that screen also appears here.',
-  ALERTS:
-    'Books rows whose IMS position is not final — absent from IMS, or saved but not ' +
-    'filed, so the supplier can still change them. A filed record is settled and ' +
-    'leaves this screen even when its amounts are wrong. Every document here also ' +
-    'appears on Actions.'
+    'The same list as Summary, sorted by what to do about each one rather than by ' +
+    'how it matched. Anything on Still fixable is in here too.'
 };
 
-export const CROSS_SCREEN_NOTE = {
-  ALERTS:
-    'This screen compares your books against IMS alone — IMS is the only source ' +
-    'that exists before the cut-off, and the only one that shows a record a ' +
-    'supplier has merely saved. Summary reconciles against GSTR-2B as well, so an ' +
-    'invoice already in 2B counts as reported there while still being unsafe ' +
-    'here: until the supplier files, they can still change it. Records that can ' +
-    'never enter IMS — reverse charge, ITC-ineligible, ISD and imports — are left ' +
-    'off this screen entirely and live on Summary instead. So these totals are ' +
-    'not a subset of Summary’s and Summary’s are not a subset of these.',
-  SUMMARY:
-    'These totals reconcile your books against IMS and GSTR-2B together, which is ' +
-    'what exists once 2B has generated on the 14th, and they account for every ' +
-    'document — including reverse-charge, ISD, import and ITC-ineligible records, ' +
-    'under Outside IMS and Ineligible below. Before cut-off compares against IMS ' +
-    'alone and lists only what can still be chased, so it leaves those out and ' +
-    'counts drafts a supplier can still change. Neither screen’s figures are a ' +
-    'subset of the other’s.'
-};
+// The long explanation, shown only when someone opens the disclosure on Still
+// fixable. Collapsed is not an excuse for jargon: anything the portal did not
+// already teach a trader is spelled out where it first appears.
+//
+// Worth keeping and worth being right — the two screens genuinely count different
+// things and the totals look contradictory without it — but not what anybody
+// needs in the first ten seconds.
+export const WHY_TOTALS_DIFFER = [
+  'Summary and this screen read two different lists from the portal, on purpose.',
+  'This screen uses IMS. That is the portal’s live list, and an invoice appears ' +
+    'there the moment your supplier saves it — days before they file it. Summary ' +
+    'also uses GSTR-2B, the fixed statement that comes out on the 14th and only ' +
+    'ever holds invoices that have actually been filed. So an invoice your supplier ' +
+    'has filed is finished as far as Summary is concerned, while this screen can ' +
+    'still be showing you one that is only a draft.',
+  'Some purchases never go through IMS at all: reverse charge, imports, credit ' +
+    'passed down from a head office, and anything the portal says you cannot claim. ' +
+    'Nobody can fix those and there is nothing to accept on them, so they are left ' +
+    'off this screen. Summary counts every one of them.',
+  'That is why the two totals do not add up to each other, and why neither one is ' +
+    'part of the other. They answer different questions: what is still worth a ' +
+    'phone call, and what does this month come to.'
+];
+
+// The line under Summary's own totals. One sentence, naming the other tab.
+export const SUMMARY_VS_FIXABLE =
+  'These totals cover every purchase, including reverse charge, imports and credit ' +
+  'you cannot claim. The Still fixable tab lists only what a supplier can still put ' +
+  'right, so it is a shorter list and a smaller figure — not a part of these.';
 
 export const SECTION_LABEL = {
   b2b: 'B2B',

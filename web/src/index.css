@@ -792,7 +792,7 @@ select:focus-visible, .search:focus-visible, button:focus-visible, a:focus-visib
 
 /* --- supplier risk bands --------------------------------------------------- *
  *
- * Same three-colour ladder as the Before cut-off screen, for the same reason:
+ * Same three-colour ladder as the Still fixable screen, for the same reason:
  * HIGH is money about to be lost, LOW is what a normal month looks like. The
  * PROBABILITY behind the band is deliberately absent from the markup — a trader
  * cannot check a decimal, and a number implies a precision the model has not
@@ -854,7 +854,7 @@ details.model-note[open] > summary { margin-bottom: 6px; }
 
 /* --- cross-screen reconciliation notes ---------------------------------- */
 /*
- * Summary and Before cut-off count different things, and the totals read as a
+ * Summary and Still fixable count different things, and the totals read as a
  * contradiction without a sentence saying so on each of them. Sized to be read
  * once rather than to compete with the numbers underneath.
  */
@@ -898,7 +898,7 @@ details.model-note[open] > summary { margin-bottom: 6px; }
 .howto-steps h4 { margin: 0 0 4px; font-size: 0.95rem; }
 .howto-steps p { margin: 0 0 8px; line-height: 1.55; }
 
-/* What Before cut-off deliberately does not count. Muted and borderless — a
+/* What Still fixable deliberately does not count. Muted and borderless — a
    tone class or a card would make it read as a fourth concern group, which is
    the opposite of what it says. */
 .excluded-note {
@@ -938,4 +938,40 @@ details.model-note[open] > summary { margin-bottom: 6px; }
   max-width: 92ch;
   font-size: 0.82rem;
   line-height: 1.5;
+}
+
+/* "Why these numbers differ from Summary" — the schema-level truth, folded away.
+   Collapsed by default: it is worth being exact about and it is not what anybody
+   needs in the first ten seconds. */
+.disclosure {
+  margin: 10px 0 0;
+  max-width: 92ch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--wash);
+  padding: 8px 12px;
+}
+.disclosure > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--accent);
+  list-style-position: outside;
+}
+.disclosure[open] > summary { margin-bottom: 6px; font-weight: 600; }
+.disclosure p {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.disclosure p:last-child { margin-bottom: 2px; }
+
+/* The two sentences a judge actually reads. Bigger than muted body text, because
+   they are the point of the screen. */
+.lede {
+  margin: 4px 0 0;
+  max-width: 78ch;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--ink-2);
 }

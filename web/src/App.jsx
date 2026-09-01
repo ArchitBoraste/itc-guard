@@ -21,7 +21,7 @@ const ROUTES = [
   { id: 'summary', label: 'Summary' },
   // Sits before Actions on purpose: preventive work happens earlier in the month
   // than the accept/reject pass, and the nav should read in that order.
-  { id: 'alerts', label: 'Before cut-off' },
+  { id: 'alerts', label: 'Still fixable' },
   { id: 'actions', label: 'Actions' },
   { id: 'suppliers', label: 'Suppliers' },
   // Both need no run and no data, so they stay clickable on a cold start — which
@@ -37,7 +37,7 @@ const ROUTES = [
 // clock everything on screen is being read at.
 //
 // It lives in the URL rather than in component state for three reasons: it
-// survives navigating away and back (it did not, and the Before cut-off screen
+// survives navigating away and back (it did not, and the Still fixable screen
 // silently snapped back to the run's date), it survives a reload, and it makes a
 // particular point in the filing month a link someone can send.
 // The real clock, read once at module load. Everything else in the app runs on
