@@ -6,6 +6,7 @@ import {
   actionHelp,
   ACTION_LABEL,
   ACTION_ORDER,
+  POPULATION_NOTE,
   BUCKETS,
   BUCKET_LABEL,
   NEEDS_ATTENTION,
@@ -293,6 +294,9 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
               Grouped by what the engine recommends. Every row can be overridden — the
               engine proposes, you decide, and the IMS file carries your decision wherever
               you made one.
+            </p>
+            <p className="muted population-note" data-testid="actions-population">
+              {POPULATION_NOTE.ACTIONS}
             </p>
           </div>
           <div className="scope-toggle" role="group" aria-label="Which rows to show">

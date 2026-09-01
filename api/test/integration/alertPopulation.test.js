@@ -185,6 +185,68 @@ describe.each(PERIODS)('no reverse-charge or ineligible record reaches Before cu
     }
   });
 
+  // Before cut-off measures EXPOSURE — how much credit is unsettled and still
+  // chaseable — so nothing it headlines can be negative. It used to add a credit
+  // note to an invoice: Patel Systems' April pair netted to MINUS Rs 5,577 on a
+  // card headed "ITC at stake", and Fortune Hardware's June card headlined MINUS
+  // Rs 17,128.92 off a single credit note. Both were the screen quietly
+  // reporting less exposure than it had found.
+  it('headlines no negative figure anywhere', () => {
+    expect(alerts.totals.itcAtStake).toBeGreaterThanOrEqual(0);
+    for (const band of alerts.bands) {
+      expect(band.itcAtStake).toBeGreaterThanOrEqual(0);
+      for (const supplier of band.suppliers) {
+        expect(supplier.itcAtStake).toBeGreaterThanOrEqual(0);
+      }
+    }
+    for (const supplier of alerts.suppliers) {
+      expect(supplier.itcAtStake).toBeGreaterThanOrEqual(0);
+    }
+    expect(alerts.excluded.itcAtStake).toBeGreaterThanOrEqual(0);
+  });
+
+  it('adds documents by size rather than cancelling them against each other', () => {
+    // The gross is the sum of the magnitudes, and equals the net only when
+    // nothing pulls the other way. Asserting both halves means a future change
+    // that reintroduces netting fails here even on a period with no credit notes.
+    for (const supplier of alerts.suppliers) {
+      const gross = supplier.invoices.reduce((sum, i) => sum + Math.abs(i.itcAtStake), 0);
+      const net = supplier.invoices.reduce((sum, i) => sum + i.itcAtStake, 0);
+      expect(supplier.itcAtStake).toBe(gross);
+      expect(supplier.netItc).toBe(net);
+      const { otherDocuments, creditNotes } = supplier.breakdown;
+      // Gross exceeds |net| only when BOTH directions are present. Fortune
+      // Hardware's June card is a single credit note: gross Rs 17,128.92 and net
+      // MINUS Rs 17,128.92, equal in magnitude — and the point of the change is
+      // that the card headlines the positive one.
+      if (otherDocuments.count && creditNotes.count) {
+        expect(gross).toBeGreaterThan(Math.abs(net));
+      } else {
+        expect(gross).toBe(Math.abs(net));
+      }
+    }
+  });
+
+  it('splits the two directions so a supplier can act on one of them', () => {
+    for (const supplier of alerts.suppliers) {
+      const { otherDocuments, creditNotes } = supplier.breakdown;
+      expect(otherDocuments.count + creditNotes.count).toBe(supplier.invoiceCount);
+      expect(Math.abs(otherDocuments.itc) + Math.abs(creditNotes.itc)).toBe(
+        supplier.itcAtStake
+      );
+      // Credit notes are never presented as credit the trader is owed. The chase
+      // message has to make the opposite request for them.
+      if (creditNotes.count) {
+        expect(supplier.chaseMessage).toContain('still claiming and should not be');
+        expect(supplier.chaseMessage).toContain('credit note');
+      }
+      // And the netted figure never appears as the headline anywhere.
+      if (creditNotes.count && otherDocuments.count) {
+        expect(supplier.consequence).toContain('credit you are owed');
+      }
+    }
+  });
+
   it('accounts for what it set aside instead of dropping it silently', () => {
     expect(alerts.excluded.invoiceCount).toBeGreaterThan(0);
     // Every reason present is one of the three, and the parts sum to the whole.

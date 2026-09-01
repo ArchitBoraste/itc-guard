@@ -906,3 +906,36 @@ details.model-note[open] > summary { margin-bottom: 6px; }
   max-width: 92ch;
   line-height: 1.5;
 }
+
+/* The two directions behind an "ITC at stake" figure. Not a warning tone: the
+   credit-note side is not worse than the invoice side, it just pulls the other
+   way, and colouring it red would read as an error on the document. */
+.exposure-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+.exposure-split.is-compact { font-size: 0.75rem; gap: 2px 10px; margin-top: 6px; }
+.exposure-part { white-space: nowrap; }
+.exposure-part.is-note { color: var(--info); }
+.exposure-why {
+  flex-basis: 100%;
+  margin: 6px 0 0;
+  max-width: 78ch;
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.exposure-split.is-compact .exposure-why { display: none; }
+
+/* "Which documents am I looking at" — one line, above the note that explains
+   why the screens count differently. */
+.population-note {
+  margin: 6px 0 0;
+  max-width: 92ch;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}

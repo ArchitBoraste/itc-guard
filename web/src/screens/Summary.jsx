@@ -5,7 +5,8 @@ import {
   BUCKET_HELP,
   BUCKET_LABEL,
   CROSS_SCREEN_NOTE,
-  DOC_TYPE_LABEL
+  DOC_TYPE_LABEL,
+  POPULATION_NOTE
 } from '../lib/vocab.js';
 import { SAMPLES_URL } from '../lib/links.js';
 import { Empty } from '../components/States.jsx';
@@ -187,6 +188,9 @@ export function SummaryScreen({
                   </span>
                 </>
               ) : null}
+            </p>
+            <p className="muted population-note" data-testid="summary-population">
+              {POPULATION_NOTE.SUMMARY}
             </p>
             <p className="muted cross-screen-note" data-testid="summary-cross-screen">
               {CROSS_SCREEN_NOTE.SUMMARY}

@@ -171,7 +171,7 @@ Docker Compose.
 
 ## Test status
 
-**646 API tests and 126 front-end tests**, all passing. The count is not the point; what
+**666 API tests and 132 front-end tests**, all passing. The count is not the point; what
 they hold is:
 
 | Suite | What it actually verifies |
@@ -206,6 +206,23 @@ this project also wrote. It says the engine does what we specified. It says noth
 how a real trader's register compares against a real GSTR-2B, because we have never seen
 one. Getting real, anonymised files in front of this is the single highest-value thing
 left to do.
+
+**Recommendations use the ORGANISATION's filing scheme, not each supplier's.**
+`preventiveAlerts()` reads `suppliers.filing_scheme` and gives every supplier their own
+cut-off — the 11th for a monthly GSTR-1 filer, the 13th for QRMP. `recommendAction()`
+does not: it takes one `filingScheme` from context, which `runReconciliation()` fills
+from `organizations.filer_type`, and applies it to every supplier in the run. So the same
+supplier can be judged against two different dates depending on which screen is asking.
+There is a second half to it inside a single run: `computeRunTotals()` *is* handed a
+per-supplier `schemeFor`, so for a QRMP supplier the AT_RISK/DEFERRED total and the
+CHASE_SUPPLIER/DEFERRED label could disagree with each other.
+
+This is latent rather than live — all 108 generated suppliers are MONTHLY, so every
+cut-off is the 11th either way and the screens agree by a property of the fixtures rather
+than by construction. It becomes real the moment a QRMP supplier appears. The fix is to
+thread `schemeFor` through `matchReconcile()` into `recommendAction()`, the way
+`computeRunTotals()` already receives it. **Known future work, deliberately not done
+before the demo.**
 
 **The supplier risk model was trained on data our own generator produced.** 200
 supplier-months from `tools/generate-fixtures.js`. It has largely learned our generator's
@@ -446,7 +463,7 @@ supplier fix or a reject.
 
 ## Running the tests
 
-646 API tests and 126 front-end tests. What each suite holds is tabulated under
+666 API tests and 132 front-end tests. What each suite holds is tabulated under
 [Test status](#test-status); this section is about running them.
 
 The front end has its own suite. It runs in the web container, which is where its

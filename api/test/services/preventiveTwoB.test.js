@@ -89,6 +89,33 @@ const CASES = [
     chaseable: true,
     reason: null
   },
+  // Two books rows sharing a number, one portal record. The engine matches the
+  // record to TWIN_MATCHED (identical amounts) and leaves TWIN_ORPHAN with
+  // nothing. An index keyed on supplier + number hands the same record to both.
+  {
+    key: 'TWIN_MATCHED',
+    gstin: '27AAAAA0016A1Z4',
+    name: 'Patel Systems',
+    invoiceNo: '1-02668',
+    taxable: 2867600,
+    tax: 802928,
+    twoB: { reverseCharge: 0, itcAvailable: 1, section: 'b2b' },
+    ims: true,
+    chaseable: false,
+    settled: true,
+    reason: null
+  },
+  {
+    key: 'TWIN_ORPHAN',
+    gstin: '27AAAAA0016A1Z4',
+    name: 'Patel Systems',
+    invoiceNo: '1-02668',
+    taxable: 3786900,
+    tax: 681642,
+    twoB: null,
+    chaseable: true,
+    reason: null
+  },
   {
     key: 'NOWHERE',
     gstin: '27AAAAA0015A1Z5',
@@ -104,7 +131,9 @@ const CASES = [
 ];
 
 const chaseable = CASES.filter((entry) => entry.chaseable);
-const setAside = CASES.filter((entry) => !entry.chaseable);
+// Not chaseable AND not settled: the ones that belong in the excluded tally.
+// A settled document is off the screen because it is finished, not set aside.
+const setAside = CASES.filter((entry) => !entry.chaseable && !entry.settled);
 
 const byKey = (key) => CASES.find((entry) => entry.key === key);
 
@@ -173,6 +202,17 @@ async function seed() {
     const books = booksRow(entry);
     expected.push(books);
     if (entry.twoB) portal.push(twoBRow(entry, books));
+    // The matched twin is in IMS as well as 2B — that is what makes it settled
+    // and what leaves the orphan with nothing on either side.
+    if (entry.ims) {
+      portal.push({
+        ...twoBRow(entry, books),
+        source: 'IMS',
+        filingStatus: 'FILED',
+        supplierFiledOn: null,
+        imsAction: 'N'
+      });
+    }
   }
 
   assignExpectedIdentities(expected);
@@ -253,9 +293,38 @@ describe('Before cut-off lists only what can actually be chased', () => {
     }
   );
 
+  // The bug: twoBIndex() kept one record per supplier + normalised invoice
+  // number, so the orphan was handed the twin's 2B record and the screen told the
+  // trader their IMS download was stale and to re-download it. The download was
+  // current, the record quoted belonged to a different document, and the advice
+  // would not have helped. The lookup runs the real matcher now, so the engine's
+  // one-to-one assignment decides who owns the record.
+  it('does not hand a books row a 2B record already matched to its twin', () => {
+    const orphan = invoiceFor(alerts, 'TWIN_ORPHAN');
+    expect(orphan).not.toBeNull();
+    expect(orphan.totalTax).toBe(byKey('TWIN_ORPHAN').tax);
+
+    // No 2B claim at all is the correct answer here — better than a confident
+    // wrong one, which is what the index produced.
+    expect(orphan.inGstr2b).toBe(false);
+    expect(orphan.gstr2bFiledOn).toBeNull();
+    expect(orphan.note).not.toContain('GSTR-2B');
+    expect(orphan.note).not.toContain('re-download');
+  });
+
+  it('leaves the settled twin off the screen entirely', () => {
+    // It is in IMS and FILED: locked in, nothing to chase, and not "set aside"
+    // either — it simply has no business on a screen about unfinished business.
+    const rows = alerts.suppliers.flatMap((supplier) => supplier.invoices);
+    const twin = byKey('TWIN_MATCHED');
+    expect(rows.filter((row) => row.totalTax === twin.tax)).toHaveLength(0);
+  });
+
   it('counts only the chaseable documents in the totals', () => {
     expect(alerts.totals.invoiceCount).toBe(chaseable.length);
-    expect(alerts.totals.supplierCount).toBe(chaseable.length);
+    expect(alerts.totals.supplierCount).toBe(
+      new Set(chaseable.map((entry) => entry.gstin)).size
+    );
     expect(alerts.totals.itcAtStake).toBe(
       chaseable.reduce((sum, entry) => sum + entry.tax, 0)
     );

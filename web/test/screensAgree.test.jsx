@@ -44,6 +44,7 @@ import { HowToUseScreen } from '../src/screens/HowToUse.jsx';
 const invoice = (over = {}) => ({
   expectedInvoiceId: 11,
   status: 'NOT_REPORTED',
+  docType: 'INVOICE',
   invoiceNo: 'L-KNP/2786/06-17',
   invoiceDate: '2026-07-12',
   taxableValue: 52146800,
@@ -56,6 +57,19 @@ const invoice = (over = {}) => ({
   note: 'Not in IMS at all — the supplier has not even saved it yet.',
   ...over
 });
+
+function breakdownOf(invoices) {
+  const out = {
+    otherDocuments: { count: 0, itc: 0 },
+    creditNotes: { count: 0, itc: 0 }
+  };
+  for (const entry of invoices) {
+    const side = entry.itcAtStake < 0 ? out.creditNotes : out.otherDocuments;
+    side.count += 1;
+    side.itc += entry.itcAtStake;
+  }
+  return out;
+}
 
 const supplier = (invoices) => ({
   gstin: '32VYZTH4876U7ZL',
@@ -70,7 +84,10 @@ const supplier = (invoices) => ({
   urgencyRank: 5,
   risk: { band: 'HIGH', score: 0.7, reasons: ['reported nothing in 5 of the last 6 months'], features: {} },
   invoiceCount: invoices.length,
-  itcAtStake: invoices.reduce((sum, entry) => sum + entry.itcAtStake, 0),
+  // GROSS, matching the API: magnitudes added, never cancelled.
+  itcAtStake: invoices.reduce((sum, entry) => sum + Math.abs(entry.itcAtStake), 0),
+  netItc: invoices.reduce((sum, entry) => sum + entry.itcAtStake, 0),
+  breakdown: breakdownOf(invoices),
   statusCounts: { NOT_REPORTED: invoices.length, SAVED_NOT_FILED: 0, SAVED_VALUE_MISMATCH: 0 },
   invoices,
   headline: 'Anand Systems — 2 documents still not safe.',
@@ -90,6 +107,8 @@ function alertsBody(invoices, totalsOver = {}) {
       supplierCount: 1,
       invoiceCount: invoices.length,
       itcAtStake: entry.itcAtStake,
+      netItc: entry.netItc,
+      breakdown: entry.breakdown,
       expectedInvoices: 400,
       imsRecords: 380,
       inGstr2bCount: invoices.filter((one) => one.inGstr2b).length,
@@ -113,6 +132,8 @@ function alertsBody(invoices, totalsOver = {}) {
         itcAtStake: entry.itcAtStake,
         escalatedCount: 0,
         pastCutOffCount: 1,
+        netItc: entry.netItc,
+        breakdown: entry.breakdown,
         suppliers: [entry]
       },
       { band: 'MEDIUM', supplierCount: 0, invoiceCount: 0, itcAtStake: 0, suppliers: [] },
@@ -248,6 +269,95 @@ describe('Before cut-off explains itself against Summary', () => {
     const empty = await screen.findByTestId('empty-alerts');
     expect(empty.textContent).toMatch(/that could be chased/);
     expect(empty.textContent).toMatch(/need nothing from anybody/);
+  });
+});
+
+describe('Before cut-off shows exposure, not a net', () => {
+  const CREDIT_NOTE = {
+    expectedInvoiceId: 12,
+    status: 'NOT_REPORTED',
+    docType: 'CREDIT_NOTE',
+    invoiceNo: '1-02687',
+    invoiceDate: '2026-07-04',
+    taxableValue: 18080800,
+    totalTax: 2842765,
+    // Signed on the document, because a credit note really does pull the other
+    // way. What must not happen is the SCREEN adding it to an invoice.
+    itcAtStake: -2842765,
+    deltaTotalTax: null,
+    inGstr2b: false,
+    gstr2bFiledOn: null,
+    excludedReason: null,
+    note: 'Not in the IMS file you uploaded.'
+  };
+  const INVOICE = {
+    ...CREDIT_NOTE,
+    expectedInvoiceId: 13,
+    docType: 'INVOICE',
+    invoiceNo: '1-02678',
+    totalTax: 2285028,
+    itcAtStake: 2285028
+  };
+
+  // The reported case: Rs 22,850.28 and Rs 28,427.65 netted to MINUS Rs 5,577.37
+  // on a card headed "ITC at stake", a figure matching neither document.
+  it('headlines the gross, not the net, when a credit note is in the pile', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([INVOICE, CREDIT_NOTE]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+
+    const stake = await screen.findByTestId('stake-32VYZTH4876U7ZL');
+    // 22,850.28 + 28,427.65 = 51,277.93, rendered to whole rupees.
+    expect(stake.textContent).toMatch(/51,278/);
+    expect(stake.textContent).not.toMatch(/5,577/);
+    expect(stake.textContent).not.toMatch(/−|-\s*₹/);
+  });
+
+  it('splits the two directions, because nobody can act on a total', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([INVOICE, CREDIT_NOTE]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+
+    const split = await screen.findByTestId('split-32VYZTH4876U7ZL');
+    expect(split.textContent).toMatch(/22,850/);
+    expect(split.textContent).toMatch(/owed to you/);
+    expect(split.textContent).toMatch(/28,428/);
+    expect(split.textContent).toMatch(/still claiming/);
+    // The net is named as the thing it is NOT, so the two figures reconcile.
+    expect(split.textContent).toMatch(/5,577/);
+  });
+
+  it('shows a credit-note-only supplier as positive exposure', async () => {
+    // Fortune Hardware, June 2026: one credit note, and the card headlined
+    // MINUS Rs 17,128.92 under "ITC at stake".
+    api.listAlerts.mockResolvedValue(alertsBody([CREDIT_NOTE]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+
+    const stake = await screen.findByTestId('stake-32VYZTH4876U7ZL');
+    expect(stake.textContent).toMatch(/28,428/);
+    expect(stake.textContent).not.toMatch(/−/);
+  });
+
+  it('leaves an all-invoice supplier with no split to explain', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([INVOICE]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+    await screen.findByTestId('stake-32VYZTH4876U7ZL');
+    expect(screen.queryByTestId('split-32VYZTH4876U7ZL')).toBeNull();
+  });
+});
+
+describe('each screen says which documents it is about', () => {
+  it('Before cut-off names its population and points at Actions', async () => {
+    api.listAlerts.mockResolvedValue(alertsBody([invoice()]));
+    render(<AlertsScreen run={RUN} taxPeriod="2026-07" />);
+    const note = await screen.findByTestId('alerts-population');
+    expect(note.textContent).toMatch(/IMS position is not final/);
+    expect(note.textContent).toMatch(/also appears on Actions/);
+  });
+
+  it('Summary says Actions is the same set, not a subset', () => {
+    render(<SummaryScreen run={RUN} results={[]} />);
+    const note = screen.getByTestId('summary-population');
+    expect(note.textContent).toMatch(/same set/);
+    expect(note.textContent).toMatch(/neither screen is a subset/);
   });
 });
 

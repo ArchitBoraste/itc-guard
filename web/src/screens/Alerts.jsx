@@ -5,10 +5,12 @@ import { formatDate, formatPeriod, runClock } from '../lib/calendar.js';
 import {
   ALERT_STATUS_LABEL,
   CROSS_SCREEN_NOTE,
+  POPULATION_NOTE,
   RISK_BAND_LABEL,
   URGENCY_LABEL,
   bandHelp,
-  excludedSentence
+  excludedSentence,
+  exposureSplit
 } from '../lib/vocab.js';
 import { Empty, ErrorBox, Loading } from '../components/States.jsx';
 
@@ -68,6 +70,54 @@ function CopyMessage({ text, testId }) {
           {text}
         </pre>
       </details>
+    </div>
+  );
+}
+
+// The two directions behind an "at stake" figure.
+//
+// Rendered wherever the gross appears, because the gross alone is no more
+// actionable than the net was: a supplier can fix an invoice or a credit note,
+// not a total. `compact` is the summary-card form, where there is no room for
+// sentences.
+function ExposureSplit({ entry, format, compact = false, testId = null }) {
+  const split = exposureSplit(entry);
+  if (!split) return null;
+
+  return (
+    <div className={`exposure-split ${compact ? 'is-compact' : ''}`} data-testid={testId}>
+      {split.owed.count ? (
+        <span className="exposure-part">
+          <strong className="mono">{format(split.owed.itc)}</strong> owed to you
+          {compact ? '' : ` on ${split.owed.count} invoice${split.owed.count === 1 ? '' : 's'} / debit note${split.owed.count === 1 ? '' : 's'}`}
+        </span>
+      ) : null}
+      <span className="exposure-part is-note">
+        <strong className="mono">{format(split.claimed.itc)}</strong> you are still claiming
+        {compact ? '' : ` on ${split.claimed.count} unreported credit note${split.claimed.count === 1 ? '' : 's'}`}
+      </span>
+      {compact ? null : (
+        <p className="exposure-why">
+          {split.owed.count ? (
+            <>
+              Two problems pulling opposite ways, not one number. The invoice is credit you
+              have not received; the credit note is credit you are claiming and should not
+              be, until the supplier reports it. Netted they would read{' '}
+              <strong className="mono">{format(Math.abs(split.netItc))}</strong>, which is
+              neither.
+            </>
+          ) : (
+            /* Nothing pulls the other way here — there is only the credit note. The
+               figure is still exposure rather than a negative: until the supplier
+               reports it, the trader's own return is claiming credit it should not. */
+            <>
+              Shown as exposure, not as a negative. Nothing here is credit you are owed —
+              it is credit you are currently claiming, and your return overstates its
+              input tax credit until the supplier reports this.
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }
@@ -169,7 +219,7 @@ function SupplierAlert({ supplier }) {
         </div>
         <div className="alert-amount">
           <div className="impact-label">ITC at stake</div>
-          <strong>{rupees(supplier.itcAtStake)}</strong>
+          <strong data-testid={`stake-${supplier.gstin}`}>{rupees(supplier.itcAtStake)}</strong>
           <div className="muted small">
             {supplier.invoiceCount} document{supplier.invoiceCount === 1 ? '' : 's'}
           </div>
@@ -183,6 +233,12 @@ function SupplierAlert({ supplier }) {
           <li key={reason}>{reason}</li>
         ))}
       </ul>
+
+      <ExposureSplit
+        entry={supplier}
+        format={rupees}
+        testId={`split-${supplier.gstin}`}
+      />
 
       <p className={`alert-consequence ${supplier.preCutOff === false ? 'is-past' : ''}`}>
         {supplier.consequence}
@@ -222,6 +278,7 @@ function Band({ band }) {
         <div className="change-total">
           <strong data-testid={`band-itc-${band.band}`}>{rupees(band.itcAtStake)}</strong>
           <span className="muted small">at stake in this group</span>
+          <ExposureSplit entry={band} format={rupees} compact testId={`band-split-${band.band}`} />
         </div>
       </header>
 
@@ -293,6 +350,9 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
               purpose: IMS shows a record the moment a supplier saves it, days before 2B
               exists.
             </p>
+            <p className="muted population-note" data-testid="alerts-population">
+              {POPULATION_NOTE.ALERTS}
+            </p>
             <p className="muted cross-screen-note" data-testid="alerts-cross-screen">
               {CROSS_SCREEN_NOTE.ALERTS}
             </p>
@@ -333,10 +393,17 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
                 <span>{alerts.totals.invoiceCount} documents</span>
                 <span>{alerts.totals.supplierCount} suppliers</span>
               </div>
+              <ExposureSplit
+                entry={alerts.totals}
+                format={rupeesCompact}
+                compact
+                testId="totals-split"
+              />
               <p className="total-help">
                 Credit your books expect that is not in IMS, or is in IMS as a draft the
                 supplier can still change — and that somebody can still do something
-                about.
+                about. Documents are added by size, never netted: an unreported invoice
+                and an unreported credit note are two problems, not one small one.
                 {alerts.totals.inGstr2bCount ? (
                   <>
                     {' '}
@@ -361,6 +428,12 @@ export function AlertsScreen({ run, taxPeriod, asOf: asOfProp = null, onAsOfChan
                     <span>{band.supplierCount} suppliers</span>
                     <span>{band.invoiceCount} documents</span>
                   </div>
+                  <ExposureSplit
+                    entry={band}
+                    format={rupeesCompact}
+                    compact
+                    testId={`card-split-${band.band}`}
+                  />
                 </div>
               ))}
           </div>

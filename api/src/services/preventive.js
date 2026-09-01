@@ -758,7 +758,7 @@ export async function preventiveAlerts(
   // register cannot tell us this on its own — the GSTN v2.4 template has eleven
   // columns and carries neither a reverse-charge nor an ITC-eligibility one — so
   // the 2B record is the only place the fact exists.
-  const twoB = twoBIndex(portal);
+  const twoB = twoBPairs(expected, portal, { asOfDate: asOf, taxPeriod });
 
   const results = reconcile(expected, imsRecords, { asOfDate: asOf, taxPeriod });
 
@@ -807,7 +807,11 @@ export async function preventiveAlerts(
         String(a.invoiceNo).localeCompare(String(b.invoiceNo))
     );
 
-    const itcAtStake = invoices.reduce((sum, invoice) => sum + invoice.itcAtStake, 0);
+    // EXPOSURE, not net credit. See exposureOf() — a supplier's two unreported
+    // documents are two problems, and adding a credit note to an invoice cancels
+    // one against the other into a number that describes neither.
+    const exposure = exposureOf(invoices);
+    const itcAtStake = exposure.itcAtStake;
     const name = supplier?.trade_name ?? supplier?.legal_name ?? invoices[0].supplierName ?? gstin;
 
     const entry = {
@@ -833,10 +837,16 @@ export async function preventiveAlerts(
       escalated: alertBandFor(risk.band, preCutOff) !== risk.band,
       invoiceCount: invoices.length,
       itcAtStake,
+      // The components behind it, so the card can show what the exposure is made
+      // of rather than only its size. Mirrors totalsBreakdown on Summary.
+      netItc: exposure.netItc,
+      breakdown: exposure.breakdown,
       statusCounts: countStatuses(invoices),
       invoices,
       headline: headlineFor({ name, invoices, daysRemaining, urgency, band: risk.band }),
-      consequence: consequenceFor({ taxPeriod, cutOff, daysRemaining, preCutOff, itcAtStake })
+      consequence: consequenceFor({
+        taxPeriod, cutOff, daysRemaining, preCutOff, exposure
+      })
     };
     entry.chaseMessage = buildChaseMessage({ org, supplier: entry, taxPeriod, asOf });
     suppliers.push(entry);
@@ -859,6 +869,7 @@ export async function preventiveAlerts(
       supplierCount: members.length,
       invoiceCount: members.reduce((sum, entry) => sum + entry.invoiceCount, 0),
       itcAtStake: members.reduce((sum, entry) => sum + entry.itcAtStake, 0),
+      ...rollUpExposure(members),
       // How many are here because their cut-off passed rather than because of
       // their filing record. The group header says so rather than applying a
       // record-based sentence to somebody whose record is clean.
@@ -881,6 +892,7 @@ export async function preventiveAlerts(
       supplierCount: suppliers.length,
       invoiceCount: suppliers.reduce((sum, entry) => sum + entry.invoiceCount, 0),
       itcAtStake: suppliers.reduce((sum, entry) => sum + entry.itcAtStake, 0),
+      ...rollUpExposure(suppliers),
       expectedInvoices: expected.length,
       imsRecords: imsRecords.length,
       // Of the documents that ARE listed, how many GSTR-2B already carries. These
@@ -1013,57 +1025,46 @@ function addToExcludedTally(tally, item) {
   }
 }
 
-// The 2B records for one supplier + normalised invoice number, keyed on the same
-// identity the engine blocks on.
+// Which GSTR-2B record is THIS books row's own — expected id -> 2B record.
 //
-// A LIST per key, not a single record. Duplicate invoice numbers are real and the
-// engine already has a DUPLICATE_INV_NO flag for them: Navkar Agencies bills
-// 06-17/PNQ/1081 twice in February 2026, once reverse-charge on the 1st and once
-// ordinary on the 3rd. Keeping one record per key silently let the ordinary one
-// mask the reverse-charge one, and the reverse-charge document went back onto a
-// screen it has no business being on. Collapsing duplicates here is exactly the
-// kind of shortcut this product exists to criticise GSTN's own matcher for.
-function twoBIndex(portal) {
-  const index = new Map();
-  for (const record of portal) {
-    if (record.source !== 'GSTR2B') continue;
-    const key = `${record.supplierGstin}|${record.invoiceNoNorm}`;
-    if (!index.has(key)) index.set(key, []);
-    index.get(key).push(record);
+// Built by running the SAME matcher over the 2B side, rather than by indexing on
+// supplier + normalised invoice number. That is the whole point: the engine
+// assigns ONE-TO-ONE, so a 2B record consumed by one books row cannot also be
+// offered to another, and a books row the engine could not pair confidently gets
+// nothing rather than somebody else's record.
+//
+// The index this replaces got it wrong in both directions on real data:
+//
+//   * Navkar Agencies bill 06-17/PNQ/1081 twice in February 2026, reverse-charge
+//     on the 1st and ordinary on the 3rd. Keyed on the number, the ordinary
+//     record masked the reverse-charge one and put a document that can never
+//     enter IMS back onto a screen about chasing suppliers.
+//   * Patel Systems have two March 2026 books rows numbered 1-02668 and only one
+//     portal record, which the engine had already matched to the second of them.
+//     The index handed that same record to the FIRST row as well, so the screen
+//     told the trader their IMS download was stale and to re-download it. The
+//     download was current, the record quoted belonged to a different document,
+//     and the advice would not have helped.
+//
+// Both are the shortcut this product exists to criticise GSTN's own matcher for,
+// committed inside our own explanation layer.
+//
+// Confidence is the engine's, deliberately: a pair exists only above the
+// SUGGESTED threshold, and inventing a second, stricter rule here would mean two
+// definitions of "the same invoice" in one codebase.
+function twoBPairs(expected, portal, context) {
+  const pairs = new Map();
+  const twoBRecords = portal.filter((record) => record.source === 'GSTR2B');
+  if (!twoBRecords.length || !expected.length) return pairs;
+
+  for (const result of reconcile(expected, twoBRecords, context)) {
+    if (result.expected && result.portal) pairs.set(result.expected.id, result.portal);
   }
-  return index;
+  return pairs;
 }
 
-// Which of those records is THIS books row, or null.
-//
-// Date and amounts break the tie, because that is all that separates two
-// documents sharing a number. Scored rather than filtered: with a single
-// candidate the identity key is already strong evidence — same GSTIN, same
-// normalised number — and demanding an exact date would throw away the ordinary
-// one-record case over a day's drift.
-function lookupTwoB(index, expected) {
-  if (!index) return null;
-  const candidates = index.get(`${expected.supplierGstin}|${expected.invoiceNoNorm}`) ?? [];
-  if (!candidates.length) return null;
-  if (candidates.length === 1) return candidates[0];
-
-  let best = null;
-  let bestScore = -1;
-  for (const record of candidates) {
-    let score = 0;
-    if (record.invoiceDate === expected.invoiceDate) score += 2;
-    if (
-      record.taxableValue === expected.taxableValue &&
-      record.totalTax === expected.totalTax
-    ) {
-      score += 1;
-    }
-    if (score > bestScore) {
-      best = record;
-      bestScore = score;
-    }
-  }
-  return best;
+function lookupTwoB(pairs, expected) {
+  return pairs?.get(expected.id) ?? null;
 }
 
 // Per CLAUDE.md domain fact 5 and docs/gstr2b-schema.md: reverse charge, records
@@ -1109,7 +1110,15 @@ function noteFor(status, inTwoB) {
 }
 
 export const STATUS_NOTE = Object.freeze({
-  NOT_REPORTED: 'Not in IMS at all — the supplier has not even saved it yet.',
+  // What is KNOWN, then what it probably means. The old wording — "the supplier
+  // has not even saved it yet" — was an inference stated as fact: all the app can
+  // see is that the document is absent from the IMS file the trader uploaded, and
+  // it has no idea when that file was downloaded. IMS shows a record the moment a
+  // supplier saves, so the inference is a good one, but only if the download is
+  // current, and that is the trader's fact to supply rather than ours to assume.
+  NOT_REPORTED:
+    'Not in the IMS file you uploaded. If that download is current, the supplier has ' +
+    'not even saved it yet.',
   SAVED_NOT_FILED:
     'Saved in IMS but not filed. Not safe yet: a saved record can still be edited ' +
     'or deleted, and only filed records reach your GSTR-2B.',
@@ -1117,6 +1126,58 @@ export const STATUS_NOTE = Object.freeze({
     'Saved in IMS with different amounts, and not filed yet. While it is a draft ' +
     'the supplier can correct it for free.'
 });
+
+// EXPOSURE, not claimable credit — the distinction this screen turns on.
+//
+// itcAtStake on a single document keeps its sign, because a credit note really
+// does pull the other way: services/totals.js is right to subtract it when
+// working out what a period can CLAIM. This screen is not measuring that. It is
+// measuring how much credit is unsettled and still chaseable, and there two
+// unreported documents are two problems whichever way each one points.
+//
+// Netted, Patel Systems' April pair — a Rs 22,850.28 invoice and a Rs 28,427.65
+// credit note — came to MINUS Rs 5,577.37 on a card headed "ITC at stake", a
+// figure matching neither document and a third of the Rs 51,277.93 actually
+// unsettled. Across the screen it understated April by 42%. Summary's Deferred
+// card had already been fixed not to do this to the very same pair.
+//
+// The net is kept alongside, because it is what those documents will do to the
+// claim once they are settled, and the split is what a supplier can actually act
+// on. Nobody can fix a net.
+function exposureOf(invoices) {
+  const breakdown = {
+    otherDocuments: { count: 0, itc: 0 },
+    creditNotes: { count: 0, itc: 0 }
+  };
+  let itcAtStake = 0;
+  let netItc = 0;
+
+  for (const invoice of invoices) {
+    const side = invoice.itcAtStake < 0 ? breakdown.creditNotes : breakdown.otherDocuments;
+    side.count += 1;
+    side.itc += invoice.itcAtStake;
+    itcAtStake += Math.abs(invoice.itcAtStake);
+    netItc += invoice.itcAtStake;
+  }
+  return { itcAtStake, netItc, breakdown };
+}
+
+// The same shape summed over suppliers, for a band or for the screen total.
+function rollUpExposure(entries) {
+  const breakdown = {
+    otherDocuments: { count: 0, itc: 0 },
+    creditNotes: { count: 0, itc: 0 }
+  };
+  let netItc = 0;
+  for (const entry of entries) {
+    netItc += entry.netItc ?? 0;
+    for (const key of ['otherDocuments', 'creditNotes']) {
+      breakdown[key].count += entry.breakdown?.[key]?.count ?? 0;
+      breakdown[key].itc += entry.breakdown?.[key]?.itc ?? 0;
+    }
+  }
+  return { netItc, breakdown };
+}
 
 function countInvoices(suppliers, predicate) {
   let n = 0;
@@ -1149,22 +1210,44 @@ function headlineFor({ name, invoices, daysRemaining, urgency, band }) {
 // a draft and a phone call costs nothing; after it, per
 // docs/gst-lifecycle-reference.md, the GSTR-1A correction reaches the recipient's
 // 2B in the NEXT tax period and never this one.
-function consequenceFor({ taxPeriod, cutOff, daysRemaining, preCutOff, itcAtStake }) {
+function consequenceFor({ taxPeriod, cutOff, daysRemaining, preCutOff, exposure }) {
   const nextPeriod = addMonths(taxPeriod, 1);
+  // The GROSS figure, and split when a credit note is in it. "A month of cash
+  // flow on minus Rs 5,577" was not a sentence about anything.
+  const amount = describeExposure(exposure);
   if (preCutOff === false) {
     return (
       `Their cut-off (${formatDate(cutOff)}) has passed. A correction now needs GSTR-1A, ` +
       `and a GSTR-1A amendment reaches your GSTR-2B in ${monthName(nextPeriod)} — the NEXT ` +
-      `tax period, never ${monthName(taxPeriod)}. That is a month of cash flow on ` +
-      `${formatRupeesAscii(Math.abs(itcAtStake))}.`
+      `tax period, never ${monthName(taxPeriod)}. That is a month of delay on ${amount}.`
     );
   }
   const days = `${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`;
   return (
     `Their return is still a draft until ${formatDate(cutOff)} — ${days} away. A fix now is ` +
-    `free: they edit the saved record, file on time, and the credit lands in your ` +
+    `free: they edit the saved record, file on time, and ${amount} settles in your ` +
     `${monthName(taxPeriod)} GSTR-2B. After that date it needs GSTR-1A and slips to ` +
     `${monthName(nextPeriod)}.`
+  );
+}
+
+// "Rs 51,277.93 (Rs 22,850.28 of credit you are owed and Rs 28,427.65 on a
+// credit note you are still claiming)" — or just the figure when nothing pulls
+// the other way.
+function describeExposure(exposure) {
+  const gross = formatRupeesAscii(exposure.itcAtStake);
+  const { otherDocuments, creditNotes } = exposure.breakdown;
+  if (!creditNotes.count) return gross;
+  if (!otherDocuments.count) {
+    return (
+      `${gross} of credit you are still claiming on ` +
+      `${creditNotes.count} unreported credit note${creditNotes.count === 1 ? '' : 's'}`
+    );
+  }
+  return (
+    `${gross} — ${formatRupeesAscii(Math.abs(otherDocuments.itc))} of credit you are owed, ` +
+    `and ${formatRupeesAscii(Math.abs(creditNotes.itc))} you are still claiming on ` +
+    `${creditNotes.count} unreported credit note${creditNotes.count === 1 ? '' : 's'}`
   );
 }
 
@@ -1193,15 +1276,22 @@ export function buildChaseMessage({ org, supplier, taxPeriod, asOf }) {
   lines.push('');
   lines.push('Hello,');
   lines.push('');
+  // The header used to say nothing had reached IMS while the rows underneath it
+  // read "saved on the portal as taxable ... / tax ...". It now describes what is
+  // actually in the list.
   lines.push(
     `As of ${formatDate(asOf)}, the following ${monthName(taxPeriod)} document(s) from you ` +
-      'have not yet reached our GST portal data (IMS):'
+      `${openingClause(supplier.invoices)}:`
   );
   lines.push('');
 
   supplier.invoices.forEach((invoice, index) => {
+    // The document type is spelled out because a credit note and an invoice ask
+    // the supplier for opposite things, and the two lines were identical.
+    const kind = DOC_TYPE_WORD[invoice.docType] ?? 'document';
     lines.push(
-      `  ${index + 1}. ${ascii(invoice.invoiceNo)}  dated ${formatDate(invoice.invoiceDate)}  ` +
+      `  ${index + 1}. ${kind} ${ascii(invoice.invoiceNo)}  ` +
+        `dated ${formatDate(invoice.invoiceDate)}  ` +
         `taxable ${formatRupeesAscii(invoice.taxableValue)}  ` +
         `tax ${formatRupeesAscii(invoice.totalTax)}`
     );
@@ -1209,15 +1299,30 @@ export function buildChaseMessage({ org, supplier, taxPeriod, asOf }) {
   });
 
   lines.push('');
-  lines.push(`Input tax credit at stake: ${formatRupeesAscii(Math.abs(supplier.itcAtStake))}`);
+  // Split, never netted. The two directions are different requests: an unreported
+  // INVOICE is credit the trader is owed and has not received; an unreported
+  // CREDIT NOTE is credit the trader is currently claiming and should not be —
+  // until the supplier reports it, the recipient's GSTR-3B overstates its ITC.
+  // Presenting them as one number asked Patel Systems to fix "Rs. 5,577.37",
+  // which was neither document.
+  for (const line of stakeLines(supplier)) lines.push(line);
   lines.push('');
 
   if (supplier.preCutOff === false) {
+    // "so the credit is not lost altogether" is an invoice's reason. For a credit
+    // note nothing is lost by delay — the recipient is over-claiming until it is
+    // reported, which is a correctness problem, not a cash-flow one.
+    const creditNotesOnly =
+      supplier.breakdown.creditNotes.count > 0 && supplier.breakdown.otherDocuments.count === 0;
     lines.push(
       `Your cut-off for this period was ${formatDate(supplier.cutOffDate)} and it has passed. ` +
-        'A correction now needs GSTR-1A, and that credit would only reach our GSTR-2B in ' +
+        'A correction now needs GSTR-1A, and it would only reach our GSTR-2B in ' +
         `${monthName(addMonths(taxPeriod, 1))} - the next tax period, not ` +
-        `${monthName(taxPeriod)}. Please still report it so the credit is not lost altogether.`
+        `${monthName(taxPeriod)}. ` +
+        (creditNotesOnly
+          ? 'Please still report it - until you do, our return overstates the credit we ' +
+            'have taken on it.'
+          : 'Please still report it so the credit is not lost altogether.')
     );
   } else {
     const days = supplier.daysToCutOff;
@@ -1250,8 +1355,50 @@ function statusLine(invoice) {
     case ALERT_STATUS.SAVED_NOT_FILED:
       return 'saved but not filed yet - please file it';
     default:
-      return 'not on the portal at all';
+      return 'not in the IMS data we have downloaded - please report it';
   }
+}
+
+const DOC_TYPE_WORD = Object.freeze({
+  INVOICE: 'invoice',
+  DEBIT_NOTE: 'debit note',
+  CREDIT_NOTE: 'credit note'
+});
+
+// True of whatever is actually in the list, rather than of the commonest case.
+function openingClause(invoices) {
+  const unreported = invoices.filter(
+    (invoice) => invoice.status === ALERT_STATUS.NOT_REPORTED
+  ).length;
+  if (unreported === invoices.length) return 'have not yet reached our GST portal data (IMS)';
+  if (unreported === 0) {
+    return 'are saved in our GST portal data (IMS) but have not been filed';
+  }
+  return 'are not yet settled in our GST portal data (IMS) - each line says which';
+}
+
+function stakeLines(supplier) {
+  const { otherDocuments, creditNotes } = supplier.breakdown;
+  const lines = [];
+
+  if (otherDocuments.count) {
+    lines.push(
+      `Input tax credit we are waiting for: ${formatRupeesAscii(Math.abs(otherDocuments.itc))} ` +
+        `across ${otherDocuments.count} document(s).`
+    );
+  }
+  if (creditNotes.count) {
+    lines.push(
+      'Credit we are still claiming and should not be: ' +
+        `${formatRupeesAscii(Math.abs(creditNotes.itc))} across ${creditNotes.count} ` +
+        'credit note(s). Until these are settled our return overstates the input tax ' +
+        'credit we have taken, so please file them even though they reduce what we can claim.'
+    );
+  }
+  if (otherDocuments.count && creditNotes.count) {
+    lines.push(`Total unsettled: ${formatRupeesAscii(supplier.itcAtStake)}.`);
+  }
+  return lines;
 }
 
 // Anything outside printable ASCII is replaced rather than dropped, so a name

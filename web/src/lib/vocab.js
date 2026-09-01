@@ -93,23 +93,69 @@ export function actionHelp(action, results = []) {
 
   const past = results.filter((result) => result.flags?.includes('CUTOFF_PASSED')).length;
 
+  let timing;
   if (past === 0) {
+    timing =
+      'Their cut-off has not passed, so their fix still lands in this period for free.';
+  } else if (past === results.length) {
+    timing =
+      'Their cut-off has passed. Calling still matters — it is how the credit reaches a ' +
+      'later period instead of being lost — but it can no longer land in this period.';
+  } else {
+    timing =
+      `${past} of ${results.length} are past their supplier's cut-off: for those, a fix ` +
+      'now reaches a later period, not this one. The rest are still inside the free-fix ' +
+      'window, where the correction costs nothing.';
+  }
+
+  return `Call the supplier. ${timing}${portalActionClause(results)}`;
+}
+
+// What the group used to leave out, and it is the half that costs money.
+//
+// A CHASE_SUPPLIER record can be either of two quite different things. If it is
+// in IMS with the wrong amounts, a portal action is available RIGHT NOW and doing
+// nothing is itself a decision: the IMS file emits N for this group
+// (RECOMMENDED_TO_IMS.CHASE_SUPPLIER), and N is exactly what deemed acceptance
+// acts on — so the trader silently accepts the supplier's figure rather than
+// their own. If it is absent from IMS there is no record to act on and the phone
+// call is the only lever. The old text described neither case.
+function portalActionClause(results) {
+  const inIms = results.filter(
+    (result) => result.portal && result.portal.source === 'IMS'
+  );
+  if (!inIms.length) {
     return (
-      'Call the supplier. Their cut-off has not passed, so their fix still lands ' +
-      'in this period for free.'
+      ' None of these are in IMS, so there is no portal record to accept or reject — ' +
+      'the call is the only thing that moves them.'
     );
   }
-  if (past === results.length) {
-    return (
-      'Their cut-off has passed. Calling still matters — it is how the credit ' +
-      'reaches a later period instead of being lost — but it can no longer land ' +
-      'in this period.'
-    );
-  }
+
+  const differences = inIms
+    .filter((result) => Number.isFinite(result.deltaTotalTax) && result.deltaTotalTax !== 0)
+    .map((result) => {
+      const name = result.books?.supplierName ?? result.portal?.supplierName ?? 'this supplier';
+      const rupees = Math.abs(result.deltaTotalTax) / 100;
+      const amount = rupees.toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      return `${name} ₹${amount} ${result.deltaTotalTax < 0 ? 'below' : 'above'} your books`;
+    });
+
+  const scope =
+    inIms.length === results.length
+      ? 'These are in IMS'
+      : `${inIms.length} of ${results.length} are in IMS`;
+
+  const named = differences.length
+    ? ` — ${differences.slice(0, 3).join(', ')}${differences.length > 3 ? `, and ${differences.length - 3} more` : ''}`
+    : '';
+
   return (
-    `${past} of ${results.length} are past their supplier's cut-off: for those, a ` +
-    'fix now reaches a later period, not this one. The rest are still inside the ' +
-    'free-fix window, where the correction costs nothing.'
+    ` ${scope} with the wrong amounts, so Accept and Reject are available on them right ` +
+    `now${named}. Left alone they go into the IMS file as no action, and no action is ` +
+    "deemed acceptance at GSTR-3B — you would be accepting the portal's figure, not yours."
   );
 }
 
@@ -249,6 +295,28 @@ export const CHANGE_FIELD_LABEL = {
 export const CHANGE_MONEY_FIELDS = new Set([
   'taxableValue', 'totalTax', 'igst', 'cgst', 'sgst', 'cess'
 ]);
+
+// exposureSplit(entry) -> the two components behind an "at stake" figure, or
+// null when nothing pulls the other way.
+//
+// Before cut-off measures EXPOSURE — how much credit is unsettled and still
+// chaseable — not what a period can claim. So the headline is the gross, and
+// this says what it is made of. An unreported invoice and an unreported credit
+// note are two problems, and the net of them describes neither: Patel Systems'
+// April pair netted to MINUS Rs 5,577 out of Rs 51,278 unsettled.
+//
+// Summary's Deferred card already splits this exact pair. This is the same idea
+// on the screen that was still adding them together.
+export function exposureSplit(entry) {
+  const other = entry?.breakdown?.otherDocuments;
+  const notes = entry?.breakdown?.creditNotes;
+  if (!notes?.count) return null;
+  return {
+    owed: { count: other?.count ?? 0, itc: Math.abs(other?.itc ?? 0) },
+    claimed: { count: notes.count, itc: Math.abs(notes.itc) },
+    netItc: entry.netItc ?? 0
+  };
+}
 
 // --- preventive alerts ------------------------------------------------------
 //
@@ -422,6 +490,32 @@ export function excludedSentence(excluded, formatMoney) {
 // counting here — and the reverse-charge and ITC-ineligible ones never enter IMS
 // at all. Neither figure contains the other. Both screens say so, in each
 // other's terms, or the totals read as a contradiction.
+// One line per screen saying WHICH DOCUMENTS it is about. Deliberately separate
+// from CROSS_SCREEN_NOTE below, which explains the IMS-vs-2B difference: this one
+// answers "what am I looking at", that one answers "why do the numbers differ".
+//
+// The boundary, confirmed against the engine rather than assumed:
+//   Summary and Actions are the SAME set of results, grouped differently —
+//   by how each document matched, and by what to do about it. Neither is a
+//   subset of the other.
+//   Before cut-off is the books rows whose IMS position is not final, and every
+//   one of them also appears on Actions.
+export const POPULATION_NOTE = {
+  SUMMARY:
+    'Every document in this period’s reconciliation, grouped by how it matched. ' +
+    'Actions shows this same set grouped by what to do about each one — neither ' +
+    'screen is a subset of the other.',
+  ACTIONS:
+    'The same documents as Summary, grouped by what to do rather than by how they ' +
+    'matched. Before cut-off is the part of this set whose IMS position is not yet ' +
+    'final; every document on that screen also appears here.',
+  ALERTS:
+    'Books rows whose IMS position is not final — absent from IMS, or saved but not ' +
+    'filed, so the supplier can still change them. A filed record is settled and ' +
+    'leaves this screen even when its amounts are wrong. Every document here also ' +
+    'appears on Actions.'
+};
+
 export const CROSS_SCREEN_NOTE = {
   ALERTS:
     'This screen compares your books against IMS alone — IMS is the only source ' +
