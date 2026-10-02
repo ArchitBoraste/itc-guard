@@ -59,7 +59,9 @@ export const TEST_ORGS = Object.freeze({
   supplierRisk: 11,
   suppliersRoute: 12,
   preventiveTwoB: 13,
-  alertPopulation: 14
+  alertPopulation: 14,
+  // Not a suite: tools/verify-answer-key.js loads all six periods here.
+  answerKey: 15
 });
 
 export async function ensureOrg(orgId, gstin) {

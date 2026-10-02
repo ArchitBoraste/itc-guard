@@ -9,6 +9,7 @@
     "sweep:weights": "node tools/sweep-weights.js",
     "seed:demo": "node tools/seed-demo.js",
     "demo:reset": "node tools/demo-reset.js",
-    "ml:export": "node tools/export-training-data.js --seed"
+    "ml:export": "node tools/export-training-data.js --seed",
+    "verify:answer-key": "node tools/verify-answer-key.js"
   }
 }

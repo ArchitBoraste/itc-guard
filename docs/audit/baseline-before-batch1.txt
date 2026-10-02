@@ -1,0 +1,100 @@
+ITC Guard — app vs audit answer key
+database itc@127.0.0.1:3307/itc_guard  [from env file]  org 15
+key D:\Sem 5 (CSE)\Omnikon_hackathon\itc-guard\docs\audit\answer-key.json
+
+[db] connected itc@127.0.0.1:3307/itc_guard  [from env file]
+period   docs            totals  identity  VM recs       open app/key      decided totals  decided open    
+-----------------------------------------------------------------------------------------------------------
+2026-02  403/403 PASS    PASS    PASS      3/8 FAIL      54/19 FAIL        FAIL            54/11 FAIL      
+2026-03  409/409 PASS    PASS    PASS      4/11 FAIL     58/31 FAIL        FAIL            58/20 FAIL      
+2026-04  424/424 PASS    PASS    PASS      4/11 FAIL     72/32 FAIL        FAIL            72/21 FAIL      
+2026-05  415/415 PASS    PASS    PASS      5/14 FAIL     63/27 FAIL        FAIL            63/13 FAIL      
+2026-06  409/409 PASS    PASS    PASS      3/12 FAIL     58/24 FAIL        FAIL            58/12 FAIL      
+2026-07  401/401 PASS    PASS    PASS      5/7 FAIL      51/18 FAIL        PASS            51/11 FAIL      
+
+all periods: 2461/2461 documents in the right bucket with the right partner
+
+claimable once every value mismatch is decided as recommended (key -> app):
+  2026-02  Rs. 1,42,70,479.79 -> Rs. 1,42,70,479.79  (expected shift Rs. 1,36,948.87)
+  2026-03  Rs. 1,23,56,729.82 -> Rs. 1,23,56,729.82  (expected shift Rs. 2,26,328.16)
+  2026-04  Rs. 1,27,78,286.57 -> Rs. 1,28,99,320.02  (expected shift Rs. 2,11,355.71)
+  2026-05  Rs. 1,29,45,250.77 -> Rs. 1,29,45,250.77  (expected shift Rs. 5,07,819.70)
+  2026-06  Rs. 1,36,59,954.44 -> Rs. 1,36,59,954.44  (expected shift Rs. 1,85,884.65)
+  2026-07  Rs. 1,29,82,175.79 -> Rs. 1,29,82,175.79  (expected shift Rs. 0.00)
+
+story Mahavir Sales Corp 06-17/AMD/3538: Accept moved claimable by Rs. 1,21,033.45; expected Rs. 1,20,190.49 (portal), not Rs. 1,21,033.45 (books)  FAIL
+
+2026-02 failures:
+  VM rec    Balaji Agencies C/3345 (PORTAL_LOWER, dTax -Rs. 5.40): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Kiran Systems C/1454 (PORTAL_HIGHER, dTax Rs. 14.58): app CHASE_SUPPLIER, brief REJECT
+  VM rec    Kiran Systems C/1456 (PORTAL_LOWER, dTax -Rs. 16.20): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Kiran Systems C/1460 (PORTAL_LOWER, dTax -Rs. 81.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Fortune Hardware & Co A/2000 (PORTAL_LOWER, dTax -Rs. 64.80): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  open      app 54, key 19
+  decided   claimable Rs. 1,42,70,479.79 vs key Rs. 1,44,07,428.66
+  decided   atRisk Rs. 5,59,566.24 vs key Rs. 4,22,617.37
+  decided   open 54, expected 11
+
+2026-03 failures:
+  VM rec    Anand Systems L-KNP/2741/06-17 (PORTAL_LOWER, dTax -Rs. 4,320.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Anand Systems L-KNP/2743/06-17 (PORTAL_HIGHER, dTax Rs. 1,134.00): app CHASE_SUPPLIER, brief REJECT
+  VM rec    Anand Systems L-KNP/2747/06-17 (PORTAL_LOWER, dTax -Rs. 3,240.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Unity Distributors 06-17/PNQ/2972 (PORTAL_LOWER, dTax -Rs. 10,800.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Balaji Agencies C/3360 (PORTAL_LOWER, dTax -Rs. 11,340.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Kiran Systems C/1465 (PORTAL_HIGHER, dTax Rs. 97.20): app CHASE_SUPPLIER, brief REJECT
+  VM rec    Kiran Systems C/1475 (PORTAL_HIGHER, dTax Rs. 1,800.00): app CHASE_SUPPLIER, brief REJECT
+  open      app 58, key 31
+  decided   claimable Rs. 1,23,56,729.82 vs key Rs. 1,25,83,057.98
+  decided   atRisk Rs. 11,11,983.42 vs key Rs. 8,85,655.26
+  decided   open 58, expected 20
+
+2026-04 failures:
+  VM rec    Anand Systems L-KNP/2755/06-17 (PORTAL_LOWER, dTax -Rs. 10.08): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Balaji Agencies C/3364 (PORTAL_LOWER, dTax -Rs. 6,480.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Balaji Agencies C/3368 (PORTAL_LOWER, dTax -Rs. 900.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Kiran Systems C/1477 (PORTAL_LOWER, dTax -Rs. 9.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Kiran Systems C/1481 (PORTAL_HIGHER, dTax Rs. 270.00): app CHASE_SUPPLIER, brief REJECT
+  VM rec    Mahavir Sales Corp 06-17/AMD/3538 (PORTAL_LOWER, dTax -Rs. 842.96): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Fortune Hardware & Co A/2016 (PORTAL_LOWER, dTax -Rs. 3.15): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  open      app 72, key 32
+  decided   claimable Rs. 1,28,99,320.02 vs key Rs. 1,29,89,642.28
+  decided   atRisk Rs. 12,41,894.02 vs key Rs. 11,51,571.76
+  decided   open 72, expected 21
+
+2026-05 failures:
+  VM rec    Anand Systems L-KNP/2759/06-17 (PORTAL_LOWER, dTax -Rs. 10.80): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Anand Systems L-KNP/2764/06-17 (PORTAL_LOWER, dTax -Rs. 324.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    National Supply Co Z3249 (PORTAL_LOWER, dTax -Rs. 1.35): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    National Supply Co Z3251 (PORTAL_LOWER, dTax -Rs. 2,520.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    National Supply Co Z3258 (PORTAL_LOWER, dTax -Rs. 12,600.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    National Supply Co Z3259 (PORTAL_LOWER, dTax -Rs. 4,500.00): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Unity Distributors 06-17/PNQ/2991 (PORTAL_LOWER, dTax -Rs. 4.86): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Unity Distributors 06-17/PNQ/2995 (PORTAL_LOWER, dTax -Rs. 25,200.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Fortune Hardware & Co A/2022 (PORTAL_LOWER, dTax -Rs. 1,620.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  open      app 63, key 27
+  decided   claimable Rs. 1,29,45,250.77 vs key Rs. 1,34,53,070.47
+  decided   atRisk Rs. 12,27,021.52 vs key Rs. 7,19,201.82
+  decided   open 63, expected 13
+
+2026-06 failures:
+  VM rec    Anand Systems L-KNP/2768/06-17 (PORTAL_LOWER, dTax -Rs. 7.56): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Anand Systems L-KNP/2773/06-17 (PORTAL_LOWER, dTax -Rs. 0.90): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Unity Distributors 06-17/PNQ/3001 (PORTAL_HIGHER, dTax Rs. 450.00): app CHASE_SUPPLIER, brief REJECT
+  VM rec    Unity Distributors 06-17/PNQ/3003 (PORTAL_LOWER, dTax -Rs. 864.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Unity Distributors 06-17/PNQ/3004 (PORTAL_LOWER, dTax -Rs. 10.80): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Unity Distributors 06-17/PNQ/3008 (PORTAL_LOWER, dTax -Rs. 16,200.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Balaji Agencies C/3386 (PORTAL_LOWER, dTax -Rs. 3.15): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Fortune Hardware & Co A/2032 (PORTAL_LOWER, dTax -Rs. 2,160.00): app CHASE_SUPPLIER, brief ACCEPT+CHASE_DIFFERENCE
+  VM rec    Fortune Hardware & Co A/2039 (PORTAL_LOWER, dTax -Rs. 0.90): app REJECT, brief ACCEPT+CHASE_DIFFERENCE
+  open      app 58, key 24
+  decided   claimable Rs. 1,36,59,954.44 vs key Rs. 1,38,45,839.09
+  decided   atRisk Rs. 7,31,387.02 vs key Rs. 5,45,502.37
+  decided   open 58, expected 12
+
+2026-07 failures:
+  VM rec    Anand Systems L-KNP/2788/06-17 (PORTAL_HIGHER, dTax Rs. 81.00): app CHASE_SUPPLIER, brief REJECT
+  VM rec    National Supply Co Z3278 (PORTAL_HIGHER, dTax Rs. 5,400.00): app CHASE_SUPPLIER, brief REJECT
+  open      app 51, key 18
+  decided   open 51, expected 11
+
+SOME CHECKS FAIL
