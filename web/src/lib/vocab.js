@@ -170,8 +170,9 @@ export const ACTION_ORDER = [
   'NO_ACTION'
 ];
 
-// Groups that represent an open decision rather than a settled one.
-export const NEEDS_ATTENTION = new Set(['REJECT', 'PENDING', 'VERIFY', 'CHASE_SUPPLIER']);
+// The IMS actions that are a decision. N is the portal's "nothing recorded", so it
+// never is — whoever chose it. Mirrors IMS_DECISIONS in api/src/services/decisions.js.
+export const IMS_DECISIONS = new Set(['ACCEPT', 'REJECT', 'PENDING']);
 
 // Mirrors services/imsActions.js. A workflow state means "do nothing in IMS yet",
 // which is action N — and N is exactly what deemed acceptance acts on.

@@ -201,8 +201,12 @@ describe('a run that is out of date', () => {
 
   it('never bulk-confirms a row the API would refuse', async () => {
     // "Confirm all" walking into a 409 on the first row would abandon the rest of
-    // the group half-done.
-    await mount(RUN, [STALE_ROW, FRESH_ROW, WITHDRAWN_ROW]);
+    // the group half-done. Open rows only — the API says which those are.
+    await mount(RUN, [
+      { ...STALE_ROW, needsDecision: true },
+      { ...FRESH_ROW, needsDecision: true },
+      { ...WITHDRAWN_ROW, needsDecision: false }
+    ]);
 
     const group = screen.getByTestId('group-ACCEPT');
     // Two of the three are unavailable, so the button must offer exactly one.

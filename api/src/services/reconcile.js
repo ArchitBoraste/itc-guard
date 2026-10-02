@@ -21,6 +21,7 @@ import { insertInChunks, withTransaction } from '../db/tx.js';
 import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.js';
 import { cutoffDate, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
+import { decisionCategory, needsDecision, summarizeOpenDecisions } from './decisions.js';
 import { assertTotalsBalance, computeRunTotals, itcSign, totalBucketFor } from './totals.js';
 import { supplierSchemeMap } from './supplierStats.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
@@ -486,6 +487,7 @@ export async function getRun(orgId, runId) {
 
   const totalsBreakdown = await runTotalsBreakdown(orgId, runId);
   const staleness = await runStaleness(orgId, run);
+  const openDecisions = await runOpenDecisions(orgId, runId);
 
   return {
     id: run.id,
@@ -514,8 +516,23 @@ export async function getRun(orgId, runId) {
     totalsBreakdown,
     // Whether this run still describes the data underneath it. See runStaleness().
     staleness,
+    // The one count of records still waiting on the trader. Every screen reads
+    // this; see services/decisions.js for the rule.
+    openDecisions,
     summary: parseJsonColumn(run.summary)
   };
+}
+
+async function runOpenDecisions(orgId, runId) {
+  const [rows] = await pool.query(
+    `SELECT mr.bucket, mr.recommended_action, mr.confirmed_action, mr.signed_itc,
+            mr.portal_record_id, pr.source AS portal_source, pr.ims_action, pr.absent_since
+       FROM match_results mr
+       LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
+      WHERE mr.org_id = ? AND mr.run_id = ?`,
+    [orgId, runId]
+  );
+  return summarizeOpenDecisions(rows.map(decisionView));
 }
 
 // Is this run still current?
@@ -758,8 +775,24 @@ export function stalenessOf(row) {
 // Both are un-actionable. Only one is a reason to rebuild.
 export const isWithdrawn = (row) => Boolean(row.absent_since);
 
+// The fields the decision rules read, from a match_results row joined to its
+// portal record.
+function decisionView(row) {
+  return {
+    bucket: row.bucket,
+    recommendedAction: row.recommended_action,
+    confirmedAction: row.confirmed_action,
+    signedItc: Number(row.signed_itc ?? 0),
+    withdrawn: isWithdrawn(row),
+    portal: row.portal_record_id === null
+      ? null
+      : { source: row.portal_source, imsAction: row.ims_action }
+  };
+}
+
 function toResultView(row) {
   const staleReason = stalenessOf(row);
+  const decision = decisionView(row);
   return {
     id: row.id,
     bucket: row.bucket,
@@ -783,6 +816,8 @@ function toResultView(row) {
     totalBucket: row.total_bucket,
     confirmedAction: row.confirmed_action,
     confirmedAt: row.confirmed_at,
+    needsDecision: needsDecision(decision),
+    decisionCategory: decisionCategory(decision),
     books: row.books_invoice_no === null ? null : {
       invoiceNo: row.books_invoice_no,
       invoiceDate: row.books_invoice_date,

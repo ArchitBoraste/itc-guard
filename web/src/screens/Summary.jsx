@@ -157,9 +157,7 @@ export function SummaryScreen({
   }
 
   const { totals, totalsBreakdown = {}, bucketCounts = {}, bucketItc = {} } = run;
-  const exceptions = BUCKETS.filter(
-    (bucket) => bucket !== 'MATCHED' && (bucketCounts[bucket] ?? 0) > 0
-  ).reduce((sum, bucket) => sum + (bucketCounts[bucket] ?? 0), 0);
+  const openDecisions = run.openDecisions?.count ?? 0;
 
   return (
     <div className="screen screen-summary">
@@ -197,9 +195,14 @@ export function SummaryScreen({
             </p>
           </div>
           <div className="head-actions">
-            {exceptions > 0 ? (
-              <button type="button" className="btn btn-primary" onClick={onGoToActions}>
-                {exceptions} need a decision
+            {openDecisions > 0 ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="summary-open-decisions"
+                onClick={onGoToActions}
+              >
+                {openDecisions} need a decision
               </button>
             ) : null}
             {/* Always available, not only when the run notices it is stale: after a

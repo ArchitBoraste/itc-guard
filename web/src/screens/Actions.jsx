@@ -9,7 +9,6 @@ import {
   POPULATION_NOTE,
   BUCKETS,
   BUCKET_LABEL,
-  NEEDS_ATTENTION,
   RECOMMENDED_TO_IMS,
   actionability,
   isOverride
@@ -35,17 +34,13 @@ function groupResults(results) {
     const group = groups[result.recommendedAction] ?? groups.NO_ACTION;
     group.results.push(result);
     group.itc += result.signedItc ?? 0;
-    if (
-      !result.confirmedAction &&
-      !result.stale &&
-      !result.withdrawn &&
-      actionability(result).kind !== 'NOT_IN_IMS'
-    ) {
-      group.open += 1;
-    }
+    if (result.needsDecision) group.open += 1;
   }
   return groups;
 }
+
+// Open rows a group confirm can actually reach: the API refuses a stale verdict.
+const confirmable = (result) => result.needsDecision && !result.stale;
 
 // The scope is a predicate over ROWS, not over groups.
 //
@@ -56,13 +51,9 @@ function groupResults(results) {
 const SCOPES = {
   ALL: () => true,
 
-  // Still waiting on a human. A row whose recommendation is a workflow state the
-  // trader has to resolve, that they have not resolved, and that IMS can actually
-  // be told something about.
-  ATTENTION: (result) =>
-    NEEDS_ATTENTION.has(result.recommendedAction) &&
-    !result.confirmedAction &&
-    actionability(result).kind !== 'NOT_IN_IMS',
+  // Still waiting on a human — the API's own per-row verdict, the same one behind
+  // run.openDecisions, so this count and the banner's cannot disagree.
+  ATTENTION: (result) => result.needsDecision,
 
   // The trader chose something other than what the engine proposed.
   OVERRIDDEN: (result) => isOverride(result)
@@ -196,17 +187,11 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
       setBusyGroup(action);
       setError(null);
       try {
-        // Only rows that are still open AND actually actionable. Re-confirming a
-        // decided row would silently overwrite an override the trader made.
-        // Stale and withdrawn rows are excluded rather than attempted: the API
-        // returns 409 on each, and one refused row must not abort the group.
-        const targets = groups[action].results.filter(
-          (result) =>
-            !result.confirmedAction &&
-            !result.stale &&
-            !result.withdrawn &&
-            actionability(result).kind !== 'NOT_IN_IMS'
-        );
+        // Only rows that are still open. Re-confirming a decided row would
+        // silently overwrite an override the trader made. Stale rows are excluded
+        // rather than attempted: the API returns 409 on each, and one refused row
+        // must not abort the group.
+        const targets = groups[action].results.filter(confirmable);
         for (const result of targets) {
           const imsAction = RECOMMENDED_TO_IMS[result.recommendedAction] ?? 'NO_ACTION';
           const gate = actionability(result);
@@ -438,7 +423,7 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
                 </div>
                 <GroupConfirm
                   action={action}
-                  count={group.open}
+                  count={group.results.filter(confirmable).length}
                   busy={busyGroup === action}
                   onConfirmAll={() => confirmGroup(action)}
                 />

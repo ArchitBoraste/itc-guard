@@ -9,7 +9,7 @@ import {
   gstr3bDueDate,
   runClock
 } from '../lib/calendar.js';
-import { RECOMMENDED_TO_IMS, actionability } from '../lib/vocab.js';
+import { IMS_DECISIONS, actionability } from '../lib/vocab.js';
 
 // The core risk this product exists to prevent: NO ACTION IN IMS IS DEEMED
 // ACCEPTANCE at GSTR-3B. Nothing on the portal warns about it, so it is the one
@@ -17,7 +17,8 @@ import { RECOMMENDED_TO_IMS, actionability } from '../lib/vocab.js';
 //
 // Two numbers, deliberately not merged:
 //   * everything unactioned — what deemed acceptance will actually claim.
-//   * the part of it the engine does NOT recommend accepting — the real exposure.
+//   * the part of it still waiting on a decision — the real exposure. That one is
+//     the API's run.openDecisions, the same count Summary and Actions show.
 // One number alone is either alarmist (most of it is fine) or complacent (the
 // dangerous slice disappears inside a large, mostly-clean total).
 export function deemedAcceptanceSummary(run, results) {
@@ -27,8 +28,6 @@ export function deemedAcceptanceSummary(run, results) {
 
   let unactionedCount = 0;
   let unactionedItc = 0;
-  let riskyCount = 0;
-  let riskyItc = 0;
   let confirmedCount = 0;
   let resetCount = 0;
 
@@ -36,7 +35,7 @@ export function deemedAcceptanceSummary(run, results) {
     if ((result.flags ?? []).includes('CONFIRMATION_RESET')) resetCount += 1;
 
     if (actionability(result).kind !== 'IMS') continue;
-    if (result.confirmedAction) {
+    if (IMS_DECISIONS.has(result.confirmedAction)) {
       confirmedCount += 1;
       continue;
     }
@@ -46,11 +45,6 @@ export function deemedAcceptanceSummary(run, results) {
 
     unactionedCount += 1;
     unactionedItc += result.signedItc ?? 0;
-
-    if (RECOMMENDED_TO_IMS[result.recommendedAction] !== 'ACCEPT') {
-      riskyCount += 1;
-      riskyItc += result.signedItc ?? 0;
-    }
   }
 
   return {
@@ -62,8 +56,8 @@ export function deemedAcceptanceSummary(run, results) {
     window: filingWindow(asOf, run.taxPeriod, run.filingScheme),
     unactionedCount,
     unactionedItc,
-    riskyCount,
-    riskyItc,
+    openCount: run.openDecisions?.count ?? 0,
+    openItc: run.openDecisions?.itc ?? 0,
     confirmedCount,
     resetCount
   };
@@ -124,7 +118,7 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
   if (!run) return null;
 
   const summary = deemedAcceptanceSummary(run, results);
-  const { daysToDue, riskyCount, unactionedCount } = summary;
+  const { daysToDue, openCount, unactionedCount } = summary;
   const tally = decisionTally(summary);
 
   // Tone tracks consequence, not volume: past the due date nothing can be undone,
@@ -133,7 +127,7 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
   const tone =
     daysToDue !== null && daysToDue < 0
       ? 'closed'
-      : riskyCount === 0
+      : openCount === 0
         ? 'clear'
         : daysToDue !== null && daysToDue <= 5
           ? 'urgent'
@@ -155,7 +149,7 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
             IMS was deemed accepted. This run is a record of what happened, not a
             list you can still act on.
           </p>
-        ) : unactionedCount === 0 ? (
+        ) : openCount === 0 ? (
           <p>
             <strong>Every IMS record has a decision.</strong> Nothing will be deemed
             accepted by default for {formatPeriod(run.taxPeriod)}.
@@ -168,22 +162,15 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
             <strong className="mono" data-testid="deemed-unactioned-itc">
               {rupees(summary.unactionedItc)}
             </strong>{' '}
-            of credit at GSTR-3B.
-            {riskyCount > 0 ? (
-              <>
-                {' '}Of those,{' '}
-                <strong className="bad" data-testid="deemed-risky-count">
-                  {riskyCount}
-                </strong>{' '}
-                {riskyCount === 1 ? 'is' : 'are'} not recommended for Accept —{' '}
-                <strong className="mono bad" data-testid="deemed-risky-itc">
-                  {rupees(summary.riskyItc)}
-                </strong>
-                .
-              </>
-            ) : (
-              ' All of them are recommended for Accept anyway.'
-            )}
+            of credit at GSTR-3B. Of those,{' '}
+            <strong className="bad" data-testid="deemed-open-count">
+              {openCount}
+            </strong>{' '}
+            still {openCount === 1 ? 'needs' : 'need'} a decision —{' '}
+            <strong className="mono bad" data-testid="deemed-open-itc">
+              {rupees(summary.openItc)}
+            </strong>
+            .
           </p>
         )}
         <p className="banner-meta">
@@ -199,9 +186,9 @@ export function DeemedAcceptanceBanner({ run, results, loading, onGoToActions })
         </p>
       </div>
 
-      {riskyCount > 0 && tone !== 'closed' && onGoToActions ? (
+      {openCount > 0 && tone !== 'closed' && onGoToActions ? (
         <button type="button" className="btn btn-primary" onClick={onGoToActions}>
-          Review {riskyCount}
+          Review {openCount}
         </button>
       ) : null}
     </div>

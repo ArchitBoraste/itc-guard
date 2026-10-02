@@ -122,6 +122,13 @@ describe('the deemed-acceptance banner and the reset panel agree', () => {
     );
   });
 
+  it('does not count a confirmed N as a decision', () => {
+    mount([row({ id: 4, confirmedAction: 'NO_ACTION' }), CONFIRMED_ROW]);
+    expect(screen.getByTestId('deemed-confirmed-count')).toHaveTextContent(
+      '1 decision recorded'
+    );
+  });
+
   it('stays quiet when nothing was reset', () => {
     // The clause is an explanation for an apparent contradiction. With no reset
     // rows there is nothing to explain, and a permanent "0 were reset" is noise.

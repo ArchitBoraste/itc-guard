@@ -33,6 +33,7 @@ const RUN = {
   cutOffDate: '2026-05-11',
   finishedAt: '2026-08-23 14:10:22',
   bucketCounts: { MATCHED: 400, VALUE_MISMATCH: 11 },
+  openDecisions: { count: 11, itc: 5381623, byCategory: {} },
   bucketItc: {},
   totalsBreakdown: {},
   totals: {

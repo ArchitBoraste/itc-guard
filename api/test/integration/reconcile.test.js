@@ -331,6 +331,31 @@ describe('integration: fixture period through the whole stack', () => {
     expect(Number(nonIms[0].n)).toBeGreaterThan(0);
   });
 
+  // --- open decisions ------------------------------------------------------
+
+  it('counts open decisions as the IMS records that are not clean matches', async () => {
+    // Before anyone decides anything, every IMS record except a clean match is
+    // carrying N. Reverse charge, ineligible and books-only records never count.
+    const open = groundTruth(PERIOD).documents.filter(
+      (doc) =>
+        doc.presence.inIms &&
+        ['VALUE_MISMATCH', 'SUGGESTED', 'MISSING_IN_BOOKS'].includes(doc.expectedBucket)
+    );
+    const inBucket = (bucket) => open.filter((doc) => doc.expectedBucket === bucket).length;
+
+    const { openDecisions } = await getRun(ORG_ID, run.id);
+    expect(openDecisions.count).toBe(open.length);
+    expect(openDecisions.byCategory.phantom.count).toBe(inBucket('MISSING_IN_BOOKS'));
+    expect(openDecisions.byCategory.verify.count).toBe(inBucket('SUGGESTED'));
+    expect(openDecisions.byCategory.other.count).toBe(inBucket('VALUE_MISMATCH'));
+
+    // The per-row flag the screens filter on is the same rule, row by row.
+    const page = await listResults(ORG_ID, run.id, { pageSize: 500 });
+    const flagged = page.results.filter((result) => result.needsDecision);
+    expect(flagged.length).toBe(openDecisions.count);
+    expect(flagged.reduce((sum, result) => sum + result.signedItc, 0)).toBe(openDecisions.itc);
+  });
+
   // --- confirming decisions ------------------------------------------------
 
   it('rejects a confirmedAction the record blocked flags disallow', async () => {
