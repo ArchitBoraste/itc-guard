@@ -103,6 +103,9 @@ services:
       DEMO_SWEEP_MINUTES: ${DEMO_SWEEP_MINUTES:-5}
       DEMO_SEED_CONCURRENCY: ${DEMO_SEED_CONCURRENCY:-1}
 
+      # Blank means the engine default. See .env.prod.example.
+      MATERIALITY_TOLERANCE_PAISE: ${MATERIALITY_TOLERANCE_PAISE:-}
+
       NODE_OPTIONS: ${API_NODE_OPTIONS:---max-old-space-size=192}
     deploy:
       resources:

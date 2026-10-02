@@ -16,6 +16,7 @@
 //   Human decisions survive the rebuild — but only while they still apply. A
 //   confirmed_action is carried across by result identity AND revalidated against
 //   the portal content_hash and bucket it was made about; see carryForward().
+import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.js';
@@ -186,8 +187,14 @@ export async function createRun({
     );
   }
 
+  // The deployment's materiality tolerance, unless the caller is tuning the engine.
+  const tuning = {
+    materialityTolerancePaise: config.matching.materialityTolerancePaise,
+    ...engineOptions
+  };
+
   const allResults = matchReconcile(expected, portal, {
-    ...engineOptions,
+    ...tuning,
     taxPeriod,
     asOfDate,
     filingScheme
@@ -215,7 +222,7 @@ export async function createRun({
 
   return withTransaction(async (connection) => {
     const runId = await upsertRunRow(connection, {
-      orgId, taxPeriod, mode, asOfDate, filingScheme, totals, engineOptions, inputCounts
+      orgId, taxPeriod, mode, asOfDate, filingScheme, totals, tuning, inputCounts
     });
 
     // Carry human decisions across the rebuild, keyed on the pair identity rather
@@ -238,7 +245,7 @@ export async function createRun({
 }
 
 async function upsertRunRow(connection, {
-  orgId, taxPeriod, mode, asOfDate, filingScheme, totals, engineOptions, inputCounts
+  orgId, taxPeriod, mode, asOfDate, filingScheme, totals, tuning, inputCounts
 }) {
   const summary = JSON.stringify({
     bucketCounts: totals.bucketCounts,
@@ -246,8 +253,9 @@ async function upsertRunRow(connection, {
     inputCounts
   });
   const thresholds = JSON.stringify({
-    weights: engineOptions.weights ?? null,
-    thresholds: engineOptions.thresholds ?? null
+    weights: tuning.weights ?? null,
+    thresholds: tuning.thresholds ?? null,
+    materialityTolerancePaise: tuning.materialityTolerancePaise
   });
 
   const [result] = await connection.query(

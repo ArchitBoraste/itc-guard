@@ -171,11 +171,21 @@ describeFixtures('matching accuracy vs ground truth', () => {
   });
 
   it('never recommends ACCEPT on a bucket that needs a human', () => {
-    const needsHuman = new Set(['SUGGESTED', 'MISSING_IN_BOOKS', 'VALUE_MISMATCH']);
+    const needsHuman = new Set(['SUGGESTED', 'MISSING_IN_BOOKS']);
     for (const row of run.rows) {
       if (!row.result || !needsHuman.has(row.result.bucket)) continue;
       expect(row.result.recommendedAction).not.toBe('ACCEPT');
     }
+  });
+
+  it('recommends ACCEPT on a value mismatch only for a human to confirm', () => {
+    // The brief accepts a lower portal figure and chases the difference, but the
+    // trader still has to agree to take less than the books say.
+    const accepted = run.rows.filter(
+      (r) => r.result?.bucket === 'VALUE_MISMATCH' && r.result.recommendedAction === 'ACCEPT'
+    );
+    expect(accepted.length).toBeGreaterThan(0);
+    for (const row of accepted) expect(row.result.requiresConfirmation).toBe(true);
   });
 
   it('never recommends REJECT without demanding confirmation', () => {

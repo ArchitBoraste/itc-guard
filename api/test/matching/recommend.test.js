@@ -9,7 +9,14 @@ import {
   isBeforeCutoff,
   twoBGenerationDate
 } from '../../src/matching/cutoff.js';
-import { ACTIONS, itcAtRisk, recommendAction } from '../../src/matching/recommend.js';
+import {
+  ACTIONS,
+  DEFAULT_MATERIALITY_TOLERANCE_PAISE,
+  MISMATCH_RULES,
+  formatPaise,
+  itcAtRisk,
+  recommendAction
+} from '../../src/matching/recommend.js';
 import { BUCKETS } from '../../src/matching/buckets.js';
 
 describe('filing calendar', () => {
@@ -270,18 +277,18 @@ describe('a value mismatch is explained by the amounts that actually differ', ()
   // Books figures from the reported row, in paise.
   const BOOKS = { taxableValue: 71791500, totalTax: 12103345 };
 
-  const mismatch = (portalAmounts, overrides = {}) =>
+  const mismatch = (portalAmounts, overrides = {}, context = POST_CUTOFF) =>
     recommendAction(
       {
         bucket: BUCKETS.VALUE_MISMATCH,
-        expected: { ...BOOKS, taxPeriod: '2026-02' },
+        expected: { ...BOOKS, docType: 'INVOICE', taxPeriod: '2026-02' },
         portal: {
           ...result(BUCKETS.VALUE_MISMATCH).portal,
           ...portalAmounts,
           ...overrides
         }
       },
-      POST_CUTOFF
+      context
     );
 
   // Every amount this suite renders, so "never mentions a zero" is checked against
@@ -291,49 +298,40 @@ describe('a value mismatch is explained by the amounts that actually differ', ()
 
   it('names the taxable value when only the taxable value differs', () => {
     // The reported row: taxable differs by Rs. 5,000, tax identical on both sides.
+    // The credit is the same either way, so it is accepted — but the sentence
+    // still has to name the field that put it here, never "tax is Rs. 0.00".
     const r = mismatch({ taxableValue: 71291500, totalTax: BOOKS.totalTax });
 
-    expect(r.action).toBe(ACTIONS.REJECT);
+    expect(r.action).toBe(ACTIONS.ACCEPT);
     expect(r.reason).toMatch(/taxable value/);
     expect(r.reason).toContain('₹5,000.00');
-    // The old sentence, and the thing that must never come back.
     expect(r.reason).not.toMatch(/tax is ₹0\.00/);
+    expect(amountsIn(r.reason)).not.toContain(0);
+    expect(r.remarks).toBeNull();
+  });
+
+  it('names the tax when only the tax differs', () => {
+    const r = mismatch({ taxableValue: BOOKS.taxableValue, totalTax: 12193345 });
+
+    expect(r.reason).toMatch(/the portal's tax is ₹900\.00 higher/);
+    expect(r.reason).not.toMatch(/taxable value/);
     expect(amountsIn(r.reason)).not.toContain(0);
 
     // The remark names the field and both sides of it, because the supplier
     // reading it has to know which figure to correct.
-    expect(r.remarks).toContain('taxable value');
-    expect(r.remarks).toContain('Rs. 7,12,915.00');
-    expect(r.remarks).toContain('Rs. 7,17,915.00');
-    expect(amountsIn(r.remarks)).not.toContain(0);
-    // Tax agrees, so the remark must not claim anything about it. Field clauses
-    // are "<label> Rs. <portal> on portal vs ...", so a tax clause would read
-    // "tax Rs.".
-    expect(r.remarks).not.toContain('tax Rs.');
-  });
-
-  it('names the tax when only the tax differs', () => {
-    const r = mismatch({ taxableValue: BOOKS.taxableValue, totalTax: 12013345 });
-
-    expect(r.reason).toMatch(/Portal tax is ₹900\.00 lower/);
-    expect(r.reason).not.toMatch(/taxable value/);
-    expect(amountsIn(r.reason)).not.toContain(0);
-
-    expect(r.remarks).toContain('tax Rs. 1,20,133.45 on portal');
-    expect(r.remarks).toContain('Rs. 1,21,033.45 in books');
+    expect(r.remarks).toContain('tax Rs. 1,21,933.45 vs Rs. 1,21,033.45 (Rs. 900.00 higher)');
     expect(r.remarks).not.toContain('taxable value');
     expect(amountsIn(r.remarks)).not.toContain(0);
   });
 
   it('names both when both differ', () => {
-    const r = mismatch({ taxableValue: 71291500, totalTax: 12013345 });
+    const r = mismatch({ taxableValue: 72291500, totalTax: 12193345 });
 
-    expect(r.reason).toMatch(/taxable value is ₹5,000\.00 lower/);
-    expect(r.reason).toMatch(/tax is ₹900\.00 lower/);
-    expect(amountsIn(r.reason)).toEqual([500000 / 100, 90000 / 100]);
+    expect(r.reason).toMatch(/taxable value is ₹5,000\.00 higher/);
+    expect(r.reason).toMatch(/tax is ₹900\.00 higher/);
 
-    expect(r.remarks).toContain('taxable value Rs. 7,12,915.00 on portal');
-    expect(r.remarks).toContain('tax Rs. 1,20,133.45 on portal');
+    expect(r.remarks).toContain('taxable value Rs. 7,22,915.00 vs Rs. 7,17,915.00 (Rs. 5,000.00 higher)');
+    expect(r.remarks).toContain('tax Rs. 1,21,933.45 vs Rs. 1,21,033.45 (Rs. 900.00 higher)');
     expect(amountsIn(r.remarks)).not.toContain(0);
     expect(r.remarks.length).toBeLessThanOrEqual(250);
   });
@@ -346,17 +344,9 @@ describe('a value mismatch is explained by the amounts that actually differ', ()
 
   it('explains a saved-record mismatch by the same fields', () => {
     // The pre-cut-off branch had its own copy of the same broken sentence.
-    const r = recommendAction(
-      {
-        bucket: BUCKETS.VALUE_MISMATCH,
-        expected: { ...BOOKS, taxPeriod: '2026-02' },
-        portal: {
-          ...result(BUCKETS.VALUE_MISMATCH).portal,
-          taxableValue: 71291500,
-          totalTax: BOOKS.totalTax,
-          filingStatus: 'SAVED'
-        }
-      },
+    const r = mismatch(
+      { taxableValue: 71291500, totalTax: 12013345 },
+      { filingStatus: 'SAVED' },
       PRE_CUTOFF
     );
     expect(r.action).toBe(ACTIONS.CHASE_SUPPLIER);
@@ -371,7 +361,20 @@ describe('a value mismatch is explained by the amounts that actually differ', ()
     const r = mismatch({ ...BOOKS });
     expect(r.reason).toMatch(/disagree on the amount/);
     expect(r.reason).not.toMatch(/0\.00/);
-    expect(r.remarks).toBe('Value mismatch between books and portal.');
+    expect(r.remarks).toBeNull();
+
+    // Rejected on a gap the bucket's own tolerance does not measure: the remark
+    // states the document and the fix, and no figure.
+    const rejected = recommendAction(
+      {
+        bucket: BUCKETS.VALUE_MISMATCH,
+        expected: { ...BOOKS, docType: 'INVOICE', taxPeriod: '2026-02' },
+        portal: { ...result(BUCKETS.VALUE_MISMATCH).portal, ...BOOKS, totalTax: BOOKS.totalTax + 300 }
+      },
+      { ...POST_CUTOFF, tolerancePaise: 500 }
+    );
+    expect(rejected.action).toBe(ACTIONS.REJECT);
+    expect(rejected.remarks).toBe('Invoice mismatch, portal vs our books. Please correct via GSTR-1A.');
   });
 
   it('ignores a sub-tolerance rounding gap the bucket would also ignore', () => {
@@ -387,14 +390,183 @@ describe('a value mismatch is explained by the amounts that actually differ', ()
     // A rupee sign the offline utility refuses fails the WHOLE upload, not just
     // this record, so it is not worth sending to save two characters.
     for (const portalAmounts of [
-      { taxableValue: 71291500, totalTax: BOOKS.totalTax },
-      { taxableValue: BOOKS.taxableValue, totalTax: 12013345 },
-      { taxableValue: 71291500, totalTax: 12013345 }
+      { taxableValue: 72291500, totalTax: BOOKS.totalTax + 500 },
+      { taxableValue: BOOKS.taxableValue, totalTax: 12193345 },
+      { taxableValue: 72291500, totalTax: 12193345 }
     ]) {
       const { remarks } = mismatch(portalAmounts);
       expect(remarks).toMatch(/^[ -~]*$/);
       expect(remarks).toContain('Rs.');
       expect(remarks).not.toContain('₹');
     }
+  });
+});
+
+// The rule table (audit brief, rule 8), one row at a time. Fixed at the 16th:
+// past every supplier's cut-off, where the brief's verdicts were taken.
+describe('value-mismatch rule table', () => {
+  const BOOKS_TAX = 1800000;
+
+  const verdict = ({ docType = 'INVOICE', taxGap, filingStatus = 'FILED', context = POST_CUTOFF }) =>
+    recommendAction(
+      {
+        bucket: BUCKETS.VALUE_MISMATCH,
+        expected: { taxableValue: 10000000, totalTax: BOOKS_TAX, docType, taxPeriod: '2026-02' },
+        portal: {
+          ...result(BUCKETS.VALUE_MISMATCH).portal,
+          docType,
+          filingStatus,
+          // Taxable moves with the tax, as a mistyped base does.
+          taxableValue: 10000000 + taxGap * 5,
+          totalTax: BOOKS_TAX + taxGap
+        }
+      },
+      context
+    );
+
+  it('has exactly the four rows the brief describes, in order', () => {
+    expect(MISMATCH_RULES.map((row) => [row.rule, row.action])).toEqual([
+      ['WITHIN_TOLERANCE', ACTIONS.ACCEPT],
+      ['SAVED_BEFORE_CUTOFF', ACTIONS.CHASE_SUPPLIER],
+      ['PORTAL_LOWER', ACTIONS.ACCEPT],
+      ['PORTAL_HIGHER', ACTIONS.REJECT]
+    ]);
+  });
+
+  describe('within tolerance', () => {
+    it('accepts either direction and says the gap is within tolerance', () => {
+      for (const [taxGap, word] of [[-90, 'lower'], [90, 'higher'], [100, 'higher']]) {
+        const r = verdict({ taxGap });
+        expect(r.action).toBe(ACTIONS.ACCEPT);
+        expect(r.reason).toContain(`The tax is ₹${(Math.abs(taxGap) / 100).toFixed(2)} ${word}, within the ₹1.00 tolerance`);
+        expect(r.remarks).toBeNull();
+      }
+    });
+
+    it('applies to every document type and filing state', () => {
+      for (const docType of ['INVOICE', 'DEBIT_NOTE', 'CREDIT_NOTE']) {
+        expect(verdict({ docType, taxGap: 100 }).action).toBe(ACTIONS.ACCEPT);
+      }
+      expect(verdict({ taxGap: -50, filingStatus: 'SAVED', context: PRE_CUTOFF }).action).toBe(ACTIONS.ACCEPT);
+    });
+
+    it('is configurable, and the brief\'s smallest reject sits just outside the default', () => {
+      // Fortune Hardware A/2010: portal Rs. 1.35 higher, which the brief rejects.
+      expect(verdict({ taxGap: 135 }).action).toBe(ACTIONS.REJECT);
+      expect(
+        verdict({ taxGap: 135, context: { ...POST_CUTOFF, materialityTolerancePaise: 135 } }).action
+      ).toBe(ACTIONS.ACCEPT);
+      // Zero tolerance still accepts a lower portal figure on the direction rule.
+      expect(
+        verdict({ taxGap: -90, context: { ...POST_CUTOFF, materialityTolerancePaise: 0 } }).reason
+      ).toMatch(/chase the supplier for the ₹0\.90 difference/);
+      expect(DEFAULT_MATERIALITY_TOLERANCE_PAISE).toBe(100);
+    });
+  });
+
+  describe('saved, on or before the cut-off', () => {
+    it('chases the supplier, whichever way the amounts differ', () => {
+      for (const taxGap of [-90000, 90000]) {
+        const r = verdict({ taxGap, filingStatus: 'SAVED', context: PRE_CUTOFF });
+        expect(r.action).toBe(ACTIONS.CHASE_SUPPLIER);
+        expect(r.imsActionCode).toBeNull();
+        expect(r.reason).toMatch(/correct it for free before the cut-off/);
+      }
+    });
+
+    it('falls through to the direction rule once the cut-off has passed', () => {
+      expect(verdict({ taxGap: -90000, filingStatus: 'SAVED' }).action).toBe(ACTIONS.ACCEPT);
+      const higher = verdict({ taxGap: 90000, filingStatus: 'SAVED' });
+      expect(higher.action).toBe(ACTIONS.REJECT);
+      // Not filed, so the fix is to the draft, not a GSTR-1A amendment.
+      expect(higher.reason).toMatch(/correct the saved record before filing/);
+      expect(higher.remarks).toMatch(/Please correct before filing\.$/);
+    });
+  });
+
+  describe('invoice and debit note', () => {
+    for (const [docType, label] of [['INVOICE', 'invoice'], ['DEBIT_NOTE', 'debit note']]) {
+      it(`${label}, portal lower: accepts the portal amount and names the difference to chase`, () => {
+        const r = verdict({ docType, taxGap: -84296 });
+        expect(r.action).toBe(ACTIONS.ACCEPT);
+        expect(r.imsActionCode).toBe('A');
+        expect(r.reason).toContain(`On this ${label} the portal's`);
+        expect(r.reason).toContain('tax is ₹842.96 lower');
+        expect(r.reason).toContain("Accept the portal's ₹17,157.04 now and chase the supplier for the ₹842.96 difference.");
+        expect(r.remarks).toBeNull();
+        expect(r.requiresConfirmation).toBe(true);
+      });
+
+      it(`${label}, portal higher: rejects, and the remark says by how much`, () => {
+        const r = verdict({ docType, taxGap: 225 });
+        expect(r.action).toBe(ACTIONS.REJECT);
+        expect(r.imsActionCode).toBe('R');
+        expect(r.reason).toContain(`tax is ₹2.25 higher`);
+        expect(r.reason).toContain(`accepting would claim ₹2.25 more credit than the ${label} carries`);
+        expect(r.reason).toMatch(/GSTR-1A; the corrected credit arrives next period/);
+        expect(r.remarks).toContain(`${label[0].toUpperCase()}${label.slice(1)} mismatch, portal vs our books`);
+        expect(r.remarks).toContain('tax Rs. 18,002.25 vs Rs. 18,000.00 (Rs. 2.25 higher)');
+        expect(r.remarks).toMatch(/Please correct via GSTR-1A\.$/);
+      });
+    }
+  });
+
+  describe('credit note', () => {
+    it('portal lower: accepts, because the books reversal stands either way', () => {
+      // Kiran Systems C/1477 (April): portal Rs. 9 lower on the note.
+      const r = verdict({ docType: 'CREDIT_NOTE', taxGap: -900 });
+      expect(r.action).toBe(ACTIONS.ACCEPT);
+      expect(r.reason).toContain('On this credit note the portal\'s');
+      expect(r.reason).toContain('tax is ₹9.00 lower');
+      expect(r.reason).toContain('your books still reverse the full ₹18,000.00');
+      // A note carries no credit to wait for.
+      expect(r.reason).not.toMatch(/arrives|next period/);
+      expect(r.remarks).toBeNull();
+    });
+
+    it('portal higher: rejects, because accepting reverses more than the books owe', () => {
+      // National Supply Co Z3221 (February).
+      const r = verdict({ docType: 'CREDIT_NOTE', taxGap: 756000 });
+      expect(r.action).toBe(ACTIONS.REJECT);
+      expect(r.reason).toContain('accepting would reverse ₹7,560.00 more credit than your books owe');
+      expect(r.reason).not.toMatch(/arrives|next period/);
+      expect(r.remarks).toContain('Credit note mismatch, portal vs our books');
+      expect(r.remarks).toContain('(Rs. 7,560.00 higher)');
+    });
+  });
+
+  it('keeps the longest remark it can build within 250 characters', () => {
+    // Two fields, crore-scale figures, a debit note and the saved-record fix:
+    // the widest every part of the remark can be at once.
+    const r = recommendAction(
+      {
+        bucket: BUCKETS.VALUE_MISMATCH,
+        expected: { taxableValue: 99999999999, totalTax: 17999999999, docType: 'DEBIT_NOTE', taxPeriod: '2026-02' },
+        portal: {
+          ...result(BUCKETS.VALUE_MISMATCH).portal,
+          filingStatus: 'SAVED',
+          taxableValue: 199999999999,
+          totalTax: 35999999999
+        }
+      },
+      POST_CUTOFF
+    );
+    expect(r.action).toBe(ACTIONS.REJECT);
+    expect(r.remarks.length).toBeLessThanOrEqual(250);
+    // Complete, not truncated mid-figure.
+    expect(r.remarks).toMatch(/Please correct before filing\.$/);
+    expect(r.remarks).toMatch(/^[ -~]*$/);
+  });
+});
+
+describe('formatPaise', () => {
+  it('groups rupees the Indian way from integer paise', () => {
+    expect(formatPaise(0)).toBe('0.00');
+    expect(formatPaise(5)).toBe('0.05');
+    expect(formatPaise(84296)).toBe('842.96');
+    expect(formatPaise(100000)).toBe('1,000.00');
+    expect(formatPaise(12019049)).toBe('1,20,190.49');
+    expect(formatPaise(7129150000)).toBe('7,12,91,500.00');
+    expect(formatPaise(-557737)).toBe('-5,577.37');
   });
 });

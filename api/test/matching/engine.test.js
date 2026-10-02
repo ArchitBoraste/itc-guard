@@ -454,9 +454,10 @@ describe('reconcile', () => {
   // was inside the prose of recommendationReason, and the Actions screen printed
   // a fixed "the cut-off has not passed" header over rows that said otherwise.
   describe('CUTOFF_PASSED', () => {
-    // Saved, never filed, amounts disagree: CHASE_SUPPLIER on both sides of the
-    // cut-off, which is exactly why the flag has to carry the difference.
-    const saved = () => portal({ filingStatus: 'SAVED', taxableValue: 9500000 });
+    // Saved, never filed, portal tax lower: CHASE_SUPPLIER before the cut-off and
+    // ACCEPT (chase the difference) after it. The flag is the only record of which
+    // side of the cut-off the verdict was taken on.
+    const saved = () => portal({ filingStatus: 'SAVED', taxableValue: 9500000, totalTax: 1710000 });
 
     it('is absent while the supplier can still fix it for free', () => {
       const [result] = reconcile([books()], [saved()], {
@@ -472,9 +473,9 @@ describe('reconcile', () => {
         taxPeriod: '2026-02',
         asOfDate: '2026-03-16'
       });
-      expect(result.recommendedAction).toBe('CHASE_SUPPLIER');
+      expect(result.recommendedAction).toBe('ACCEPT');
       expect(result.flags).toContain('CUTOFF_PASSED');
-      expect(result.recommendationReason).toContain('later period');
+      expect(result.recommendationReason).toContain('chase the supplier for the ₹900.00 difference');
     });
 
     it('moves with the supplier scheme, not with one global date', () => {

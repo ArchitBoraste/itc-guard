@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { DEFAULT_MATERIALITY_TOLERANCE_PAISE } from './matching/recommend.js';
 
 // Absolute paths derived from this module's own URL, never from process.cwd().
 // Tests run from api/, tools run from the repo root, and the container runs from
@@ -64,8 +65,32 @@ export const config = {
   // race against module load order.
   get demo() {
     return demoConfig();
+  },
+
+  // Recommendation tuning, read lazily for the same reason as demo.
+  get matching() {
+    return {
+      // A value mismatch whose total tax differs by no more than this many paise
+      // is accepted as immaterial. See DEFAULT_MATERIALITY_TOLERANCE_PAISE.
+      materialityTolerancePaise: paiseSetting(
+        'MATERIALITY_TOLERANCE_PAISE',
+        DEFAULT_MATERIALITY_TOLERANCE_PAISE
+      )
+    };
   }
 };
+
+// A money setting is integer paise. Anything else is refused by name rather than
+// parsed into a number nobody meant.
+function paiseSetting(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a whole number of paise, 0 or more (got "${raw}")`);
+  }
+  return value;
+}
 
 function demoConfig() {
   return {

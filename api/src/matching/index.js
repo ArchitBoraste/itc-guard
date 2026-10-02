@@ -108,6 +108,7 @@ export function mergePortalRecords(portal) {
 //
 // options: {
 //   weights, thresholds, blocking, tolerancePaise,   // engine tuning
+//   materialityTolerancePaise,                       // mismatch accepted as immaterial
 //   asOfDate, taxPeriod, filingScheme,               // calendar context
 //   merge = true                                     // pre-merge IMS + 2B
 // }
@@ -120,7 +121,8 @@ export function reconcile(expected = [], portal = [], options = {}) {
     filingScheme: options.filingScheme ?? FILING_SCHEMES.MONTHLY,
     // Passed through so recommendAction() measures a difference with the same
     // tolerance classify() used to decide the bucket.
-    tolerancePaise: options.tolerancePaise
+    tolerancePaise: options.tolerancePaise,
+    materialityTolerancePaise: options.materialityTolerancePaise
   };
 
   const portalRecords = options.merge === false ? [...portal] : mergePortalRecords(portal);

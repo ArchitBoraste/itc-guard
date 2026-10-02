@@ -48,6 +48,8 @@ services:
       DEMO_POOL_SIZE: ${DEMO_POOL_SIZE:-3}
       DEMO_MAX_ORGS: ${DEMO_MAX_ORGS:-40}
       DEMO_IDLE_MINUTES: ${DEMO_IDLE_MINUTES:-180}
+      # Blank means the engine default. See .env.example.
+      MATERIALITY_TOLERANCE_PAISE: ${MATERIALITY_TOLERANCE_PAISE:-}
     ports:
       - "3000:3000"
     volumes:
