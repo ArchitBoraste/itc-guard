@@ -5,6 +5,7 @@
 // the CLAIMABLE decision reads confirmed_action, which is a persistence concept.
 import { BUCKETS } from '../matching/buckets.js';
 import { FILING_SCHEMES, isBeforeCutoff } from '../matching/cutoff.js';
+import { currentImsAction } from './decisions.js';
 
 // Which run total a result feeds.
 export const TOTAL_BUCKETS = Object.freeze({
@@ -48,15 +49,38 @@ export function resultItc(result) {
 }
 
 // ---------------------------------------------------------------------------
+// What an accepted result is worth
+// ---------------------------------------------------------------------------
+
+// The signed amount accepting a result claims.
+//
+// A value mismatch is claimed at the smaller of the two figures: the portal's is
+// all 2B will carry, the books' all the invoice supports. A credit note runs the
+// other way — it REVERSES credit — so it is reversed at the larger of the two and
+// the books amount is never under-reversed. Anything else is claimed whole.
+//
+// Reads the persisted shape: signedItc is the books side of a two-sided result
+// and deltaTotalTax is portal minus books, so the portal figure is recovered
+// without re-reading a portal row that may have moved since the run.
+export function acceptedItc({ bucket, docType, signedItc, deltaTotalTax }) {
+  if (bucket !== BUCKETS.VALUE_MISMATCH || !deltaTotalTax) return signedItc;
+  const sign = itcSign(docType);
+  const books = Math.abs(signedItc);
+  const portal = books + deltaTotalTax;
+  return sign * (sign < 0 ? Math.max(books, portal) : Math.min(books, portal));
+}
+
+// ---------------------------------------------------------------------------
 // Bucket -> total
 // ---------------------------------------------------------------------------
 
-// claimable  = MATCHED, plus any other reviewable bucket a human confirmed as
-//              ACCEPT (this is the "+ confirmed SUGGESTED" case).
-// atRisk     = VALUE_MISMATCH + MISSING_IN_BOOKS + SUGGESTED not yet confirmed
-//              + MISSING_IN_PORTAL still inside the cut-off (chaseable today),
-//              and anything a human explicitly confirmed as REJECT or PENDING —
-//              credit the trader will not be claiming this period.
+// claimable  = every record whose current IMS action is ACCEPT
+//              (services/decisions.js): a clean match on its own, anything else
+//              once the trader accepts it. An accepted mismatch counts only
+//              acceptedItc(); the rest of its books amount stays at risk.
+// atRisk     = open decisions, anything rejected or held as PENDING, the
+//              unclaimed part of an accepted mismatch (the difference being
+//              chased), and MISSING_IN_PORTAL still inside the cut-off.
 // deferred   = MISSING_IN_PORTAL once the cut-off has passed. No IMS record
 //              exists to act on, so the credit cannot arrive this period.
 // ineligible = INELIGIBLE. ITC was never available on these.
@@ -68,7 +92,7 @@ export function resultItc(result) {
 //              into one number. Reported separately so nothing goes missing:
 //              expectedTotalItc + nonImsItc = grandTotalItc.
 export function totalBucketFor(result, context = {}) {
-  const { bucket, confirmedAction = null } = result;
+  const { bucket } = result;
 
   if (bucket === BUCKETS.NON_IMS) return TOTAL_BUCKETS.NON_IMS;
   if (bucket === BUCKETS.INELIGIBLE) return TOTAL_BUCKETS.INELIGIBLE;
@@ -77,11 +101,7 @@ export function totalBucketFor(result, context = {}) {
     return isPreCutOff(result, context) ? TOTAL_BUCKETS.AT_RISK : TOTAL_BUCKETS.DEFERRED;
   }
 
-  // MATCHED, SUGGESTED, VALUE_MISMATCH, MISSING_IN_BOOKS.
-  // MATCHED carries an implicit ACCEPT (that is its recommendation); every other
-  // bucket has to be confirmed by a human before it counts as claimable.
-  const effective = confirmedAction ?? (bucket === BUCKETS.MATCHED ? 'ACCEPT' : null);
-  return effective === 'ACCEPT' ? TOTAL_BUCKETS.CLAIMABLE : TOTAL_BUCKETS.AT_RISK;
+  return currentImsAction(result) === 'ACCEPT' ? TOTAL_BUCKETS.CLAIMABLE : TOTAL_BUCKETS.AT_RISK;
 }
 
 // The cut-off that matters is the SUPPLIER's: a QRMP supplier has until the 13th
@@ -98,18 +118,36 @@ function isPreCutOff(result, context) {
   return isBeforeCutoff(asOfDate, period, scheme) !== false;
 }
 
+// How one result divides between the run totals: which total it feeds, its
+// signed amount, and the part of that which is claimable.
+//
+// signedItc, deltaTotalTax and docType are read off the result when the caller
+// has them persisted (recomputeRunTotals), and derived from the two sides of a
+// fresh engine result otherwise.
+export function allocate(result, context = {}) {
+  const signedItc = result.signedItc ?? resultItc(result);
+  const totalBucket = totalBucketFor(result, context);
+  const claimableItc = totalBucket === TOTAL_BUCKETS.CLAIMABLE
+    ? acceptedItc({
+        bucket: result.bucket,
+        docType: result.docType ?? result.expected?.docType ?? result.portal?.docType,
+        signedItc,
+        deltaTotalTax: result.deltaTotalTax
+      })
+    : 0;
+  return { totalBucket, signedItc, claimableItc };
+}
+
 // ---------------------------------------------------------------------------
 // Run totals
 // ---------------------------------------------------------------------------
 
-// computeRunTotals(results, context) -> {
-//   expectedTotalItc, claimableItc, atRiskItc, deferredItc, ineligibleItc,
-//   nonImsItc, grandTotalItc, bucketCounts, totalCounts, perResult
-// }
+// sumAllocations(allocations) -> { claimableItc, atRiskItc, deferredItc,
+//   ineligibleItc, nonImsItc, expectedTotalItc, grandTotalItc }
 //
 // All arithmetic is integer addition on paise. Nothing is divided, so nothing
-// rounds, so the identity below holds exactly rather than approximately.
-export function computeRunTotals(results, context = {}) {
+// rounds, so the identity holds exactly rather than approximately.
+export function sumAllocations(allocations) {
   const totals = {
     claimableItc: 0,
     atRiskItc: 0,
@@ -117,42 +155,43 @@ export function computeRunTotals(results, context = {}) {
     ineligibleItc: 0,
     nonImsItc: 0
   };
+
+  for (const { totalBucket, signedItc, claimableItc } of allocations) {
+    switch (totalBucket) {
+      case TOTAL_BUCKETS.CLAIMABLE:
+        totals.claimableItc += claimableItc;
+        totals.atRiskItc += signedItc - claimableItc;
+        break;
+      case TOTAL_BUCKETS.AT_RISK: totals.atRiskItc += signedItc; break;
+      case TOTAL_BUCKETS.DEFERRED: totals.deferredItc += signedItc; break;
+      case TOTAL_BUCKETS.INELIGIBLE: totals.ineligibleItc += signedItc; break;
+      default: totals.nonImsItc += signedItc; break;
+    }
+  }
+
+  const expectedTotalItc =
+    totals.claimableItc + totals.atRiskItc + totals.deferredItc + totals.ineligibleItc;
+  return { ...totals, expectedTotalItc, grandTotalItc: expectedTotalItc + totals.nonImsItc };
+}
+
+// computeRunTotals(results, context) -> {
+//   expectedTotalItc, claimableItc, atRiskItc, deferredItc, ineligibleItc,
+//   nonImsItc, grandTotalItc, bucketCounts, totalCounts, perResult
+// }
+export function computeRunTotals(results, context = {}) {
   const bucketCounts = {};
   const totalCounts = {};
   for (const bucket of Object.values(BUCKETS)) bucketCounts[bucket] = 0;
   for (const key of Object.values(TOTAL_BUCKETS)) totalCounts[key] = 0;
 
-  const perResult = [];
-
-  for (const result of results) {
-    const itc = resultItc(result);
-    const totalBucket = totalBucketFor(result, context);
-
+  const perResult = results.map((result) => {
+    const allocation = allocate(result, context);
     bucketCounts[result.bucket] = (bucketCounts[result.bucket] ?? 0) + 1;
-    totalCounts[totalBucket] += 1;
+    totalCounts[allocation.totalBucket] += 1;
+    return { result, ...allocation };
+  });
 
-    switch (totalBucket) {
-      case TOTAL_BUCKETS.CLAIMABLE: totals.claimableItc += itc; break;
-      case TOTAL_BUCKETS.AT_RISK: totals.atRiskItc += itc; break;
-      case TOTAL_BUCKETS.DEFERRED: totals.deferredItc += itc; break;
-      case TOTAL_BUCKETS.INELIGIBLE: totals.ineligibleItc += itc; break;
-      default: totals.nonImsItc += itc; break;
-    }
-
-    perResult.push({ result, signedItc: itc, totalBucket });
-  }
-
-  const expectedTotalItc =
-    totals.claimableItc + totals.atRiskItc + totals.deferredItc + totals.ineligibleItc;
-
-  return {
-    ...totals,
-    expectedTotalItc,
-    grandTotalItc: expectedTotalItc + totals.nonImsItc,
-    bucketCounts,
-    totalCounts,
-    perResult
-  };
+  return { ...sumAllocations(perResult), bucketCounts, totalCounts, perResult };
 }
 
 // Guard for the caller: if this ever fails, a bucket has no home in the mapping

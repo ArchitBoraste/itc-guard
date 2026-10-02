@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   TOTAL_BUCKETS,
+  acceptedItc,
+  allocate,
   assertTotalsBalance,
   computeRunTotals,
   itcSign,
   resultItc,
   signedTax,
+  sumAllocations,
   totalBucketFor
 } from '../../src/services/totals.js';
 import { BUCKETS } from '../../src/matching/buckets.js';
@@ -199,5 +202,103 @@ describe('computeRunTotals', () => {
         nonImsItc: 0, expectedTotalItc: 999, grandTotalItc: 999
       })
     ).toThrow(/do not balance/);
+  });
+});
+
+// Accepting a mismatch claims only what both sides agree on (audit P5). The
+// trader's books said Rs 1,21,033 for Mahavir 06-17/AMD/3538; the portal carries
+// Rs 1,20,190, and that is all 2B will ever give.
+describe('accepting a value mismatch', () => {
+  const context = { asOfDate: '2026-03-16', taxPeriod: '2026-02' };
+  const BOOKS = 12103345;
+
+  const mismatch = (docType, portalTax, overrides = {}) =>
+    result(BUCKETS.VALUE_MISMATCH, {
+      expected: { docType, totalTax: BOOKS, supplierGstin: 'G1', taxPeriod: '2026-02' },
+      portal: { docType, totalTax: portalTax, supplierGstin: 'G1', taxPeriod: '2026-02' },
+      deltaTotalTax: portalTax - BOOKS,
+      confirmedAction: 'ACCEPT',
+      ...overrides
+    });
+
+  it('claims the smaller figure on an invoice or debit note', () => {
+    for (const docType of ['INVOICE', 'DEBIT_NOTE']) {
+      expect(acceptedItc({ bucket: BUCKETS.VALUE_MISMATCH, docType, signedItc: BOOKS, deltaTotalTax: -84296 }))
+        .toBe(12019049);
+      expect(acceptedItc({ bucket: BUCKETS.VALUE_MISMATCH, docType, signedItc: BOOKS, deltaTotalTax: 84296 }))
+        .toBe(BOOKS);
+    }
+  });
+
+  it('reverses the larger figure on a credit note', () => {
+    // Portal lower: the books reversal stands.
+    expect(acceptedItc({ bucket: BUCKETS.VALUE_MISMATCH, docType: 'CREDIT_NOTE', signedItc: -381200, deltaTotalTax: -900 }))
+      .toBe(-381200);
+    // Portal higher: accepting reverses the portal's larger figure.
+    expect(acceptedItc({ bucket: BUCKETS.VALUE_MISMATCH, docType: 'CREDIT_NOTE', signedItc: -381200, deltaTotalTax: 900 }))
+      .toBe(-382100);
+  });
+
+  it('claims anything that is not a mismatch whole', () => {
+    expect(acceptedItc({ bucket: BUCKETS.SUGGESTED, docType: 'INVOICE', signedItc: 500, deltaTotalTax: 0 })).toBe(500);
+    expect(acceptedItc({ bucket: BUCKETS.MISSING_IN_BOOKS, docType: 'INVOICE', signedItc: 500, deltaTotalTax: null })).toBe(500);
+    expect(acceptedItc({ bucket: BUCKETS.VALUE_MISMATCH, docType: 'INVOICE', signedItc: 500, deltaTotalTax: 0 })).toBe(500);
+  });
+
+  it('splits the books amount: the portal figure claimable, the difference at risk', () => {
+    const totals = computeRunTotals([mismatch('INVOICE', 12019049)], context);
+    expect(totals.claimableItc).toBe(12019049);
+    expect(totals.atRiskItc).toBe(84296);
+    expect(totals.expectedTotalItc).toBe(BOOKS);
+    expect(assertTotalsBalance(totals)).toBe(true);
+    expect(totals.perResult[0]).toMatchObject({ totalBucket: 'CLAIMABLE', signedItc: BOOKS, claimableItc: 12019049 });
+  });
+
+  it('leaves nothing at risk when the books figure is the one claimed', () => {
+    const totals = computeRunTotals([mismatch('INVOICE', BOOKS + 84296)], context);
+    expect(totals.claimableItc).toBe(BOOKS);
+    expect(totals.atRiskItc).toBe(0);
+  });
+
+  it('reverses a credit note in full whichever side is larger', () => {
+    const lower = computeRunTotals([mismatch('CREDIT_NOTE', BOOKS - 900)], context);
+    expect(lower.claimableItc).toBe(-BOOKS);
+    expect(lower.atRiskItc).toBe(0);
+
+    const higher = computeRunTotals([mismatch('CREDIT_NOTE', BOOKS + 900)], context);
+    expect(higher.claimableItc).toBe(-(BOOKS + 900));
+    // Reversing more than the books owe is credit the trader stands to lose.
+    expect(higher.atRiskItc).toBe(900);
+    expect(assertTotalsBalance(higher)).toBe(true);
+  });
+
+  it('is the same whether the trader confirmed it or the portal already holds an Accept', () => {
+    const confirmed = computeRunTotals([mismatch('INVOICE', 12019049)], context);
+    const onPortal = computeRunTotals(
+      [mismatch('INVOICE', 12019049, {
+        confirmedAction: null,
+        portal: { docType: 'INVOICE', totalTax: 12019049, imsAction: 'A', supplierGstin: 'G1', taxPeriod: '2026-02' }
+      })],
+      context
+    );
+    expect(onPortal.claimableItc).toBe(confirmed.claimableItc);
+  });
+
+  it('keeps an unaccepted mismatch whole at risk', () => {
+    for (const confirmedAction of [null, 'REJECT', 'PENDING', 'NO_ACTION']) {
+      const totals = computeRunTotals([mismatch('INVOICE', 12019049, { confirmedAction })], context);
+      expect(totals.claimableItc).toBe(0);
+      expect(totals.atRiskItc).toBe(BOOKS);
+    }
+  });
+
+  it('reads persisted amounts when they are given, not the two sides', () => {
+    // recomputeRunTotals passes signed_itc and delta_total_tax from the row.
+    const allocation = allocate(
+      { bucket: BUCKETS.VALUE_MISMATCH, docType: 'INVOICE', signedItc: BOOKS, deltaTotalTax: -84296, confirmedAction: 'ACCEPT' },
+      context
+    );
+    expect(allocation).toEqual({ totalBucket: 'CLAIMABLE', signedItc: BOOKS, claimableItc: 12019049 });
+    expect(sumAllocations([allocation])).toMatchObject({ claimableItc: 12019049, atRiskItc: 84296, expectedTotalItc: BOOKS });
   });
 });

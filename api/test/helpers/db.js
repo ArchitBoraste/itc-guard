@@ -61,7 +61,8 @@ export const TEST_ORGS = Object.freeze({
   preventiveTwoB: 13,
   alertPopulation: 14,
   // Not a suite: tools/verify-answer-key.js loads all six periods here.
-  answerKey: 15
+  answerKey: 15,
+  claimableOnAccept: 16
 });
 
 export async function ensureOrg(orgId, gstin) {

@@ -7,8 +7,7 @@
 // whoever set it.
 //
 // Input is a result as the API reads it back:
-//   { bucket, recommendedAction, confirmedAction, signedItc, withdrawn,
-//     portal: { source, imsAction } | null }
+//   { bucket, confirmedAction, signedItc, withdrawn, portal: { source, imsAction } | null }
 import { BUCKETS } from '../matching/buckets.js';
 
 export const IMS_DECISIONS = Object.freeze(['ACCEPT', 'REJECT', 'PENDING']);
@@ -44,8 +43,7 @@ export function currentImsAction(result) {
   if (isImsDecision(result.confirmedAction)) return result.confirmedAction;
   const recorded = PORTAL_DECISIONS[result.portal?.imsAction];
   if (recorded) return recorded;
-  if (result.bucket === BUCKETS.MATCHED && result.recommendedAction === 'ACCEPT') return 'ACCEPT';
-  return 'NO_ACTION';
+  return result.bucket === BUCKETS.MATCHED ? 'ACCEPT' : 'NO_ACTION';
 }
 
 export function needsDecision(result) {

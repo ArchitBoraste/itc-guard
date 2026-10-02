@@ -23,7 +23,13 @@ import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.j
 import { cutoffDate, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
 import { decisionCategory, needsDecision, summarizeOpenDecisions } from './decisions.js';
-import { assertTotalsBalance, computeRunTotals, itcSign, totalBucketFor } from './totals.js';
+import {
+  allocate,
+  assertTotalsBalance,
+  computeRunTotals,
+  itcSign,
+  sumAllocations
+} from './totals.js';
 import { supplierSchemeMap } from './supplierStats.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
 
@@ -211,29 +217,32 @@ export async function createRun({
   );
 
   const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
-  const totals = computeRunTotals(results, { asOfDate, taxPeriod, filingScheme, schemeFor });
   // What this run was computed FROM, not what it produced. runStaleness() compares
   // these against the live counts to notice records that arrived afterwards and so
   // appear in no result at all — a record nobody has seen is deemed accepted.
   const inputCounts = { expected: expected.length, portal: portal.length };
-  // If this throws, a bucket has no home in the total mapping. Fix the
-  // classification, never the arithmetic.
-  assertTotalsBalance(totals);
 
   return withTransaction(async (connection) => {
+    // Carry human decisions across the rebuild, keyed on the pair identity rather
+    // than on row ids, which are about to change — and BEFORE the totals, which a
+    // decision the trader already made has to keep counting in.
+    const confirmed = await loadConfirmedActions(connection, orgId, taxPeriod);
+    const decided = results.map((result) => carryForward(confirmed, result));
+
+    const totals = computeRunTotals(decided, { asOfDate, taxPeriod, filingScheme, schemeFor });
+    // If this throws, a bucket has no home in the total mapping. Fix the
+    // classification, never the arithmetic.
+    assertTotalsBalance(totals);
+
     const runId = await upsertRunRow(connection, {
       orgId, taxPeriod, mode, asOfDate, filingScheme, totals, tuning, inputCounts
     });
-
-    // Carry human decisions across the rebuild, keyed on the pair identity rather
-    // than on row ids, which are about to change.
-    const confirmed = await loadConfirmedActions(connection, orgId, runId);
 
     await connection.query('DELETE FROM match_results WHERE org_id = ? AND run_id = ?', [
       orgId,
       runId
     ]);
-    await insertResults(connection, orgId, runId, totals, confirmed);
+    await insertResults(connection, orgId, runId, totals);
 
     await connection.query(
       `UPDATE runs SET status = 'COMPLETED', finished_at = NOW() WHERE id = ?`,
@@ -289,13 +298,16 @@ async function upsertRunRow(connection, {
 
 // A rebuilt run must not silently discard a decision the trader already made.
 // Keyed on (expected_invoice_id, portal_record_id) — stable across the delete.
-async function loadConfirmedActions(connection, orgId, runId) {
+// One run per (org, period), so the period finds the run being replaced.
+async function loadConfirmedActions(connection, orgId, taxPeriod) {
   const [rows] = await connection.query(
-    `SELECT expected_invoice_id, portal_record_id, confirmed_action, confirmed_by,
-            confirmed_at, confirmed_content_hash, confirmed_bucket, remarks
-       FROM match_results
-      WHERE org_id = ? AND run_id = ? AND confirmed_action IS NOT NULL`,
-    [orgId, runId]
+    `SELECT mr.expected_invoice_id, mr.portal_record_id, mr.confirmed_action,
+            mr.confirmed_by, mr.confirmed_at, mr.confirmed_content_hash,
+            mr.confirmed_bucket, mr.remarks
+       FROM match_results mr
+       JOIN runs r ON r.id = mr.run_id AND r.org_id = mr.org_id
+      WHERE mr.org_id = ? AND r.tax_period = ? AND mr.confirmed_action IS NOT NULL`,
+    [orgId, taxPeriod]
   );
   const map = new Map();
   for (const row of rows) {
@@ -312,24 +324,31 @@ export const CONFIRMATION_RESET = 'CONFIRMATION_RESET';
 // has produced a different record, and IMS resets the recipient's action in
 // exactly that situation — carrying a stale REJECT onto a now-clean match would
 // reject an invoice the trader already agreed with.
-function carryForward(previous, result) {
-  if (!previous) return { confirmation: null, stale: false };
+//
+// Returns the result with the surviving decision on it (confirmedAction, and the
+// row it came from as `confirmation`), or marked confirmationReset.
+function carryForward(confirmed, result) {
+  const previous = confirmed.get(`${result.expected?.id ?? ''}:${result.portal?.id ?? ''}`);
+  if (!previous) return result;
 
   const currentHash = result.portal?.contentHash ?? null;
   const contentUnchanged = (previous.confirmed_content_hash ?? null) === currentHash;
   const bucketUnchanged = (previous.confirmed_bucket ?? null) === result.bucket;
 
-  if (contentUnchanged && bucketUnchanged) return { confirmation: previous, stale: false };
-  return { confirmation: null, stale: true };
+  if (contentUnchanged && bucketUnchanged) {
+    return { ...result, confirmedAction: previous.confirmed_action, confirmation: previous };
+  }
+  return { ...result, confirmationReset: true };
 }
 
-async function insertResults(connection, orgId, runId, totals, confirmed) {
-  const rows = totals.perResult.map(({ result, signedItc, totalBucket }) => {
-    const key = `${result.expected?.id ?? ''}:${result.portal?.id ?? ''}`;
-    const { confirmation, stale } = carryForward(confirmed.get(key), result);
+async function insertResults(connection, orgId, runId, totals) {
+  const rows = totals.perResult.map(({ result, signedItc, totalBucket, claimableItc }) => {
+    const confirmation = result.confirmation ?? null;
 
     const flags = [...(result.flags ?? [])];
-    if (stale && !flags.includes(CONFIRMATION_RESET)) flags.push(CONFIRMATION_RESET);
+    if (result.confirmationReset && !flags.includes(CONFIRMATION_RESET)) {
+      flags.push(CONFIRMATION_RESET);
+    }
 
     return [
       orgId,
@@ -356,6 +375,7 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
       itcSign(result.expected?.docType ?? result.portal?.docType) * (result.itcAtRisk ?? 0),
       signedItc,
       totalBucket,
+      claimableItc,
       confirmation?.confirmed_action ?? null,
       confirmation?.confirmed_by ?? null,
       confirmation?.confirmed_at ?? null,
@@ -371,8 +391,8 @@ async function insertResults(connection, orgId, runId, totals, confirmed) {
        (org_id, run_id, expected_invoice_id, portal_record_id, portal_content_hash,
         bucket, score, matched_via, score_breakdown, flags, recommended_action,
         recommendation_reason, remarks, delta_taxable_value, delta_total_tax,
-        itc_impact, signed_itc, total_bucket, confirmed_action, confirmed_by,
-        confirmed_at, confirmed_content_hash, confirmed_bucket)
+        itc_impact, signed_itc, total_bucket, claimable_itc, confirmed_action,
+        confirmed_by, confirmed_at, confirmed_content_hash, confirmed_bucket)
      VALUES ?`,
     rows
   );
@@ -533,7 +553,7 @@ export async function getRun(orgId, runId) {
 
 async function runOpenDecisions(orgId, runId) {
   const [rows] = await pool.query(
-    `SELECT mr.bucket, mr.recommended_action, mr.confirmed_action, mr.signed_itc,
+    `SELECT mr.bucket, mr.confirmed_action, mr.signed_itc,
             mr.portal_record_id, pr.source AS portal_source, pr.ims_action, pr.absent_since
        FROM match_results mr
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
@@ -616,12 +636,17 @@ async function runStaleness(orgId, run) {
 // carrying in their books has not yet reached the portal. Without this split the
 // UI can only render "Deferred: -Rs 5,577.37", which reads like a bug. With it,
 // the UI can say "1 unreported credit note" and show the reduction as pending.
+//
+// An accepted mismatch is split the way the run totals split it: its claimable
+// part under CLAIMABLE, where the document is counted, and the difference still
+// being chased under AT_RISK as money without a second count.
 export async function runTotalsBreakdown(orgId, runId) {
   const [rows] = await pool.query(
     `SELECT mr.total_bucket AS total_bucket,
             COALESCE(ei.doc_type, pr.doc_type) AS doc_type,
             COUNT(*) AS n,
-            SUM(mr.signed_itc) AS itc
+            SUM(mr.signed_itc) AS itc,
+            SUM(mr.claimable_itc) AS claimable
        FROM match_results mr
        LEFT JOIN expected_invoices ei ON ei.id = mr.expected_invoice_id
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
@@ -631,30 +656,37 @@ export async function runTotalsBreakdown(orgId, runId) {
   );
 
   const breakdown = {};
-  for (const row of rows) {
-    const key = row.total_bucket ?? 'UNASSIGNED';
-    const entry = (breakdown[key] ??= {
+  const add = (totalBucket, docType, itc, count) => {
+    const entry = (breakdown[totalBucket] ??= {
       itc: 0,
       count: 0,
       creditNotes: { itc: 0, count: 0 },
       otherDocuments: { itc: 0, count: 0 },
       byDocType: {}
     });
-
-    const itc = Number(row.itc ?? 0);
-    const count = Number(row.n);
-    const docType = row.doc_type ?? 'UNKNOWN';
-
-    entry.itc += itc;
-    entry.count += count;
-    entry.byDocType[docType] = { itc, count };
-
+    const ofType = (entry.byDocType[docType] ??= { itc: 0, count: 0 });
     // Credit notes carry negative ITC by construction — see services/totals.js.
     const side = docType === 'CREDIT_NOTE' || docType === 'ISD_CREDIT'
       ? entry.creditNotes
       : entry.otherDocuments;
-    side.itc += itc;
-    side.count += count;
+    for (const part of [entry, ofType, side]) {
+      part.itc += itc;
+      part.count += count;
+    }
+  };
+
+  for (const row of rows) {
+    const totalBucket = row.total_bucket ?? 'UNASSIGNED';
+    const docType = row.doc_type ?? 'UNKNOWN';
+    const itc = Number(row.itc ?? 0);
+    const count = Number(row.n);
+    if (totalBucket !== 'CLAIMABLE') {
+      add(totalBucket, docType, itc, count);
+      continue;
+    }
+    const claimable = Number(row.claimable ?? 0);
+    add('CLAIMABLE', docType, claimable, count);
+    if (itc !== claimable) add('AT_RISK', docType, itc - claimable, 0);
   }
   return breakdown;
 }
@@ -788,7 +820,6 @@ export const isWithdrawn = (row) => Boolean(row.absent_since);
 function decisionView(row) {
   return {
     bucket: row.bucket,
-    recommendedAction: row.recommended_action,
     confirmedAction: row.confirmed_action,
     signedItc: Number(row.signed_itc ?? 0),
     withdrawn: isWithdrawn(row),
@@ -976,7 +1007,8 @@ export async function recomputeRunTotals(orgId, runId) {
   if (!runRows.length) throw new ServiceError('run not found', 404, 'not_found');
 
   const [rows] = await pool.query(
-    `SELECT mr.id, mr.bucket, mr.signed_itc, mr.confirmed_action,
+    `SELECT mr.id, mr.bucket, mr.signed_itc, mr.delta_total_tax, mr.confirmed_action,
+            pr.ims_action,
             COALESCE(ei.supplier_gstin, pr.supplier_gstin) AS supplier_gstin,
             COALESCE(ei.doc_type, pr.doc_type) AS doc_type
        FROM match_results mr
@@ -989,17 +1021,6 @@ export async function recomputeRunTotals(orgId, runId) {
   const run = runRows[0];
   const schemeMap = await supplierSchemeMap(orgId);
 
-  // signed_itc is already persisted per result, so this re-buckets rather than
-  // recomputing money — no re-derivation, no drift.
-  const pseudoResults = rows.map((row) => ({
-    id: row.id,
-    bucket: row.bucket,
-    confirmedAction: row.confirmed_action,
-    signedItc: Number(row.signed_itc ?? 0),
-    expected: { supplierGstin: row.supplier_gstin, taxPeriod: run.tax_period },
-    portal: { supplierGstin: row.supplier_gstin, taxPeriod: run.tax_period }
-  }));
-
   const context = {
     asOfDate: run.as_of_date,
     taxPeriod: run.tax_period,
@@ -1007,33 +1028,33 @@ export async function recomputeRunTotals(orgId, runId) {
     schemeFor: (gstin) => schemeMap.get(gstin) ?? null
   };
 
-  const totals = {
-    claimableItc: 0, atRiskItc: 0, deferredItc: 0, ineligibleItc: 0, nonImsItc: 0
-  };
-  const updates = [];
-  for (const result of pseudoResults) {
-    const totalBucket = totalBucketFor(result, context);
-    updates.push([totalBucket, result.id]);
-    switch (totalBucket) {
-      case 'CLAIMABLE': totals.claimableItc += result.signedItc; break;
-      case 'AT_RISK': totals.atRiskItc += result.signedItc; break;
-      case 'DEFERRED': totals.deferredItc += result.signedItc; break;
-      case 'INELIGIBLE': totals.ineligibleItc += result.signedItc; break;
-      default: totals.nonImsItc += result.signedItc; break;
-    }
-  }
+  // signed_itc and delta_total_tax are persisted per result, so this re-buckets
+  // rather than recomputing money — no re-derivation, no drift.
+  const allocations = rows.map((row) => ({
+    id: row.id,
+    ...allocate(
+      {
+        bucket: row.bucket,
+        docType: row.doc_type,
+        signedItc: Number(row.signed_itc ?? 0),
+        deltaTotalTax: row.delta_total_tax === null ? null : Number(row.delta_total_tax),
+        confirmedAction: row.confirmed_action,
+        expected: { supplierGstin: row.supplier_gstin, taxPeriod: run.tax_period },
+        portal: { supplierGstin: row.supplier_gstin, taxPeriod: run.tax_period, imsAction: row.ims_action }
+      },
+      context
+    )
+  }));
 
-  const expectedTotalItc =
-    totals.claimableItc + totals.atRiskItc + totals.deferredItc + totals.ineligibleItc;
-  const grandTotalItc = expectedTotalItc + totals.nonImsItc;
-  assertTotalsBalance({ ...totals, expectedTotalItc, grandTotalItc });
+  const totals = sumAllocations(allocations);
+  assertTotalsBalance(totals);
 
   await withTransaction(async (connection) => {
-    for (const [totalBucket, id] of updates) {
-      await connection.query('UPDATE match_results SET total_bucket = ? WHERE id = ?', [
-        totalBucket,
-        id
-      ]);
+    for (const { id, totalBucket, claimableItc } of allocations) {
+      await connection.query(
+        'UPDATE match_results SET total_bucket = ?, claimable_itc = ? WHERE id = ?',
+        [totalBucket, claimableItc, id]
+      );
     }
     await connection.query(
       `UPDATE runs
@@ -1041,11 +1062,11 @@ export async function recomputeRunTotals(orgId, runId) {
               deferred_itc = ?, ineligible_itc = ?, non_ims_itc = ?, grand_total_itc = ?
         WHERE org_id = ? AND id = ?`,
       [
-        expectedTotalItc, totals.claimableItc, totals.atRiskItc, totals.deferredItc,
-        totals.ineligibleItc, totals.nonImsItc, grandTotalItc, orgId, runId
+        totals.expectedTotalItc, totals.claimableItc, totals.atRiskItc, totals.deferredItc,
+        totals.ineligibleItc, totals.nonImsItc, totals.grandTotalItc, orgId, runId
       ]
     );
   });
 
-  return { ...totals, expectedTotalItc, grandTotalItc };
+  return totals;
 }
