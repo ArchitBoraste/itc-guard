@@ -181,11 +181,28 @@ describe('recommendAction', () => {
     expect(after.reason).toMatch(/no IMS record exists/);
   });
 
-  it('asks for verification of a record that is not in the books, never an auto-reject', () => {
-    // This is precisely where a wrong reject does its damage.
+  it('rejects a record that is not in the books, once a human has verified it', () => {
+    // Left alone it is deemed accepted: credit for a purchase the books never saw.
+    // A wrong reject does its damage here too, so it is never applied unconfirmed.
     const r = recommendAction(result(BUCKETS.MISSING_IN_BOOKS, { expected: null }), POST_CUTOFF);
-    expect(r.action).toBe(ACTIONS.VERIFY);
-    expect(r.action).not.toBe(ACTIONS.REJECT);
+    expect(r.action).toBe(ACTIONS.REJECT);
+    expect(r.imsActionCode).toBe('R');
+    expect(r.requiresConfirmation).toBe(true);
+    expect(r.reason).toMatch(/Verify no goods or invoice were received, then reject/);
+    expect(r.remarks).toBe('Not in our purchase register: no goods or document received against this record.');
+    expect(r.remarks).toMatch(/^[ -~]*$/);
+  });
+
+  it('drops the phantom remark where the portal blocks remarks', () => {
+    const r = recommendAction(
+      result(BUCKETS.MISSING_IN_BOOKS, {
+        expected: null,
+        portal: { ...result(BUCKETS.MISSING_IN_BOOKS).portal, remarksBlocked: true }
+      }),
+      POST_CUTOFF
+    );
+    expect(r.action).toBe(ACTIONS.REJECT);
+    expect(r.remarks).toBeNull();
   });
 
   it('leaves ineligible and non-IMS records alone', () => {

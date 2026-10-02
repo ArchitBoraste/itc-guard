@@ -114,12 +114,17 @@ function decide({ bucket, expected, portal, preCutOff, tolerancePaise, materiali
       };
 
     case BUCKETS.MISSING_IN_BOOKS:
-      // Never auto-reject: this is exactly where a wrong reject does its damage.
+      // Reject, because left alone it is deemed accepted: credit claimed for a
+      // purchase the books never saw. Never auto-applied — a wrong reject is
+      // exactly where the damage is done, so the trader confirms it, row or group,
+      // after checking nothing was received.
       return {
-        action: ACTIONS.VERIFY,
+        action: ACTIONS.REJECT,
         reason:
           'On the portal but not in the purchase register. Verify no goods or invoice ' +
-          'were received before rejecting — an unreviewed record is deemed accepted.'
+          'were received, then reject — left unactioned it is deemed accepted.',
+        // A phantom can be a note too, so the remark says "document".
+        remarks: 'Not in our purchase register: no goods or document received against this record.'
       };
 
     case BUCKETS.INELIGIBLE:

@@ -51,7 +51,7 @@ describe('needsDecision', () => {
   it('is true for an IMS record carrying N', () => {
     expect(needsDecision(imsRow())).toBe(true);
     expect(needsDecision(imsRow({ bucket: 'SUGGESTED', recommendedAction: 'VERIFY' }))).toBe(true);
-    expect(needsDecision(imsRow({ bucket: 'MISSING_IN_BOOKS', recommendedAction: 'VERIFY' }))).toBe(true);
+    expect(needsDecision(imsRow({ bucket: 'MISSING_IN_BOOKS', recommendedAction: 'REJECT' }))).toBe(true);
   });
 
   it('stays true after the trader confirms N', () => {
@@ -85,7 +85,7 @@ describe('needsDecision', () => {
 
 describe('decisionCategory', () => {
   it('splits open records into phantom, verify and other', () => {
-    expect(decisionCategory(imsRow({ bucket: 'MISSING_IN_BOOKS', recommendedAction: 'VERIFY' }))).toBe('phantom');
+    expect(decisionCategory(imsRow({ bucket: 'MISSING_IN_BOOKS', recommendedAction: 'REJECT' }))).toBe('phantom');
     expect(decisionCategory(imsRow({ bucket: 'SUGGESTED', recommendedAction: 'VERIFY' }))).toBe('verify');
     expect(decisionCategory(imsRow())).toBe('other');
   });
@@ -100,7 +100,7 @@ describe('summarizeOpenDecisions', () => {
   it('counts and totals the open records, overall and per category', () => {
     const summary = summarizeOpenDecisions([
       imsRow({ signedItc: 500 }),
-      imsRow({ bucket: 'MISSING_IN_BOOKS', recommendedAction: 'VERIFY', signedItc: 200 }),
+      imsRow({ bucket: 'MISSING_IN_BOOKS', recommendedAction: 'REJECT', signedItc: 200 }),
       imsRow({ bucket: 'SUGGESTED', recommendedAction: 'VERIFY', signedItc: -70 }),
       imsRow({ confirmedAction: 'REJECT', signedItc: 9999 }),
       imsRow({ bucket: 'MATCHED', recommendedAction: 'ACCEPT', signedItc: 9999 })

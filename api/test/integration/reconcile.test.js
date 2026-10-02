@@ -382,24 +382,31 @@ describe('integration: fixture period through the whole stack', () => {
     const page = await listResults(ORG_ID, run.id, { bucket: 'MISSING_IN_BOOKS', pageSize: 5 });
     expect(page.results.length).toBeGreaterThan(0);
     const target = page.results[0];
-    // A record not in the books is recommended for VERIFY, never auto-rejected.
-    expect(target.recommendedAction).toBe('VERIFY');
+    // A record not in the books is recommended for Reject, and never applied
+    // until a human says so.
+    expect(target.recommendedAction).toBe('REJECT');
     expect(target.confirmedAction).toBeNull();
+    expect(target.needsDecision).toBe(true);
 
-    await confirmResult(ORG_ID, target.id, { confirmedAction: 'REJECT' });
+    // The trader checks and finds the goods did arrive: they override to Accept.
+    await confirmResult(ORG_ID, target.id, { confirmedAction: 'ACCEPT' });
 
     const after = await listResults(ORG_ID, run.id, { bucket: 'MISSING_IN_BOOKS', pageSize: 5 });
     const updated = after.results.find((row) => row.id === target.id);
-    expect(updated.recommendedAction).toBe('VERIFY');
-    expect(updated.confirmedAction).toBe('REJECT');
+    expect(updated.recommendedAction).toBe('REJECT');
+    expect(updated.confirmedAction).toBe('ACCEPT');
 
-    // The upload JSON emits the trader's decision, not the recommendation.
+    // The upload JSON emits the trader's decision, not the recommendation, and
+    // no rejection remark rides along on an Accept.
     const built = await buildRunImsActions(ORG_ID, run.id);
     const wire = UPLOAD_SECTIONS.flatMap((s) => built.json.invdata[s]).find(
-      (row) => (row.inum ?? row.nt_num) === updated.portal.invoiceNo
+      (row) =>
+        row.stin === updated.portal.supplierGstin &&
+        (row.inum ?? row.nt_num) === updated.portal.invoiceNo
     );
     expect(wire).toBeTruthy();
-    expect(wire.action).toBe('R');
+    expect(wire.action).toBe('A');
+    expect('remarks' in wire).toBe(false);
   });
 
   it('moves a confirmation between claimable and at-risk and rebalances', async () => {

@@ -133,14 +133,16 @@ describe('the IMS file while decisions are open', () => {
 });
 
 describe('deciding', () => {
-  it('keeps phantoms as Verify: on the portal, not in the books, never rejected unseen', async () => {
+  it('recommends Reject for phantoms, and leaves them open until the trader confirms', async () => {
+    // On the portal, not in the books: no engine recommendation resolves to N
+    // silently, and none is applied unseen either.
     const phantoms = (await results()).filter((result) => result.bucket === 'MISSING_IN_BOOKS');
     expect(phantoms.length).toBeGreaterThan(0);
     for (const result of phantoms) {
-      expect(result.recommendedAction).toBe('VERIFY');
+      expect(result.recommendedAction).toBe('REJECT');
       expect(result.needsDecision).toBe(true);
       expect(result.decisionCategory).toBe('phantom');
-      expect(result.recommendationReason).toMatch(/Verify no goods or invoice were received/);
+      expect(result.recommendationReason).toMatch(/Verify no goods or invoice were received, then reject/);
     }
   });
 
@@ -184,6 +186,26 @@ describe('deciding', () => {
     const again = await call('POST', `/runs/${run.id}/confirmations`, { resultIds: ids });
     expect(again.body.confirmed).toEqual([]);
     expect(again.body.skipped).toHaveLength(ids.length);
+  });
+
+  it('rejects phantoms with the Reject group, and sends their stated reason on R', async () => {
+    const phantoms = (await results()).filter((result) => result.bucket === 'MISSING_IN_BOOKS');
+    const ids = phantoms.map((result) => result.id);
+
+    const { status, body } = await call('POST', `/runs/${run.id}/confirmations`, { resultIds: ids });
+    expect(status).toBe(200);
+    expect(body.confirmed).toHaveLength(ids.length);
+    expect((await getRun(ORG_ID, run.id)).openDecisions.byCategory.phantom.count).toBe(0);
+
+    const file = await call('GET', `/runs/${run.id}/ims-actions.json?acknowledgeOpenDecisions=true`);
+    const byKey = new Map(wireRecords(file.body).map((wire) => [wireKey(wire), wire]));
+    for (const result of phantoms) {
+      const wire = byKey.get(resultKey(result));
+      expect(wire.action).toBe('R');
+      if (!result.portal.remarksBlocked) {
+        expect(wire.remarks).toBe('Not in our purchase register: no goods or document received against this record.');
+      }
+    }
   });
 
   it('does not count a confirmed N as a decision', async () => {
