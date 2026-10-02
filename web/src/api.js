@@ -121,11 +121,20 @@ export const api = {
 
   // --- what moved on the portal since last time ----------------------------
   listChanges: (runId) => request(`/api/changes?runId=${encodeURIComponent(runId)}`),
-  imsActionsUrl: (runId) => `/api/runs/${runId}/ims-actions.json`,
+  // The API holds the file back (409) while any record would go out as N, unless
+  // the trader has acknowledged those records.
+  imsActionsUrl: (runId, { acknowledgeOpenDecisions = false } = {}) =>
+    `/api/runs/${runId}/ims-actions.json` +
+    (acknowledgeOpenDecisions ? '?acknowledgeOpenDecisions=true' : ''),
 
   // --- decisions -----------------------------------------------------------
   confirmResult: (resultId, confirmedAction) =>
     json('PATCH', `/api/results/${resultId}`, { confirmedAction }).then((body) => body.result),
+
+  // "Confirm all": the engine's recommendation on each listed row, in one request.
+  // Returns { confirmed: [ids], skipped: [{ resultId, reason }] }.
+  confirmRecommendations: (runId, resultIds) =>
+    json('POST', `/api/runs/${runId}/confirmations`, { resultIds }),
 
   // --- preventive alerts ---------------------------------------------------
   //

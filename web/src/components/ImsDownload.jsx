@@ -8,6 +8,21 @@ import { InlineError } from './States.jsx';
 // carry which action, and how many of those are the trader's own decisions rather
 // than the engine's suggestions. Nobody should upload a file to the GST portal
 // without seeing that.
+
+// N is never a decision. While any record would go out as N the API holds the file
+// back, and hands it over only once the trader has said here that they mean it.
+export function openDecisionWarning({ count, byCategory }) {
+  return [
+    `${count} record${count === 1 ? '' : 's'} will go to the portal as N (no action), ` +
+      'which is deemed acceptance at GSTR-3B:',
+    `  ${byCategory.phantom.count} on the portal but not in your books`,
+    `  ${byCategory.verify.count} probably the same invoice, not yet verified`,
+    `  ${byCategory.other.count} other records with no decision`,
+    '',
+    'Download anyway?'
+  ].join('\n');
+}
+
 export function ImsDownload({ run, compact = false }) {
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState(null);
@@ -31,6 +46,8 @@ export function ImsDownload({ run, compact = false }) {
 
   const stats = summary?.stats;
   const byAction = stats?.byAction ?? {};
+  const open = summary?.openDecisions;
+  const acknowledgeOpenDecisions = Boolean(open?.count);
   // The file is built from stored verdicts. If the portal has moved since they
   // were computed, the envelope would carry an Accept for a record that no longer
   // agrees — and once uploaded, that is final.
@@ -60,12 +77,23 @@ export function ImsDownload({ run, compact = false }) {
               Re-run the reconciliation first — this run is out of date.
             </span>
           </span>
+        ) : !summary ? (
+          // Until the summary says whether anything would go out as N, there is no
+          // way to ask the question the download depends on.
+          <span className="btn btn-primary is-disabled" aria-disabled="true">
+            Download IMS action JSON
+          </span>
         ) : (
           <a
             className="btn btn-primary"
-            href={api.imsActionsUrl(run.id)}
+            href={api.imsActionsUrl(run.id, { acknowledgeOpenDecisions })}
             download={`ims-actions-run-${run.id}.json`}
             data-testid="download-ims-json"
+            onClick={(event) => {
+              if (acknowledgeOpenDecisions && !window.confirm(openDecisionWarning(open))) {
+                event.preventDefault();
+              }
+            }}
           >
             Download IMS action JSON
           </a>

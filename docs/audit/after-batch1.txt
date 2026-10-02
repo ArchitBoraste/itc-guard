@@ -1,0 +1,27 @@
+ITC Guard — app vs audit answer key
+database itc@127.0.0.1:3307/itc_guard  [from env file]  org 15
+key D:\Sem 5 (CSE)\Omnikon_hackathon\itc-guard\docs\audit\answer-key.json
+
+[db] connected itc@127.0.0.1:3307/itc_guard  [from env file]
+period   docs            totals  identity  VM recs       open app/key      decided totals  decided open    
+-----------------------------------------------------------------------------------------------------------
+2026-02  403/403 PASS    PASS    PASS      8/8 PASS      19/19 PASS        PASS            11/11 PASS      
+2026-03  409/409 PASS    PASS    PASS      11/11 PASS    31/31 PASS        PASS            20/20 PASS      
+2026-04  424/424 PASS    PASS    PASS      11/11 PASS    32/32 PASS        PASS            21/21 PASS      
+2026-05  415/415 PASS    PASS    PASS      14/14 PASS    27/27 PASS        PASS            13/13 PASS      
+2026-06  409/409 PASS    PASS    PASS      12/12 PASS    24/24 PASS        PASS            12/12 PASS      
+2026-07  401/401 PASS    PASS    PASS      7/7 PASS      18/18 PASS        PASS            11/11 PASS      
+
+all periods: 2461/2461 documents in the right bucket with the right partner
+
+claimable once every value mismatch is decided as recommended (key -> app):
+  2026-02  Rs. 1,42,70,479.79 -> Rs. 1,44,07,428.66  (expected shift Rs. 1,36,948.87)
+  2026-03  Rs. 1,23,56,729.82 -> Rs. 1,25,83,057.98  (expected shift Rs. 2,26,328.16)
+  2026-04  Rs. 1,27,78,286.57 -> Rs. 1,29,89,642.28  (expected shift Rs. 2,11,355.71)
+  2026-05  Rs. 1,29,45,250.77 -> Rs. 1,34,53,070.47  (expected shift Rs. 5,07,819.70)
+  2026-06  Rs. 1,36,59,954.44 -> Rs. 1,38,45,839.09  (expected shift Rs. 1,85,884.65)
+  2026-07  Rs. 1,29,82,175.79 -> Rs. 1,29,82,175.79  (expected shift Rs. 0.00)
+
+story Mahavir Sales Corp 06-17/AMD/3538: Accept moved claimable by Rs. 1,20,190.49; expected Rs. 1,20,190.49 (portal), not Rs. 1,21,033.45 (books)  PASS
+
+ALL CHECKS PASS

@@ -7,11 +7,11 @@ import {
   FLAG_LABEL,
   rowFlags,
   IMS_ACTIONS,
+  IMS_DECISIONS,
   RECOMMENDED_TO_IMS,
   STALE_HELP,
   WITHDRAWN_HELP,
   actionability,
-  effectiveAction,
   isOverride
 } from '../lib/vocab.js';
 import { ScoreBreakdown } from './ScoreBreakdown.jsx';
@@ -30,9 +30,10 @@ export function ResultRow({ result, onConfirm, busy }) {
   const [pendingAction, setPendingAction] = useState(null);
 
   const gate = actionability(result);
-  const current = effectiveAction(result);
   const overridden = isOverride(result);
+  // N is never a decision, so it is never the recommended control either.
   const recommendedIms = RECOMMENDED_TO_IMS[result.recommendedAction] ?? 'NO_ACTION';
+  const starred = IMS_DECISIONS.has(recommendedIms) ? recommendedIms : null;
   const wasReset = (result.flags ?? []).includes('CONFIRMATION_RESET');
   // The verdict beside these numbers was computed against portal figures that have
   // since moved. The API refuses a decision here with a 409; the controls must not
@@ -145,7 +146,11 @@ export function ResultRow({ result, onConfirm, busy }) {
           <span className={`chip chip-action action-${result.recommendedAction}`}>
             {ACTION_LABEL[result.recommendedAction] ?? result.recommendedAction}
           </span>
-          {overridden ? (
+          {result.needsDecision ? (
+            <span className="chip chip-open" data-testid="open-badge">
+              not decided
+            </span>
+          ) : overridden ? (
             <span className="chip chip-override" data-testid="override-badge">
               you chose {ACTION_LABEL[result.confirmedAction]}
             </span>
@@ -160,16 +165,16 @@ export function ResultRow({ result, onConfirm, busy }) {
           )}
         </div>
 
-        {gate.kind === 'NOT_IN_IMS' ? (
+        {gate.kind !== 'IMS' ? (
           <p className="no-action-note" data-testid="no-ims-note">
             No IMS record to act on. {gate.why}
           </p>
         ) : (
           <div className="row-controls" role="group" aria-label="IMS action">
-            {(gate.kind === 'BOOKS_ONLY' ? ['NO_ACTION'] : IMS_ACTIONS).map((action) => {
+            {IMS_ACTIONS.map((action) => {
               const allowed = gate.allowed.includes(action);
               const selected = result.confirmedAction === action;
-              const recommended = recommendedIms === action;
+              const recommended = starred === action;
               return (
                 <button
                   key={action}
@@ -250,11 +255,29 @@ export function ResultRow({ result, onConfirm, busy }) {
 // Present in the group header: a way to accept the engine's whole proposal at
 // once. Rejects are deliberately harder — a wrong reject costs the trader a month
 // of credit and raises the supplier's liability, so it takes a second click.
-export function GroupConfirm({ action, count, onConfirmAll, busy }) {
+//
+// `bulk` is false for a group whose recommendation is not an IMS decision (Verify
+// and the other workflow states): those rows are decided one at a time, and the
+// API refuses a bulk confirm on them.
+export function GroupConfirm({ action, count, bulk = true, onConfirmAll, busy }) {
   const [armed, setArmed] = useState(false);
   const dangerous = action === 'REJECT';
 
   if (!count) return null;
+
+  if (!bulk) {
+    return (
+      <button
+        type="button"
+        className="btn"
+        data-testid="group-confirm"
+        disabled
+        title="Decide each of these on its own row"
+      >
+        Confirm all {count}
+      </button>
+    );
+  }
 
   if (dangerous && !armed) {
     return (

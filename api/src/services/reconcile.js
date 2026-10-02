@@ -22,7 +22,13 @@ import { insertInChunks, withTransaction } from '../db/tx.js';
 import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.js';
 import { cutoffDate, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
-import { decisionCategory, needsDecision, summarizeOpenDecisions } from './decisions.js';
+import {
+  decisionCategory,
+  isImsActionable,
+  isImsDecision,
+  needsDecision,
+  summarizeOpenDecisions
+} from './decisions.js';
 import {
   allocate,
   assertTotalsBalance,
@@ -816,8 +822,8 @@ export function stalenessOf(row) {
 export const isWithdrawn = (row) => Boolean(row.absent_since);
 
 // The fields the decision rules read, from a match_results row joined to its
-// portal record.
-function decisionView(row) {
+// portal record (portal source aliased as portal_source).
+export function decisionView(row) {
   return {
     bucket: row.bucket,
     confirmedAction: row.confirmed_action,
@@ -901,6 +907,15 @@ function parseJsonColumn(value) {
 
 const CONFIRMABLE = new Set(['ACCEPT', 'REJECT', 'PENDING', 'NO_ACTION']);
 
+// What every confirmation path reads about a row before deciding on it.
+const CONFIRM_SELECT = `
+  SELECT mr.id, mr.run_id, mr.bucket, mr.recommended_action, mr.confirmed_action,
+         mr.portal_record_id, mr.portal_content_hash, pr.pending_blocked,
+         pr.content_hash, pr.content_hash AS portal_current_hash, pr.absent_since,
+         pr.section, pr.source AS portal_source, pr.ims_action
+    FROM match_results mr
+    LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id`;
+
 // The trader's decision. Rejected outright when the record's IMS blocked flags
 // forbid it: the portal refuses the entire upload over one bad record, so this has
 // to fail here rather than at submission time.
@@ -910,26 +925,103 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
     throw new ServiceError(`confirmedAction must be one of ${[...CONFIRMABLE].join(', ')}`);
   }
 
-  const [rows] = await pool.query(
-    `SELECT mr.id, mr.run_id, mr.bucket, mr.portal_record_id, mr.portal_content_hash,
-            pr.pending_blocked, pr.remarks_blocked, pr.content_hash,
-            pr.content_hash AS portal_current_hash, pr.absent_since,
-            pr.section, pr.source, pr.invoice_no
-       FROM match_results mr
-       LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
-      WHERE mr.org_id = ? AND mr.id = ?`,
+  const [rows] = await pool.query(`${CONFIRM_SELECT} WHERE mr.org_id = ? AND mr.id = ?`, [
+    orgId,
+    resultId
+  ]);
+  if (!rows.length) throw new ServiceError('result not found', 404, 'not_found');
+  const row = rows[0];
+
+  assertConfirmable(row, action);
+  await recordDecisions(orgId, [{ row, action }], userId);
+  // A confirmation can move a result between claimable and at-risk, so the run
+  // totals have to be recomputed rather than left stale.
+  await recomputeRunTotals(orgId, row.run_id);
+
+  const [updated] = await pool.query(
+    'SELECT id, bucket, recommended_action, confirmed_action, confirmed_at FROM match_results WHERE org_id = ? AND id = ?',
     [orgId, resultId]
   );
-  if (!rows.length) throw new ServiceError('result not found', 404, 'not_found');
-  const result = rows[0];
+  return updated[0];
+}
 
+// "Confirm all" on an Actions group: the engine's own recommendation, recorded on
+// many rows at once.
+//
+// Only a recommendation that IS an IMS decision can be confirmed this way. A
+// Verify row ("probably the same invoice") stays open until a human picks Accept
+// or Reject on that row, and confirming a workflow state in bulk would only record
+// N — which is never a decision. A request naming any such row is refused whole
+// (422) and nothing is written.
+//
+// Rows that already carry a decision are skipped, never overwritten: re-confirming
+// would silently undo an override the trader made.
+export async function confirmRecommendations(orgId, runId, { resultIds, userId = null }) {
+  const ids = [...new Set(Array.isArray(resultIds) ? resultIds.map(Number) : [])];
+  if (!ids.length || !ids.every((id) => Number.isSafeInteger(id) && id > 0)) {
+    throw new ServiceError('resultIds must be a non-empty list of result ids');
+  }
+
+  const [rows] = await pool.query(
+    `${CONFIRM_SELECT} WHERE mr.org_id = ? AND mr.run_id = ? AND mr.id IN (?)`,
+    [orgId, runId, ids]
+  );
+  if (rows.length !== ids.length) {
+    throw new ServiceError('one or more results are not in this run', 404, 'not_found');
+  }
+
+  const undecidable = rows.filter((row) => !isImsDecision(row.recommended_action));
+  if (undecidable.length) {
+    const recommended = [...new Set(undecidable.map((row) => row.recommended_action))].join(', ');
+    throw new ServiceError(
+      `${undecidable.length} of these ${rows.length} rows ${undecidable.length === 1 ? 'is' : 'are'} ` +
+        `recommended ${recommended}, which is not an IMS decision. Pick Accept or Reject on ` +
+        'each of them; they cannot be confirmed in bulk.',
+      422,
+      'not_bulk_confirmable'
+    );
+  }
+
+  const open = rows.filter((row) => !isImsDecision(row.confirmed_action));
+  for (const row of open) assertConfirmable(row, row.recommended_action);
+  await recordDecisions(orgId, open.map((row) => ({ row, action: row.recommended_action })), userId);
+  if (open.length) await recomputeRunTotals(orgId, runId);
+
+  return {
+    confirmed: open.map((row) => row.id),
+    skipped: rows
+      .filter((row) => isImsDecision(row.confirmed_action))
+      .map((row) => ({ resultId: row.id, reason: 'already decided' }))
+  };
+}
+
+// Records WHAT each decision was about, so a later rebuild can tell whether it
+// still applies.
+async function recordDecisions(orgId, decisions, userId) {
+  if (!decisions.length) return;
+  await withTransaction(async (connection) => {
+    for (const { row, action } of decisions) {
+      await connection.query(
+        `UPDATE match_results
+            SET confirmed_action = ?, confirmed_by = ?, confirmed_at = NOW(),
+                confirmed_content_hash = ?, confirmed_bucket = ?
+          WHERE org_id = ? AND id = ?`,
+        [action, userId, row.content_hash ?? null, row.bucket, orgId, row.id]
+      );
+    }
+  });
+}
+
+// Every reason a decision cannot be recorded on this row. Shared by the single and
+// the bulk path, so the two cannot disagree about what is allowed.
+function assertConfirmable(row, action) {
   // The stale-verdict guard, enforced here and not only in the UI.
   //
   // The bucket, the score and the recommendation on this row were computed
   // against a version of the portal record that no longer exists. Accepting on
   // that basis waives a discrepancy the trader was never shown and loses the
   // disputed credit permanently, so this refuses rather than warns.
-  const staleReason = stalenessOf(result);
+  const staleReason = stalenessOf(row);
   if (staleReason) {
     throw new ServiceError(
       staleReason === 'UNVERIFIABLE'
@@ -942,7 +1034,7 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
       'stale_run'
     );
   }
-  if (isWithdrawn(result)) {
+  if (isWithdrawn(row)) {
     throw new ServiceError(
       'the supplier withdrew this record from the portal, so there is no IMS ' +
         'record left to act on',
@@ -951,7 +1043,25 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
     );
   }
 
-  if (action === 'PENDING' && result.pending_blocked) {
+  // Books-only, reverse-charge, ineligible, ISD, import and 2B-only records have
+  // no IMS row to act on — not even N, which would record a "decision" that is not
+  // one.
+  if (!row.portal_record_id) {
+    throw new ServiceError(
+      'no portal record exists for this books row, so there is no IMS action to take',
+      409,
+      'action_blocked'
+    );
+  }
+  if (!isImsActionable(decisionView(row))) {
+    throw new ServiceError(
+      `this record never enters IMS (${row.section}), so it cannot be actioned`,
+      409,
+      'action_blocked'
+    );
+  }
+
+  if (action === 'PENDING' && row.pending_blocked) {
     throw new ServiceError(
       'PENDING is blocked on this record by the portal (ispendactblocked = Y); ' +
         'choose ACCEPT, REJECT or NO_ACTION',
@@ -959,42 +1069,6 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
       'action_blocked'
     );
   }
-
-  // ISD and import records have no IMS row to act on at all.
-  if (!result.portal_record_id && result.bucket === 'MISSING_IN_PORTAL' && action !== 'NO_ACTION') {
-    throw new ServiceError(
-      'no portal record exists for this books row, so there is no IMS action to take',
-      409,
-      'action_blocked'
-    );
-  }
-  if (['isd', 'isda', 'impg', 'impgsez'].includes(result.section) && action !== 'NO_ACTION') {
-    throw new ServiceError(
-      `section ${result.section} never enters IMS, so it cannot be actioned`,
-      409,
-      'action_blocked'
-    );
-  }
-
-  // Record WHAT the decision was about, so a later rebuild can tell whether it
-  // still applies.
-  await pool.query(
-    `UPDATE match_results
-        SET confirmed_action = ?, confirmed_by = ?, confirmed_at = NOW(),
-            confirmed_content_hash = ?, confirmed_bucket = ?
-      WHERE org_id = ? AND id = ?`,
-    [action, userId, result.content_hash ?? null, result.bucket, orgId, resultId]
-  );
-
-  // A confirmation can move a result between claimable and at-risk, so the run
-  // totals have to be recomputed rather than left stale.
-  await recomputeRunTotals(orgId, result.run_id);
-
-  const [updated] = await pool.query(
-    'SELECT id, bucket, recommended_action, confirmed_action, confirmed_at FROM match_results WHERE org_id = ? AND id = ?',
-    [orgId, resultId]
-  );
-  return updated[0];
 }
 
 // Recomputes the stored totals from persisted results, applying the same

@@ -174,8 +174,9 @@ export const ACTION_ORDER = [
 // never is — whoever chose it. Mirrors IMS_DECISIONS in api/src/services/decisions.js.
 export const IMS_DECISIONS = new Set(['ACCEPT', 'REJECT', 'PENDING']);
 
-// Mirrors services/imsActions.js. A workflow state means "do nothing in IMS yet",
-// which is action N — and N is exactly what deemed acceptance acts on.
+// The IMS action each recommendation proposes. A workflow state proposes nothing,
+// which is N — and N is exactly what deemed acceptance acts on, so it is never a
+// decision (IMS_DECISIONS).
 export const RECOMMENDED_TO_IMS = {
   ACCEPT: 'ACCEPT',
   REJECT: 'REJECT',
@@ -571,7 +572,7 @@ export function actionability(result) {
   if (!result.portal) {
     return {
       kind: 'BOOKS_ONLY',
-      allowed: ['NO_ACTION'],
+      allowed: [],
       why: 'Nothing was reported on the portal, so there is no IMS record to accept or reject.'
     };
   }
@@ -593,11 +594,6 @@ export function actionability(result) {
         'would make the portal reject the whole upload.'
       : null
   };
-}
-
-// What is actually going into the IMS file for this row right now.
-export function effectiveAction(result) {
-  return result.confirmedAction ?? RECOMMENDED_TO_IMS[result.recommendedAction] ?? 'NO_ACTION';
 }
 
 // True when the trader chose something other than what the engine proposed.

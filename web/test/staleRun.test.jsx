@@ -14,6 +14,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
     ...actual,
     api: {
       confirmResult: vi.fn(),
+      confirmRecommendations: vi.fn(),
       createRun: vi.fn(),
       listChanges: vi.fn(),
       imsActionsSummary: vi.fn(),
@@ -212,11 +213,11 @@ describe('a run that is out of date', () => {
     // Two of the three are unavailable, so the button must offer exactly one.
     expect(within(group).getByTestId('group-confirm')).toHaveTextContent('Confirm all 1');
 
-    api.confirmResult.mockResolvedValue({});
+    api.confirmRecommendations.mockResolvedValue({ confirmed: [FRESH_ROW.id], skipped: [] });
     await userEvent.click(within(group).getByTestId('group-confirm'));
 
-    await waitFor(() => expect(api.confirmResult).toHaveBeenCalledTimes(1));
-    expect(api.confirmResult).toHaveBeenCalledWith(FRESH_ROW.id, 'ACCEPT');
+    await waitFor(() => expect(api.confirmRecommendations).toHaveBeenCalledTimes(1));
+    expect(api.confirmRecommendations).toHaveBeenCalledWith(RUN.id, [FRESH_ROW.id]);
   });
 
   it('says it cannot verify an older run, without claiming anything changed', async () => {

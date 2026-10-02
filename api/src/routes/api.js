@@ -10,6 +10,7 @@ import {
   previewUpload
 } from '../services/ingest.js';
 import {
+  confirmRecommendations,
   confirmResult,
   createRun,
   getRun,
@@ -278,8 +279,26 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   }));
 
   // Served as a download: this file is uploaded to the portal as-is.
+  //
+  // A record still carrying N goes to the portal as no action, which is deemed
+  // acceptance at GSTR-3B. While any would, the file is held back with the counts
+  // by category, and handed over only when the trader asks for it again with
+  // acknowledgeOpenDecisions=true.
   router.get('/runs/:id/ims-actions.json', wrap(async (req, res) => {
     const built = await buildRunImsActions(req.orgId, Number(req.params.id));
+    const { count, byCategory } = built.openDecisions;
+    if (count > 0 && req.query.acknowledgeOpenDecisions !== 'true') {
+      return res.status(409).json({
+        error: 'open_decisions',
+        message:
+          `${count} record${count === 1 ? '' : 's'} would go to the portal as N (no action), ` +
+          `which is deemed acceptance at GSTR-3B: ${byCategory.phantom.count} not in your ` +
+          `books, ${byCategory.verify.count} probably the same invoice, ` +
+          `${byCategory.other.count} other. Decide them, or download again with ` +
+          'acknowledgeOpenDecisions=true.',
+        openDecisions: built.openDecisions
+      });
+    }
     res.setHeader('Content-Type', 'application/json');
     res.setHeader(
       'Content-Disposition',
@@ -291,7 +310,19 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
 
   router.get('/runs/:id/ims-actions-summary', wrap(async (req, res) => {
     const built = await buildRunImsActions(req.orgId, Number(req.params.id));
-    res.json({ stats: built.stats, warnings: built.warnings });
+    res.json({ stats: built.stats, warnings: built.warnings, openDecisions: built.openDecisions });
+  }));
+
+  // "Confirm all" on an Actions group: records the engine's own recommendation on
+  // each listed row. 422 when any of them is not an IMS decision (Verify and the
+  // other workflow states are decided one row at a time).
+  router.post('/runs/:id/confirmations', wrap(async (req, res) => {
+    res.json(
+      await confirmRecommendations(req.orgId, Number(req.params.id), {
+        resultIds: req.body?.resultIds,
+        userId: req.userId
+      })
+    );
   }));
 
   // --- what changed since last time ---------------------------------------

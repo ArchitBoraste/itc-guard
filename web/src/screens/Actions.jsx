@@ -9,8 +9,8 @@ import {
   POPULATION_NOTE,
   BUCKETS,
   BUCKET_LABEL,
+  IMS_DECISIONS,
   RECOMMENDED_TO_IMS,
-  actionability,
   isOverride
 } from '../lib/vocab.js';
 import { Empty, ErrorBox } from '../components/States.jsx';
@@ -41,6 +41,10 @@ function groupResults(results) {
 
 // Open rows a group confirm can actually reach: the API refuses a stale verdict.
 const confirmable = (result) => result.needsDecision && !result.stale;
+
+// Only a group whose recommendation IS an IMS decision can be confirmed in bulk.
+// Verify rows are decided one at a time, and the API refuses (422) otherwise.
+const bulkConfirmable = (action) => IMS_DECISIONS.has(RECOMMENDED_TO_IMS[action]);
 
 // The scope is a predicate over ROWS, not over groups.
 //
@@ -187,18 +191,14 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
       setBusyGroup(action);
       setError(null);
       try {
-        // Only rows that are still open. Re-confirming a decided row would
-        // silently overwrite an override the trader made. Stale rows are excluded
-        // rather than attempted: the API returns 409 on each, and one refused row
-        // must not abort the group.
+        // Only rows that are still open, and never a stale one: the API refuses a
+        // stale verdict, and one refused row would fail the whole request.
         const targets = groups[action].results.filter(confirmable);
-        for (const result of targets) {
-          const imsAction = RECOMMENDED_TO_IMS[result.recommendedAction] ?? 'NO_ACTION';
-          const gate = actionability(result);
-          if (!gate.allowed.includes(imsAction)) continue;
-          await api.confirmResult(result.id, imsAction);
-          onConfirmed(result.id, imsAction);
-        }
+        const { confirmed } = await api.confirmRecommendations(
+          run.id,
+          targets.map((result) => result.id)
+        );
+        for (const id of confirmed) onConfirmed(id, RECOMMENDED_TO_IMS[action]);
         await onRefresh();
       } catch (err) {
         setError(err);
@@ -206,7 +206,7 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
         setBusyGroup(null);
       }
     },
-    [groups, onConfirmed, onRefresh]
+    [groups, run, onConfirmed, onRefresh]
   );
 
   if (!run) {
@@ -424,6 +424,7 @@ export function ActionsScreen({ run, results, onConfirmed, onRefresh }) {
                 <GroupConfirm
                   action={action}
                   count={group.results.filter(confirmable).length}
+                  bulk={bulkConfirmable(action)}
                   busy={busyGroup === action}
                   onConfirmAll={() => confirmGroup(action)}
                 />
