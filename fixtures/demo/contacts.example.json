@@ -1,0 +1,60 @@
+{
+  "note": "Copy to contacts.local.json (gitignored) and fill in real details. npm run gen:demo then writes registers carrying them to fixtures/demo-local/. Reliable Traders is not in the register; set its contact in the app.",
+  "suppliers": {
+    "Orbit Distributors": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Ganesh Traders": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Laxmi Components": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Mahavir Sales": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "National Supply Co": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Balaji Agencies": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Patel Systems": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Anand Electricals": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Krishna Enterprises": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Unity Distributors": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    },
+    "Crystal Enterprises": {
+      "contactPerson": "",
+      "phone": "",
+      "email": ""
+    }
+  }
+}
