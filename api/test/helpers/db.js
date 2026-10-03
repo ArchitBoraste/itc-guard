@@ -70,7 +70,10 @@ export const TEST_ORGS = Object.freeze({
   supplierScheme: 21,
   registerReupload: 22,
   sampleReload: 23,
-  supplierFacts: 24
+  supplierFacts: 24,
+  workspaceClock: 25,
+  uploadRules: 26,
+  supplierContacts: 27
 });
 
 export async function ensureOrg(orgId, gstin) {
@@ -114,6 +117,9 @@ export async function resetOrg(orgId) {
     'DELETE FROM uploads WHERE org_id = ?'
   ];
   for (const sql of statements) await pool.query(sql, [orgId]);
+  // Back to following today: a suite that pinned the workspace date must not
+  // hand it to the next run of the suite.
+  await pool.query('UPDATE organizations SET as_of_date = NULL WHERE id = ?', [orgId]);
 }
 
 export const COUNTED_TABLES = [

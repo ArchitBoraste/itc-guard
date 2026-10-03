@@ -14,9 +14,8 @@ import { InlineError } from './States.jsx';
 // So the control is persistent: any period with a run can be re-run, whether or
 // not anything looks wrong.
 //
-// The run keeps its own clock in every case. mode, as-of date and filing scheme
-// decide whether a mismatch is a free supplier fix or a reject; resetting them to
-// today would silently change the answers.
+// The run keeps its mode and filing scheme. Its date is the workspace's, which the
+// server applies to every run, so it is not sent.
 export function useRerun(run, onRefresh) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -29,7 +28,6 @@ export function useRerun(run, onRefresh) {
       await api.createRun({
         taxPeriod: run.taxPeriod,
         mode: run.mode,
-        asOfDate: run.asOfDate,
         filingScheme: run.filingScheme
       });
       await onRefresh?.();

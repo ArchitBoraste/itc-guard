@@ -489,7 +489,7 @@ describe('the sample-period picker agrees with the loaded period', () => {
     expect(options).toEqual(org.demoPeriods);
   });
 
-  it('says which as-of date loading that period will land on', async () => {
+  it('says the sample is read at the workspace date', async () => {
     render(
       <UploadScreen
         org={org}
@@ -498,9 +498,8 @@ describe('the sample-period picker agrees with the loaded period', () => {
         onIngested={vi.fn()}
       />
     );
-    // 16 Aug for July: after 2B generates on the 14th, before GSTR-3B on the 20th.
     await waitFor(() =>
-      expect(screen.getByTestId('seed-inline-help').textContent).toMatch(/16 Aug 2026/)
+      expect(screen.getByTestId('seed-inline-help').textContent).toMatch(/as of the workspace date/)
     );
   });
 

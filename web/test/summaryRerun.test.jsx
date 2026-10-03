@@ -68,21 +68,19 @@ describe('re-running a period from Summary', () => {
     expect(screen.getByTestId('run-computed-at')).toHaveTextContent('last built 23 Aug 2026');
   });
 
-  it('rebuilds with the run\'s own clock, not today\'s', async () => {
+  it('rebuilds with the run\'s mode and scheme, and sends no date of its own', async () => {
     const onRefresh = vi.fn();
     api.createRun.mockResolvedValue({ id: RUN.id });
     mount(RUN, onRefresh);
 
     await userEvent.click(screen.getByTestId('rerun-reconciliation'));
 
-    // as-of date decides whether a mismatch is a free supplier fix or a reject.
-    // Silently moving it to today would change the answers for reasons that have
-    // nothing to do with pressing this button.
+    // The date is the workspace's, applied by the server to every run: a date
+    // sent from here would be a second clock.
     await waitFor(() =>
       expect(api.createRun).toHaveBeenCalledWith({
         taxPeriod: '2026-04',
         mode: 'REACTIVE',
-        asOfDate: '2026-05-16',
         filingScheme: 'MONTHLY'
       })
     );

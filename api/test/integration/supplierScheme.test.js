@@ -62,9 +62,10 @@ async function fortuneOnMayList(asOf) {
   return body.alerts.suppliers.find((entry) => entry.gstin === FORTUNE);
 }
 
-// May reconciled as of a given day, and Fortune's saved mismatch in it.
+// May reconciled as of a given workspace date, and Fortune's saved mismatch in it.
 async function fortuneMismatchOn(asOfDate) {
-  const { status, body } = await call('POST', '/api/runs', { taxPeriod: MAY, asOfDate });
+  expect((await call('PUT', '/api/workspace/clock', { asOfDate })).status).toBe(200);
+  const { status, body } = await call('POST', '/api/runs', { taxPeriod: MAY });
   expect(status).toBe(201);
   const results = (await call('GET', `/api/runs/${body.run.id}/results?bucket=VALUE_MISMATCH&pageSize=500`)).body.results;
   return results.find((row) => row.books?.invoiceNo === FORTUNE_SAVED_MISMATCH);

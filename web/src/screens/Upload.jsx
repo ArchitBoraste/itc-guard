@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from './../api.js';
 import { Empty, ErrorBox, InlineError, Loading } from '../components/States.jsx';
-import { formatDate, formatPeriod, nextPeriod } from '../lib/calendar.js';
+import { formatPeriod } from '../lib/calendar.js';
 
 // Three sources, in the order the trader actually has them: their own books
 // first, then what the portal says.
@@ -253,14 +253,6 @@ function describeStored(entry) {
   return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
 }
 
-// The reconciliation window: the 16th of the month AFTER the tax period. Mirrors
-// seedDemoPeriod() in api/src/services/demo.js and the default in reconcile()
-// below, so what this screen promises is what the run is actually built at.
-function asOfFor(taxPeriod) {
-  const next = nextPeriod(taxPeriod);
-  return next ? `${next}-16` : null;
-}
-
 function periodOf(committed, preview) {
   return committed?.taxPeriod ?? preview?.taxPeriod ?? preview?.rows?.[0]?.taxPeriod ?? null;
 }
@@ -454,13 +446,8 @@ export function UploadScreen({ org, runs, activePeriod = null, onIngested, onDat
     setRunning(true);
     setRunError(null);
     try {
-      // Mid-window by default: after 2B generates on the 14th, before GSTR-3B on
-      // the 20th. That is the window the recommendations are written for.
-      await api.createRun({
-        taxPeriod: committedPeriod,
-        mode: 'REACTIVE',
-        asOfDate: asOfFor(committedPeriod)
-      });
+      // Built as of the workspace date, which the server applies to every run.
+      await api.createRun({ taxPeriod: committedPeriod, mode: 'REACTIVE' });
       await refreshHistory();
       await onIngested(committedPeriod);
     } catch (err) {
@@ -574,9 +561,8 @@ export function UploadScreen({ org, runs, activePeriod = null, onIngested, onDat
               </button>
               <p className="muted small seed-inline-help" data-testid="seed-inline-help">
                 Loads all three files for {formatPeriod(samplePeriod)} through the same path
-                your own would take, reconciles, and shows you the result as of{' '}
-                {formatDate(asOfFor(samplePeriod))} — after GSTR-2B generates on the 14th,
-                before GSTR-3B is due on the 20th.
+                your own would take, reconciles, and shows you the result as of the
+                workspace date.
               </p>
             </div>
           ) : null}

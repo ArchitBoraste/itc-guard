@@ -151,12 +151,10 @@ export async function presetDemoSupplierSchemes(orgId) {
   return { preset };
 }
 
-// seedDemoPeriod(orgId, { taxPeriod, asOfDate }) -> { taxPeriod, uploads, runId }
+// seedDemoPeriod(orgId, { taxPeriod }) -> { taxPeriod, uploads, runId }
 //
-// asOfDate defaults to the 16th of the following month: after 2B generates on the
-// 14th, before GSTR-3B falls due on the 20th. That is the reactive window the
-// decision engine is built for, and the one the deemed-acceptance banner is about.
-export async function seedDemoPeriod(orgId, { taxPeriod = DEMO_PERIOD, asOfDate = null } = {}) {
+// The run reads the workspace's date like any other.
+export async function seedDemoPeriod(orgId, { taxPeriod = DEMO_PERIOD } = {}) {
   if (!/^\d{4}-\d{2}$/.test(String(taxPeriod ?? ''))) {
     throw new ServiceError('taxPeriod must be YYYY-MM');
   }
@@ -190,21 +188,11 @@ export async function seedDemoPeriod(orgId, { taxPeriod = DEMO_PERIOD, asOfDate 
     uploads.push({ ...committed, uploadId: created.id, filename: source.filename });
   }
 
-  const [year, month] = taxPeriod.split('-').map(Number);
-  const next = month === 12
-    ? `${year + 1}-01`
-    : `${year}-${String(month + 1).padStart(2, '0')}`;
-
   // Before the run, so its recommendations and totals use the right cut-offs.
   await syncSuppliers(orgId);
   await presetDemoSupplierSchemes(orgId);
 
-  const run = await createRun({
-    orgId,
-    taxPeriod,
-    mode: 'REACTIVE',
-    asOfDate: asOfDate ?? `${next}-16`
-  });
+  const run = await createRun({ orgId, taxPeriod, mode: 'REACTIVE' });
   await rebuildSupplierStats(orgId, taxPeriod, { runId: run.id });
 
   return { taxPeriod, uploads, runId: run.id, run };

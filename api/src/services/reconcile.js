@@ -20,7 +20,7 @@ import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.js';
-import { cutoffDate, FILING_SCHEMES } from '../matching/cutoff.js';
+import { cutoffDate, filingCalendar, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
 import {
   decisionCategory,
@@ -38,6 +38,7 @@ import {
 } from './totals.js';
 import { supplierSchemeMap } from './supplierStats.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
+import { workspaceAsOf } from './workspaceClock.js';
 
 export const RUN_MODES = Object.freeze(['PREVENTIVE', 'REACTIVE']);
 
@@ -173,6 +174,10 @@ function toPortalShape(row) {
 // --- run -------------------------------------------------------------------
 
 // createRun({ orgId, taxPeriod, mode, asOfDate }) -> run summary
+//
+// asOfDate defaults to the workspace's date (services/workspaceClock.js), which is
+// what every request path uses. Only tools replaying a fixed calendar, like the
+// answer-key verifier, pass their own.
 export async function createRun({
   orgId,
   taxPeriod,
@@ -188,10 +193,11 @@ export async function createRun({
     throw new ServiceError(`mode must be one of ${RUN_MODES.join(', ')}`);
   }
 
-  const [expected, portal, schemeMap] = await Promise.all([
+  const [expected, portal, schemeMap, asOf] = await Promise.all([
     loadExpected(orgId, taxPeriod),
     loadPortal(orgId, taxPeriod),
-    supplierSchemeMap(orgId)
+    supplierSchemeMap(orgId),
+    asOfDate ?? workspaceAsOf(orgId)
   ]);
 
   if (!expected.length && !portal.length) {
@@ -214,7 +220,7 @@ export async function createRun({
   const allResults = matchReconcile(expected, portal, {
     ...tuning,
     taxPeriod,
-    asOfDate,
+    asOfDate: asOf,
     filingScheme,
     schemeFor
   });
@@ -238,13 +244,13 @@ export async function createRun({
     const carried = await loadCarriedState(connection, orgId, taxPeriod);
     const decided = results.map((result) => carryForward(carried, result));
 
-    const totals = computeRunTotals(decided, { asOfDate, taxPeriod, filingScheme, schemeFor });
+    const totals = computeRunTotals(decided, { asOfDate: asOf, taxPeriod, filingScheme, schemeFor });
     // If this throws, a bucket has no home in the total mapping. Fix the
     // classification, never the arithmetic.
     assertTotalsBalance(totals);
 
     const runId = await upsertRunRow(connection, {
-      orgId, taxPeriod, mode, asOfDate, filingScheme, totals, tuning, inputCounts
+      orgId, taxPeriod, mode, asOfDate: asOf, filingScheme, totals, tuning, inputCounts
     });
 
     await connection.query('DELETE FROM match_results WHERE org_id = ? AND run_id = ?', [
@@ -454,15 +460,16 @@ async function insertResults(connection, orgId, runId, totals) {
 // in the run list that the trader never asked to reconcile; that decision belongs
 // to the Reconcile button.
 //
-// The run keeps its own clock. mode, as-of date and filing scheme drive every
-// recommendation — a CHASE_SUPPLIER before the cut-off is a REJECT after it — so
-// resetting them to today would change answers for reasons that have nothing to
-// do with the file that just arrived.
-export async function rerunPeriodIfRun(orgId, taxPeriod) {
+// The run keeps its mode and filing scheme and reads the workspace's date, like
+// every other run: one date for the whole workspace, never one per run.
+//
+// supplierStats: false skips the supplier figures, for a caller that only moved
+// the date. Buckets, and so the mismatch counts, do not depend on it.
+export async function rerunPeriodIfRun(orgId, taxPeriod, { supplierStats = true } = {}) {
   if (!taxPeriod) return { ran: false, reason: 'unknown_period' };
 
   const [rows] = await pool.query(
-    'SELECT id, mode, as_of_date, filing_scheme FROM runs WHERE org_id = ? AND tax_period = ?',
+    'SELECT id, mode, filing_scheme FROM runs WHERE org_id = ? AND tax_period = ?',
     [orgId, taxPeriod]
   );
   if (!rows.length) return { ran: false, reason: 'no_run_yet' };
@@ -472,11 +479,10 @@ export async function rerunPeriodIfRun(orgId, taxPeriod) {
       orgId,
       taxPeriod,
       mode: rows[0].mode,
-      asOfDate: rows[0].as_of_date,
       filingScheme: rows[0].filing_scheme
     });
-    await rebuildSupplierStats(orgId, taxPeriod, { runId: run.id });
-    return { ran: true, runId: run.id, taxPeriod };
+    if (supplierStats) await rebuildSupplierStats(orgId, taxPeriod, { runId: run.id });
+    return { ran: true, runId: run.id, taxPeriod, asOfDate: run.asOfDate };
   } catch (err) {
     // A failed rebuild must not fail the upload: the rows are committed, and the
     // staleness guard marks every affected result so nothing can be acted on in
@@ -487,12 +493,21 @@ export async function rerunPeriodIfRun(orgId, taxPeriod) {
 
 // rerunPeriodIfRun for several periods, oldest first: a period's supplier risk
 // reads the periods before it. -> [{ taxPeriod, ran, ... }]
-export async function rerunPeriods(orgId, periods = []) {
+export async function rerunPeriods(orgId, periods = [], options = {}) {
   const reruns = [];
   for (const taxPeriod of [...new Set(periods)].sort()) {
-    reruns.push({ taxPeriod, ...(await rerunPeriodIfRun(orgId, taxPeriod)) });
+    reruns.push({ taxPeriod, ...(await rerunPeriodIfRun(orgId, taxPeriod, options)) });
   }
   return reruns;
+}
+
+// Every reconciled period again, against the workspace's date as it is now. This
+// is what moving the date does: each recommendation, cut-off state and total is a
+// statement about a day, so none may keep describing the old one. Supplier
+// figures are left alone, as nothing in them depends on the date.
+export async function reevaluateRuns(orgId) {
+  const [runs] = await pool.query('SELECT tax_period FROM runs WHERE org_id = ?', [orgId]);
+  return rerunPeriods(orgId, runs.map((run) => run.tax_period), { supplierStats: false });
 }
 
 // Every period this org holds data for, and whether that data is enough to run.
@@ -597,6 +612,8 @@ export async function getRun(orgId, runId) {
       grandTotalItc: Number(run.grand_total_itc)
     },
     totalsBreakdown,
+    // The period's deadlines against the date this run was computed for.
+    calendar: filingCalendar(run.as_of_date, run.tax_period, run.filing_scheme),
     // Whether this run still describes the data underneath it. See runStaleness().
     staleness,
     // The one count of records still waiting on the trader. Every screen reads

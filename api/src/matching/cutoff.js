@@ -74,6 +74,40 @@ export function filingWindow(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.
   return 'CLOSED';
 }
 
+// The period's deadlines read against one as-of date: each date, and the whole
+// days left until it (0 on the day, negative once passed). Both cut-offs are
+// listed because a trader's suppliers file on both schemes; `window` is the
+// trader's own, from their filer type.
+//
+// filingCalendar('2026-09-05', '2026-08') ->
+//   { taxPeriod, asOfDate, window: 'PREVENTIVE', deadlines: [
+//       { key: 'CUTOFF_MONTHLY', date: '2026-09-11', daysLeft: 6 }, ... ] }
+export function filingCalendar(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.MONTHLY) {
+  const asOf = dateToIso(asOfDate);
+  if (!asOf || !cutoffDate(taxPeriod)) return null;
+  const deadline = (key, date) => ({ key, date, daysLeft: daysBetween(asOf, date) });
+  return {
+    taxPeriod,
+    asOfDate: asOf,
+    window: filingWindow(asOf, taxPeriod, filingScheme),
+    deadlines: [
+      deadline('CUTOFF_MONTHLY', cutoffDate(taxPeriod, FILING_SCHEMES.MONTHLY)),
+      deadline('CUTOFF_QRMP', cutoffDate(taxPeriod, FILING_SCHEMES.QRMP)),
+      deadline('GSTR2B_GENERATED', twoBGenerationDate(taxPeriod)),
+      deadline('GSTR3B_DUE', gstr3bDueDate(taxPeriod))
+    ]
+  };
+}
+
+// Whether the period's GSTR-2B exists yet on asOfDate: it is generated on the
+// 14th of the following month, so a 2B file for the period cannot predate it.
+export function isTwoBGenerated(asOfDate, taxPeriod) {
+  const asOf = dateToIso(asOfDate);
+  const generated = twoBGenerationDate(taxPeriod);
+  if (!asOf || !generated) return null;
+  return asOf >= generated;
+}
+
 // ---------------------------------------------------------------------------
 // Scheme inference
 // ---------------------------------------------------------------------------

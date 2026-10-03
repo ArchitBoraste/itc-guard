@@ -276,8 +276,7 @@ export default function App() {
       // The as-of date in the URL belongs to the period that WAS loaded. Carrying
       // it into a new one reads the new period's filing month at the old one's
       // date — July's data judged on 16 May. Clearing it hands the clock back to
-      // the run's own as-of date, which the seeder sets to the 16th of the month
-      // AFTER the tax period: past 2B on the 14th, before GSTR-3B on the 20th.
+      // the run's as-of date, which is the workspace date.
       //
       // Cleared BEFORE navigating, because navigate() carries the query across.
       setAsOf(null);

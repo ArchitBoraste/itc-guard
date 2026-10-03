@@ -48,6 +48,7 @@ import { ServiceError } from './ingest.js';
 import { loadExpected, loadPortal } from './reconcile.js';
 import { itcSign } from './totals.js';
 import { loadModel, outOfDistribution, scoreSupplier } from '../risk/score.js';
+import { workspaceAsOf } from './workspaceClock.js';
 
 // How far back the risk model looks. Six months is what the fixtures carry and
 // what a trader can sanity-check from memory.
@@ -718,10 +719,9 @@ async function loadOrg(orgId) {
 
 // preventiveAlerts(orgId, { taxPeriod, asOfDate }) -> alert set
 //
-// asOfDate is the clock the whole answer is measured against. It is a PARAMETER
-// rather than `new Date()` so the demo can walk through the month — the 5th, the
-// 10th, the 12th, the 16th — without touching the system clock, and so a test can
-// assert what the trader is told on each of those days.
+// asOfDate is the clock the whole answer is measured against: the workspace's date
+// unless the caller names another, which is how a test asserts what the trader is
+// told on the 5th, the 10th and the 12th.
 export async function preventiveAlerts(
   orgId,
   { taxPeriod, asOfDate = null, historyPeriods = HISTORY_PERIODS } = {}
@@ -732,7 +732,7 @@ export async function preventiveAlerts(
   if (asOfDate && !dateToIso(asOfDate)) {
     throw new ServiceError('asOf must be an ISO date, yyyy-mm-dd');
   }
-  const asOf = dateToIso(asOfDate) ?? new Date().toISOString().slice(0, 10);
+  const asOf = dateToIso(asOfDate) ?? (await workspaceAsOf(orgId));
 
   const org = await loadOrg(orgId);
   const priorPeriods = historyPeriodsFor(taxPeriod, historyPeriods);

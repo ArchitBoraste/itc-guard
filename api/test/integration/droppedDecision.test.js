@@ -49,7 +49,6 @@ async function rerun() {
   const { status } = await call('POST', '/api/runs', {
     taxPeriod: run.taxPeriod,
     mode: run.mode,
-    asOfDate: run.asOfDate,
     filingScheme: run.filingScheme
   });
   expect(status).toBe(201);

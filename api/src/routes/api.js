@@ -36,6 +36,9 @@ import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
+import { FILING_SCHEMES, filingCalendar } from '../matching/cutoff.js';
+import { readWorkspaceClock } from '../services/workspaceClock.js';
+import { changeWorkspaceClock } from '../services/workspace.js';
 
 // Files are held in memory and then stored on the upload row: the preview ->
 // commit flow needs the bytes across two requests, and a file storage service is
@@ -155,15 +158,31 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     });
   }));
 
+  // --- the workspace's date --------------------------------------------------
+
+  // { clock: { asOfDate, today, followsToday }, calendar } — calendar only when a
+  // taxPeriod is named: that period's deadlines and days left as of the date.
+  router.get('/workspace/clock', wrap(async (req, res) => {
+    const clock = await readWorkspaceClock(req.orgId);
+    res.json({ clock, calendar: await calendarFor(req.orgId, req.query.taxPeriod, clock.asOfDate) });
+  }));
+
+  // { asOfDate: 'yyyy-mm-dd' } sets the date; { asOfDate: null } follows today
+  // again. Every reconciled period is re-evaluated before this answers.
+  router.put('/workspace/clock', wrap(async (req, res) => {
+    if (!req.body || !('asOfDate' in req.body)) {
+      throw new ServiceError('asOfDate is required: yyyy-mm-dd, or null to follow today');
+    }
+    const { clock, reruns } = await changeWorkspaceClock(req.orgId, req.body.asOfDate);
+    res.json({ clock, reruns, calendar: await calendarFor(req.orgId, req.body.taxPeriod, clock.asOfDate) });
+  }));
+
   // --- demo ----------------------------------------------------------------
 
   // Seeds one fixture period through the real ingest path. The only route that
   // writes data the user did not upload, so it says exactly what it loaded.
   router.post('/demo/seed', wrap(async (req, res) => {
-    const seeded = await seedDemoPeriod(req.orgId, {
-      taxPeriod: req.body?.taxPeriod ?? DEMO_PERIOD,
-      asOfDate: req.body?.asOfDate ?? null
-    });
+    const seeded = await seedDemoPeriod(req.orgId, { taxPeriod: req.body?.taxPeriod ?? DEMO_PERIOD });
     res.status(201).json({
       taxPeriod: seeded.taxPeriod,
       runId: seeded.runId,
@@ -254,12 +273,22 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
 
   // --- runs ----------------------------------------------------------------
 
+  // The run is computed against the workspace's date. A per-run date would let two
+  // screens read the same supplier on different days, so one is refused rather
+  // than quietly ignored.
   router.post('/runs', wrap(async (req, res) => {
+    if (req.body && 'asOfDate' in req.body) {
+      throw new ServiceError(
+        'a run has no date of its own: it uses the workspace date. Set that with ' +
+          'PUT /api/workspace/clock',
+        400,
+        'as_of_is_workspace_wide'
+      );
+    }
     const run = await createRun({
       orgId: req.orgId,
       taxPeriod: req.body?.taxPeriod,
       mode: req.body?.mode ?? 'REACTIVE',
-      asOfDate: req.body?.asOfDate ?? null,
       filingScheme: req.body?.filingScheme ?? 'MONTHLY'
     });
     // Supplier stats AND the risk band are by-products of the run: the stats need
@@ -357,27 +386,14 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
 
   // --- preventive alerts ---------------------------------------------------
 
-  // Who to chase BEFORE the cut-off, ranked by supplier risk.
-  //
-  // asOf is a request parameter, not the server clock, for two reasons: the demo
-  // walks through the month (the 5th, the 10th, the 12th, the 16th) without
-  // touching the system clock, and a trader reviewing what they were told on the
-  // 9th needs the answer as it stood on the 9th. It defaults to the period's run
-  // as-of date so the alerts screen and the rest of the app share one clock.
+  // Who to chase BEFORE the cut-off, ranked by supplier risk, as of the workspace
+  // date. An explicit asOf reads the list on another day without moving the
+  // workspace: what the trader was told on the 9th, while it is now the 12th.
   router.get('/alerts', wrap(async (req, res) => {
     const taxPeriod = req.query.taxPeriod ? String(req.query.taxPeriod) : null;
     if (!taxPeriod) throw new ServiceError('taxPeriod is required (YYYY-MM)');
-
-    let asOf = req.query.asOf ? String(req.query.asOf) : null;
-    if (!asOf) {
-      const [rows] = await pool.query(
-        'SELECT as_of_date FROM runs WHERE org_id = ? AND tax_period = ?',
-        [req.orgId, taxPeriod]
-      );
-      asOf = rows[0]?.as_of_date ?? null;
-    }
-
-    res.json({ alerts: await preventiveAlerts(req.orgId, { taxPeriod, asOfDate: asOf }) });
+    const asOfDate = req.query.asOf ? String(req.query.asOf) : null;
+    res.json({ alerts: await preventiveAlerts(req.orgId, { taxPeriod, asOfDate }) });
   }));
 
   // --- results -------------------------------------------------------------
@@ -433,6 +449,15 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   }));
 
   return router;
+}
+
+// A period's deadlines against the workspace date, for the trader's own filer
+// type. null when no period was named.
+async function calendarFor(orgId, taxPeriod, asOfDate) {
+  if (!taxPeriod) return null;
+  if (!/^\d{4}-\d{2}$/.test(String(taxPeriod))) throw new ServiceError('taxPeriod must be YYYY-MM');
+  const [rows] = await pool.query('SELECT filer_type FROM organizations WHERE id = ?', [orgId]);
+  return filingCalendar(asOfDate, String(taxPeriod), rows[0]?.filer_type ?? FILING_SCHEMES.MONTHLY);
 }
 
 function parseColumnMap(value) {

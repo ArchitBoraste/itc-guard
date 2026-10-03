@@ -151,13 +151,11 @@ describe('a run that is out of date', () => {
     api.createRun.mockResolvedValue({ id: RUN.id });
     await userEvent.click(screen.getByTestId('rerun-reconciliation'));
 
-    // The run keeps its own clock — as-of date decides whether a mismatch is a
-    // free supplier fix or a reject.
+    // The run keeps its mode and scheme; the server applies the workspace date.
     await waitFor(() =>
       expect(api.createRun).toHaveBeenCalledWith({
         taxPeriod: '2026-04',
         mode: 'REACTIVE',
-        asOfDate: '2026-05-16',
         filingScheme: 'MONTHLY'
       })
     );

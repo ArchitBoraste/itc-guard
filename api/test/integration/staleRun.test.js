@@ -26,6 +26,7 @@ import {
   rerunPeriodIfRun
 } from '../../src/services/reconcile.js';
 import { commitUpload, createUpload } from '../../src/services/ingest.js';
+import { writeWorkspaceClock } from '../../src/services/workspaceClock.js';
 import { TEST_ORGS, ensureOrg, ingest, requireDatabase, resetOrg } from '../helpers/db.js';
 import { FIXTURES_PRESENT, readBuffer, readJson } from '../helpers/fixtures.js';
 
@@ -81,6 +82,8 @@ describe('a run whose portal data moved underneath it', () => {
     await requireDatabase();
     await ensureOrg(ORG_ID, TRADER_GSTIN);
     await resetOrg(ORG_ID);
+    // The workspace date every re-run reads.
+    await writeWorkspaceClock(ORG_ID, AS_OF);
 
     await ingest(ORG_ID, 'PURCHASE_REGISTER', 'purchase_register.xlsx', PERIOD);
     await ingest(ORG_ID, 'IMS', 'ims.json', PERIOD);
@@ -195,7 +198,7 @@ describe('a run whose portal data moved underneath it', () => {
 
   // --- the rebuild that commit triggers ------------------------------------
 
-  it('re-runs the period on commit, keeping the run and its clock', async () => {
+  it('re-runs the period on commit, keeping the run, at the workspace date', async () => {
     const before = await getRun(ORG_ID, runId);
 
     const edit = reduceOne(readJson(PERIOD, 'ims.json'), {
@@ -214,10 +217,11 @@ describe('a run whose portal data moved underneath it', () => {
 
     const after = await getRun(ORG_ID, runId);
     expect(after.staleness.isStale).toBe(false);
-    // The run's own clock survives: as-of date decides whether a mismatch is a
-    // free supplier fix or a reject, so moving it to today would change answers
-    // for reasons unrelated to the file.
-    expect(after.asOfDate).toBe(before.asOfDate);
+    // The as-of date decides whether a mismatch is a free supplier fix or a
+    // reject. The re-run reads the workspace's, not today's, so the file alone
+    // cannot change the answers.
+    expect(after.asOfDate).toBe(AS_OF);
+    expect(before.asOfDate).toBe(AS_OF);
     expect(after.mode).toBe(before.mode);
     expect(after.filingScheme).toBe(before.filingScheme);
   }, 240000);
