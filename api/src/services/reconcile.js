@@ -20,6 +20,7 @@ import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { ENGINE_VERSION, reconcile as matchReconcile } from '../matching/index.js';
+import { FLAGS } from '../matching/buckets.js';
 import { cutoffDate, filingCalendar, FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
 import {
@@ -626,8 +627,9 @@ export async function getRun(orgId, runId) {
 
 async function runOpenDecisions(orgId, runId) {
   const [rows] = await pool.query(
-    `SELECT mr.bucket, mr.confirmed_action, mr.signed_itc,
-            mr.portal_record_id, pr.source AS portal_source, pr.ims_action, pr.absent_since
+    `SELECT mr.bucket, mr.confirmed_action, mr.signed_itc, mr.flags,
+            mr.portal_record_id, pr.source AS portal_source, pr.ims_action, pr.filing_status,
+            pr.absent_since
        FROM match_results mr
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
       WHERE mr.org_id = ? AND mr.run_id = ?`,
@@ -913,17 +915,18 @@ export function stalenessOf(row) {
 // Both are un-actionable. Only one is a reason to rebuild.
 export const isWithdrawn = (row) => Boolean(row.absent_since);
 
-// The fields the decision rules read, from a match_results row joined to its
-// portal record (portal source aliased as portal_source).
+// The fields the decision rules read, from a match_results row (with its flags)
+// joined to its portal record (portal source aliased as portal_source).
 export function decisionView(row) {
   return {
     bucket: row.bucket,
     confirmedAction: row.confirmed_action,
     signedItc: Number(row.signed_itc ?? 0),
     withdrawn: isWithdrawn(row),
+    cutOffPassed: hasFlag(row.flags, FLAGS.CUTOFF_PASSED),
     portal: row.portal_record_id === null
       ? null
-      : { source: row.portal_source, imsAction: row.ims_action }
+      : { source: row.portal_source, imsAction: row.ims_action, filingStatus: row.filing_status }
   };
 }
 
@@ -1006,7 +1009,7 @@ const CONFIRM_SELECT = `
   SELECT mr.id, mr.run_id, mr.bucket, mr.recommended_action, mr.confirmed_action,
          mr.flags, mr.portal_record_id, mr.portal_content_hash, pr.pending_blocked,
          pr.content_hash, pr.content_hash AS portal_current_hash, pr.absent_since,
-         pr.section, pr.source AS portal_source, pr.ims_action
+         pr.section, pr.source AS portal_source, pr.ims_action, pr.filing_status
     FROM match_results mr
     LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id`;
 
@@ -1203,7 +1206,7 @@ export async function recomputeRunTotals(orgId, runId) {
 
   const [rows] = await pool.query(
     `SELECT mr.id, mr.bucket, mr.signed_itc, mr.delta_total_tax, mr.confirmed_action,
-            pr.ims_action,
+            pr.ims_action, pr.filing_status,
             COALESCE(ei.supplier_gstin, pr.supplier_gstin) AS supplier_gstin,
             COALESCE(ei.doc_type, pr.doc_type) AS doc_type
        FROM match_results mr
@@ -1235,7 +1238,12 @@ export async function recomputeRunTotals(orgId, runId) {
         deltaTotalTax: row.delta_total_tax === null ? null : Number(row.delta_total_tax),
         confirmedAction: row.confirmed_action,
         expected: { supplierGstin: row.supplier_gstin, taxPeriod: run.tax_period },
-        portal: { supplierGstin: row.supplier_gstin, taxPeriod: run.tax_period, imsAction: row.ims_action }
+        portal: {
+          supplierGstin: row.supplier_gstin,
+          taxPeriod: run.tax_period,
+          imsAction: row.ims_action,
+          filingStatus: row.filing_status
+        }
       },
       context
     )

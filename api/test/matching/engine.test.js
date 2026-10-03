@@ -520,6 +520,49 @@ describe('reconcile', () => {
     });
   });
 
+  // A saved record cannot reach 2B. Once its supplier's cut-off is behind the
+  // as-of date, one that agrees with the books is a document not filed, never a
+  // match: the demo's Anand AE/177 was saved on 8 Sep and never filed.
+  describe('a saved record that agrees, past its cut-off', () => {
+    const savedExact = () => portal({ filingStatus: 'SAVED' });
+    const on = (asOfDate, options = {}) =>
+      reconcile([books()], [savedExact()], { taxPeriod: '2026-02', asOfDate, ...options })[0];
+
+    it('is not filed: deferred, with the saved record kept beside the books row', () => {
+      const result = on('2026-03-12');
+      expect(result.bucket).toBe(BUCKETS.MISSING_IN_PORTAL);
+      expect(result.portal.filingStatus).toBe('SAVED');
+      expect(result.expected.invoiceNo).toBe('INV/DEL/2026/4471');
+      expect(result.recommendedAction).toBe('DEFERRED');
+      expect(result.recommendationReason).toContain('not filed by their cut-off');
+      expect(result.flags).toEqual(expect.arrayContaining(['SUPPLIER_UNFILED', 'CUTOFF_PASSED']));
+      expect(result.requiresConfirmation).toBe(false);
+      expect(result.itcAtRisk).toBe(1800000);
+    });
+
+    it('is still a match on the cut-off day itself, and with no calendar at all', () => {
+      expect(on('2026-03-11').bucket).toBe(BUCKETS.MATCHED);
+      expect(reconcile([books()], [savedExact()], { taxPeriod: '2026-02' })[0].bucket).toBe(BUCKETS.MATCHED);
+    });
+
+    it("is judged on its own supplier's cut-off: a QRMP supplier has until the 13th", () => {
+      const qrmp = { schemeFor: () => 'QRMP' };
+      expect(on('2026-03-13', qrmp).bucket).toBe(BUCKETS.MATCHED);
+      expect(on('2026-03-14', qrmp).bucket).toBe(BUCKETS.MISSING_IN_PORTAL);
+    });
+
+    it('leaves a filed record and a saved one that differs in their buckets', () => {
+      expect(reconcile([books()], [portal()], { taxPeriod: '2026-02', asOfDate: '2026-03-16' })[0].bucket)
+        .toBe(BUCKETS.MATCHED);
+      const differs = reconcile(
+        [books()],
+        [portal({ filingStatus: 'SAVED', taxableValue: 9500000, totalTax: 1710000 })],
+        { taxPeriod: '2026-02', asOfDate: '2026-03-16' }
+      )[0];
+      expect(differs.bucket).toBe(BUCKETS.VALUE_MISMATCH);
+    });
+  });
+
   it('accepts alternative weights without touching the shipped defaults', () => {
     const weights = { invoiceNo: 0.4, taxableValue: 0.25, totalTax: 0.15, invoiceDate: 0.35, gstin: 0.05 };
     const [result] = reconcile([books()], [portal()], { weights });

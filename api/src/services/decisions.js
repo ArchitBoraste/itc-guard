@@ -7,7 +7,9 @@
 // whoever set it.
 //
 // Input is a result as the API reads it back:
-//   { bucket, confirmedAction, signedItc, withdrawn, portal: { source, imsAction } | null }
+//   { bucket, confirmedAction, signedItc, withdrawn, cutOffPassed,
+//     portal: { source, imsAction, filingStatus } | null }
+// cutOffPassed: the run judged it past its supplier's own cut-off (CUTOFF_PASSED).
 import { BUCKETS } from '../matching/buckets.js';
 
 export const IMS_DECISIONS = Object.freeze(['ACCEPT', 'REJECT', 'PENDING']);
@@ -46,8 +48,20 @@ export function currentImsAction(result) {
   return result.bucket === BUCKETS.MATCHED ? 'ACCEPT' : 'NO_ACTION';
 }
 
+// A record the supplier has only SAVED waits on the supplier, not on the trader.
+// On or before their cut-off the fix is still free: a phone call, not an IMS
+// action. Past it, one that agrees with the books is not filed and cannot reach
+// this period's 2B (MISSING_IN_PORTAL). One that still differs past the cut-off is
+// back with the trader: the IMS verdict on its amount is the decision.
+export function awaitsSupplier(result) {
+  if (result.portal?.filingStatus !== 'SAVED') return false;
+  return !result.cutOffPassed || result.bucket === BUCKETS.MISSING_IN_PORTAL;
+}
+
 export function needsDecision(result) {
-  return isImsActionable(result) && currentImsAction(result) === 'NO_ACTION';
+  return (
+    isImsActionable(result) && !awaitsSupplier(result) && currentImsAction(result) === 'NO_ACTION'
+  );
 }
 
 export function decisionCategory(result) {

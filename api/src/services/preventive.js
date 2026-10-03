@@ -46,6 +46,7 @@ import { addMonths, dateToIso } from '../matching/normalize.js';
 import { formatRupeesAscii } from '../matching/recommend.js';
 import { ServiceError } from './ingest.js';
 import { loadExpected, loadPortal } from './reconcile.js';
+import { supplierSchemeMap } from './supplierStats.js';
 import { itcSign } from './totals.js';
 import { loadModel, outOfDistribution, scoreSupplier } from '../risk/score.js';
 import { workspaceAsOf } from './workspaceClock.js';
@@ -740,12 +741,16 @@ export async function preventiveAlerts(
   const org = await loadOrg(orgId);
   const priorPeriods = historyPeriodsFor(taxPeriod, historyPeriods);
 
-  const [expected, portal, master, history] = await Promise.all([
+  const [expected, portal, master, history, schemeMap] = await Promise.all([
     loadExpected(orgId, taxPeriod),
     loadPortal(orgId, taxPeriod),
     loadSupplierMaster(orgId),
-    loadSupplierHistory(orgId, priorPeriods)
+    loadSupplierHistory(orgId, priorPeriods),
+    supplierSchemeMap(orgId)
   ]);
+  // Each supplier's own cut-off, as on Summary: a QRMP supplier's saved record is
+  // still a free fix on the 12th.
+  const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
 
   // THIS PERIOD'S RECORDS ONLY. loadPortal() returns the ±1 month window Summary
   // matches over, where a late-reported invoice can still find its books row. This
@@ -768,7 +773,7 @@ export async function preventiveAlerts(
   // register cannot tell us this on its own — the GSTN v2.4 template has eleven
   // columns and carries neither a reverse-charge nor an ITC-eligibility one — so
   // the 2B record is the only place the fact exists.
-  const twoB = twoBPairs(expected, periodPortal, { asOfDate: asOf, taxPeriod });
+  const twoB = twoBPairs(expected, periodPortal, { asOfDate: asOf, taxPeriod, schemeFor });
 
   // Those documents never meet the IMS records at all. With no true partner in
   // IMS, the matcher handed each the nearest unrelated record above 0.70 — April's
@@ -780,7 +785,7 @@ export async function preventiveAlerts(
   const imsBound = expected.filter((invoice) => !neverEntersIms(invoice, twoB));
 
   const results = [
-    ...reconcile(imsBound, imsRecords, { asOfDate: asOf, taxPeriod }),
+    ...reconcile(imsBound, imsRecords, { asOfDate: asOf, taxPeriod, schemeFor }),
     ...outsideIms.map(absentFromIms)
   ];
 
@@ -951,14 +956,16 @@ function alertItemFor(result, twoB = null) {
   const { expected, portal, bucket } = result;
   if (!expected) return null;
 
+  // A saved record is "saved" before anything else: past the cut-off the engine
+  // calls one that agrees MISSING_IN_PORTAL (not filed), with the record beside it.
   let status = null;
-  if (bucket === BUCKETS.MISSING_IN_PORTAL) {
-    status = ALERT_STATUS.NOT_REPORTED;
-  } else if (portal && portal.filingStatus !== 'FILED') {
+  if (portal && portal.filingStatus !== 'FILED') {
     status =
       bucket === BUCKETS.VALUE_MISMATCH
         ? ALERT_STATUS.SAVED_VALUE_MISMATCH
         : ALERT_STATUS.SAVED_NOT_FILED;
+  } else if (bucket === BUCKETS.MISSING_IN_PORTAL) {
+    status = ALERT_STATUS.NOT_REPORTED;
   }
   if (!status) return null;
 

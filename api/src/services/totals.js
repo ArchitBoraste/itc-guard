@@ -80,9 +80,12 @@ export function acceptedItc({ bucket, docType, signedItc, deltaTotalTax }) {
 //              acceptedItc(); the rest of its books amount stays at risk.
 // atRisk     = open decisions, anything rejected or held as PENDING, the
 //              unclaimed part of an accepted mismatch (the difference being
-//              chased), and MISSING_IN_PORTAL still inside the cut-off.
-// deferred   = MISSING_IN_PORTAL once the cut-off has passed. No IMS record
-//              exists to act on, so the credit cannot arrive this period.
+//              chased), MISSING_IN_PORTAL still inside the cut-off, and a record
+//              only SAVED on or before its cut-off, whatever the trader decided:
+//              it is not safe until filed.
+// deferred   = MISSING_IN_PORTAL once the cut-off has passed: nothing filed, or
+//              a saved record that agrees but was never filed. Either way the
+//              credit cannot arrive this period.
 // ineligible = INELIGIBLE. ITC was never available on these.
 // nonIms     = NON_IMS. INFORMATIONAL ONLY and deliberately NOT part of
 //              expectedTotalItc: reverse-charge credit is self-assessed by the
@@ -99,6 +102,11 @@ export function totalBucketFor(result, context = {}) {
 
   if (bucket === BUCKETS.MISSING_IN_PORTAL) {
     return isPreCutOff(result, context) ? TOTAL_BUCKETS.AT_RISK : TOTAL_BUCKETS.DEFERRED;
+  }
+  // A saved record can still be edited or deleted, and only filed records reach
+  // 2B. Past the cut-off one that differs is an IMS decision like any other.
+  if (result.portal?.filingStatus === 'SAVED' && isPreCutOff(result, context)) {
+    return TOTAL_BUCKETS.AT_RISK;
   }
 
   return currentImsAction(result) === 'ACCEPT' ? TOTAL_BUCKETS.CLAIMABLE : TOTAL_BUCKETS.AT_RISK;

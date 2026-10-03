@@ -117,6 +117,28 @@ describe('bucket -> total mapping', () => {
     const missing = result(BUCKETS.MISSING_IN_PORTAL, { portal: null });
     expect(totalBucketFor(missing, {})).toBe(TOTAL_BUCKETS.AT_RISK);
   });
+
+  // Not safe until filed: only filed records reach 2B.
+  describe('a record the supplier has only saved', () => {
+    const saved = (bucket, overrides = {}) =>
+      result(bucket, { portal: { ...result(bucket).portal, filingStatus: 'SAVED' }, ...overrides });
+
+    it('is at risk on or before the cut-off, even as a clean match or once accepted', () => {
+      expect(totalBucketFor(saved(BUCKETS.MATCHED), preCutOff)).toBe(TOTAL_BUCKETS.AT_RISK);
+      expect(totalBucketFor(saved(BUCKETS.VALUE_MISMATCH, { confirmedAction: 'ACCEPT' }), preCutOff))
+        .toBe(TOTAL_BUCKETS.AT_RISK);
+    });
+
+    it('is deferred past the cut-off when it agreed but was never filed', () => {
+      expect(totalBucketFor(saved(BUCKETS.MISSING_IN_PORTAL), postCutOff)).toBe(TOTAL_BUCKETS.DEFERRED);
+    });
+
+    it('past the cut-off, follows the decision on a saved amount that differs', () => {
+      expect(totalBucketFor(saved(BUCKETS.VALUE_MISMATCH), postCutOff)).toBe(TOTAL_BUCKETS.AT_RISK);
+      expect(totalBucketFor(saved(BUCKETS.VALUE_MISMATCH, { confirmedAction: 'ACCEPT' }), postCutOff))
+        .toBe(TOTAL_BUCKETS.CLAIMABLE);
+    });
+  });
 });
 
 describe('computeRunTotals', () => {

@@ -5,6 +5,7 @@
 // pin the rule: in IMS, actionable, and carrying N right now.
 import { describe, expect, it } from 'vitest';
 import {
+  awaitsSupplier,
   currentImsAction,
   decisionCategory,
   isImsActionable,
@@ -66,6 +67,38 @@ describe('needsDecision', () => {
 
   it('is false for a clean match', () => {
     expect(needsDecision(imsRow({ bucket: 'MATCHED', recommendedAction: 'ACCEPT' }))).toBe(false);
+  });
+
+  // A saved record waits on its supplier (the demo's National NS-612 on 10 Sep:
+  // saved with a higher amount, the day before the cut-off).
+  describe('a record the supplier has only saved', () => {
+    const saved = (over = {}) =>
+      imsRow({ portal: { source: 'IMS', imsAction: 'N', filingStatus: 'SAVED' }, ...over });
+
+    it('is never a decision on or before the cut-off, whatever the engine made of it', () => {
+      for (const bucket of ['VALUE_MISMATCH', 'SUGGESTED', 'MISSING_IN_BOOKS']) {
+        const row = saved({ bucket, cutOffPassed: false });
+        expect(awaitsSupplier(row), bucket).toBe(true);
+        expect(needsDecision(row), bucket).toBe(false);
+      }
+    });
+
+    it('is not a decision past the cut-off when it agrees but was never filed', () => {
+      const notFiled = saved({ bucket: 'MISSING_IN_PORTAL', recommendedAction: 'DEFERRED', cutOffPassed: true });
+      expect(needsDecision(notFiled)).toBe(false);
+    });
+
+    it('is a decision past the cut-off when its amount still differs', () => {
+      const differs = saved({ bucket: 'VALUE_MISMATCH', cutOffPassed: true });
+      expect(awaitsSupplier(differs)).toBe(false);
+      expect(needsDecision(differs)).toBe(true);
+    });
+
+    it('leaves a filed record to the ordinary rule', () => {
+      const filed = imsRow({ portal: { source: 'IMS', imsAction: 'N', filingStatus: 'FILED' }, cutOffPassed: false });
+      expect(awaitsSupplier(filed)).toBe(false);
+      expect(needsDecision(filed)).toBe(true);
+    });
   });
 
   it('never counts records with no IMS row to act on', () => {

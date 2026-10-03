@@ -13,13 +13,14 @@
 import { assignOneToOne } from './assign.js';
 import { blockingCoverage, candidatePairs } from './block.js';
 import { BUCKETS, FLAGS, classify, pairFlags } from './buckets.js';
-import { FILING_SCHEMES, supplierSchemeFor } from './cutoff.js';
+import { FILING_SCHEMES, isBeforeCutoff, supplierSchemeFor } from './cutoff.js';
 import { normalizeGstin } from './normalize.js';
 import { recommendAction } from './recommend.js';
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS, scorePair } from './score.js';
 
 // 1.1.0: scoring weights sum to 1.0 (see DEFAULT_WEIGHTS), so stored scores move.
-export const ENGINE_VERSION = '1.1.0';
+// 1.2.0: a saved record that agrees, past its supplier's cut-off, is not filed.
+export const ENGINE_VERSION = '1.2.0';
 
 export * from './normalize.js';
 export * from './similarity.js';
@@ -197,6 +198,19 @@ function buildResult({
   via = null,
   context
 }) {
+  const gstin = expected?.supplierGstin ?? portal?.supplierGstin ?? null;
+  const filingScheme = supplierSchemeFor(gstin, context);
+
+  // Past its supplier's cut-off a record that is only SAVED cannot reach this
+  // period's GSTR-2B, so a pair that agrees on everything is not a match: the
+  // document was not filed, and the saved record stays beside it to say so. One
+  // whose amount differs keeps its bucket, because the trader's IMS verdict on the
+  // amount is still the decision (MISMATCH_RULES).
+  if (bucket === BUCKETS.MATCHED && isSavedPastCutOff(portal, expected, { ...context, filingScheme })) {
+    bucket = BUCKETS.MISSING_IN_PORTAL;
+    flags = [...new Set([...flags, FLAGS.SUPPLIER_UNFILED])];
+  }
+
   const result = {
     engineVersion: ENGINE_VERSION,
     expectedInvoiceId: expected?.id ?? null,
@@ -214,11 +228,7 @@ function buildResult({
     deltaTotalTax: expected && portal ? portal.totalTax - expected.totalTax : null
   };
 
-  const gstin = expected?.supplierGstin ?? portal?.supplierGstin ?? null;
-  const recommendation = recommendAction(result, {
-    ...context,
-    filingScheme: supplierSchemeFor(gstin, context)
-  });
+  const recommendation = recommendAction(result, { ...context, filingScheme });
   // The calendar verdict the recommendation was built on, kept as a flag so it
   // survives to the UI. It is the difference between "chase them, the fix is
   // free" and "chase them, but the credit now lands next period", and only the
@@ -233,6 +243,15 @@ function buildResult({
   result.requiresConfirmation = recommendation.requiresConfirmation;
   result.itcAtRisk = recommendation.itcAtRisk;
   return result;
+}
+
+// Saved, not filed, and its supplier's cut-off is behind the as-of date. False
+// without a calendar: nothing is provably late then.
+export function isSavedPastCutOff(portal, expected, context = {}) {
+  if (portal?.filingStatus !== 'SAVED' || !context.asOfDate) return false;
+  const taxPeriod = context.taxPeriod ?? expected?.taxPeriod ?? portal?.taxPeriod;
+  if (!taxPeriod) return false;
+  return isBeforeCutoff(context.asOfDate, taxPeriod, context.filingScheme ?? FILING_SCHEMES.MONTHLY) === false;
 }
 
 // ---------------------------------------------------------------------------

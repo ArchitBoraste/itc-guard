@@ -95,6 +95,17 @@ function decide({ bucket, expected, portal, preCutOff, tolerancePaise, materiali
       };
 
     case BUCKETS.MISSING_IN_PORTAL:
+      // Saved and never filed by the supplier's cut-off (matching/index.js): it is
+      // in IMS, but it cannot reach this period's 2B whatever the trader does.
+      if (portal) {
+        return {
+          action: ACTIONS.DEFERRED,
+          reason:
+            'Saved by the supplier but not filed by their cut-off, so it cannot reach this ' +
+            "period's GSTR-2B. The fix now is a late filing or a GSTR-1A, and the credit " +
+            'lands in a later period. Nothing to decide in IMS for this period.'
+        };
+      }
       // Pre cut-off the supplier can still file it into this period. After the
       // cut-off there is no IMS record to act on at all, so nothing can be done
       // this month — the credit moves to a later period.

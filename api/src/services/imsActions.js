@@ -28,7 +28,7 @@ export async function buildRunImsActions(orgId, runId) {
   // Only IMS-sourced records can be actioned. A 2B-only record (ISD, imports, or
   // anything ITC-ineligible) has no IMS row to act on, and the writer refuses it.
   const [rows] = await pool.query(
-    `SELECT mr.id, mr.bucket, mr.confirmed_action, mr.remarks, mr.signed_itc,
+    `SELECT mr.id, mr.bucket, mr.confirmed_action, mr.remarks, mr.signed_itc, mr.flags,
             mr.portal_record_id, pr.absent_since,
             pr.source AS portal_source, pr.section, pr.supplier_gstin, pr.supplier_name,
             pr.doc_type, pr.supply_type, pr.invoice_no, pr.invoice_no_norm, pr.invoice_date,
