@@ -223,10 +223,7 @@ export async function createRun({
   );
 
   const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
-  // What this run was computed FROM, not what it produced. runStaleness() compares
-  // these against the live counts to notice records that arrived afterwards and so
-  // appear in no result at all — a record nobody has seen is deemed accepted.
-  const inputCounts = { expected: expected.length, portal: portal.length };
+  const inputCounts = runInputCounts(expected, portal, taxPeriod);
 
   return withTransaction(async (connection) => {
     // Carry human decisions across the rebuild, keyed on the pair identity rather
@@ -257,6 +254,23 @@ export async function createRun({
 
     return runId;
   }).then((runId) => getRun(orgId, runId));
+}
+
+// What this run was computed FROM, not what it produced. runStaleness() compares
+// these against the live counts to notice records that arrived afterwards and so
+// appear in no result at all — a record nobody has seen is deemed accepted.
+//
+// Portal records are counted for the run's OWN period. The ±1 month window is a
+// candidate window, and records filed for a neighbouring period are that period's
+// run's business: counting the window made loading April put March "out of date"
+// with 804 April records it never had to show (audit P2). `portal` keeps the
+// window count, which is what the engine actually read.
+export function runInputCounts(expected, portal, taxPeriod) {
+  return {
+    expected: expected.length,
+    portal: portal.length,
+    periodPortal: portal.filter((record) => record.taxPeriod === taxPeriod).length
+  };
 }
 
 async function upsertRunRow(connection, {
@@ -600,18 +614,24 @@ async function runStaleness(orgId, run) {
   // Counting raw portal rows rather than results, because the engine MERGES the
   // same document seen in IMS and 2B into one result: a new 2B row that merges
   // under an existing IMS record would look like a missing result forever.
+  //
+  // Both sides are counted for the run's own period only; see runInputCounts().
   const [liveExpected] = await pool.query(
     'SELECT COUNT(*) AS n FROM expected_invoices WHERE org_id = ? AND tax_period = ?',
     [orgId, run.tax_period]
   );
   const [livePortal] = await pool.query(
-    'SELECT COUNT(*) AS n FROM portal_records WHERE org_id = ? AND tax_period IN (?)',
-    [orgId, periodWindow(run.tax_period)]
+    'SELECT COUNT(*) AS n FROM portal_records WHERE org_id = ? AND tax_period = ?',
+    [orgId, run.tax_period]
   );
 
-  const atRun = parseJsonColumn(run.summary)?.inputCounts ?? null;
+  // A run written before periodPortal existed only knows its window count, which a
+  // neighbour's upload inflates. It reports on stale results alone until re-run,
+  // rather than calling itself out of date for records that are not its own.
+  const inputCounts = parseJsonColumn(run.summary)?.inputCounts ?? null;
+  const atRun = inputCounts?.periodPortal === undefined ? null : inputCounts;
   const unseenRecords = atRun
-    ? Math.max(0, Number(livePortal[0].n) - Number(atRun.portal ?? 0)) +
+    ? Math.max(0, Number(livePortal[0].n) - Number(atRun.periodPortal)) +
       Math.max(0, Number(liveExpected[0].n) - Number(atRun.expected ?? 0))
     : 0;
 
@@ -627,8 +647,8 @@ async function runStaleness(orgId, run) {
     // record back. Those rows carry their own note and are un-actionable.
     withdrawnResults: Number(staleRows[0].withdrawn ?? 0),
     unseenRecords,
-    // Runs written before inputCounts existed report on stale results alone rather
-    // than claiming a certainty they do not have.
+    // Runs written before the per-period counts existed report on stale results
+    // alone rather than claiming a certainty they do not have.
     inputCountsKnown: Boolean(atRun),
     isStale: staleResults > 0 || unverifiedResults > 0 || unseenRecords > 0
   };
