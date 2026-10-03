@@ -7,6 +7,8 @@
 //
 //   fixtures/demo/<mon>/purchase_register_<mon>26.xlsx   GSTN template v2.4, plus the
 //                                                        three supplier-contact columns
+//                                                        and the supplier's filing
+//                                                        frequency (Krishna: Quarterly)
 //   fixtures/demo/<mon>/ims_<mon>26_as_of_<DDmon>.json   one IMS download per snapshot
 //                                                        date, each cumulative
 //   fixtures/demo/<mon>/gstr2b_<mon>26.json              filed records only
@@ -78,15 +80,20 @@ const mmyyyy = (taxPeriod) => `${taxPeriod.slice(5, 7)}${taxPeriod.slice(0, 4)}`
 // --- purchase register -------------------------------------------------------
 
 // The v2.4 template's own headers, trailing space included as real GSTN exports
-// carry them, then the three contact columns the app reads when they are present.
+// carry them, then the optional columns the app reads when they are present: the
+// supplier's contact, and how they file GSTR-1.
 const REGISTER_HEADERS = [
   'GSTIN of Supplier/ECO* ', 'Trade/Legal name ', 'Type of inward supplies* ',
   'Document type* ', 'Document number* ', 'Document date* ', 'Taxable value (₹)* ',
   'Integrated tax (₹) ', 'Central tax (₹) ', 'State/UT tax (₹) ', 'Cess (₹) ',
-  'Supplier contact person', 'Supplier phone', 'Supplier email'
+  'Supplier contact person', 'Supplier phone', 'Supplier email', 'Supplier filing frequency'
 ];
 const AMOUNT_COLUMNS = [6, 7, 8, 9, 10];
 const DOC_TYPE_LABEL = { INVOICE: 'Invoice', CREDIT_NOTE: 'Credit Note', DEBIT_NOTE: 'Debit Note' };
+
+// Krishna files quarterly, which nothing in August's portal data can show, so the
+// register says so. Every other supplier is left blank: the app assumes monthly.
+const filingFrequency = (supplier) => (supplier.scheme === 'QUARTERLY' ? 'Quarterly' : null);
 
 // A tax head the supplier does not charge is left blank, as a trader's own sheet
 // would leave it, rather than written as 0.
@@ -107,7 +114,8 @@ function registerRow(doc, contact) {
     amountCell(doc.amounts.cess),
     contact.person,
     contact.phone,
-    contact.email
+    contact.email,
+    filingFrequency(doc.supplier)
   ];
 }
 
@@ -131,7 +139,7 @@ function writeRegister(path, periodKey, contactOf) {
       if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
     }
   }
-  sheet['!cols'] = [22, 22, 10, 12, 12, 11, 13, 12, 11, 11, 7, 20, 17, 26].map((wch) => ({ wch }));
+  sheet['!cols'] = [22, 22, 10, 12, 12, 11, 13, 12, 11, 11, 7, 20, 17, 26, 14].map((wch) => ({ wch }));
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, 'Purchase Register');
   XLSX.writeFile(book, path);
@@ -338,14 +346,16 @@ function checkRegister(path, periodKey, contactOf) {
     docType: invoice.docType,
     date: invoice.invoiceDate,
     amounts: [invoice.taxableValue, invoice.igst, invoice.cgst, invoice.sgst, invoice.totalTax],
-    contact: invoice.supplierContact
+    contact: invoice.supplierContact,
+    scheme: invoice.supplierFilingScheme
   }));
   const expected = REGISTER[periodKey].map((doc) => ({
     key: `${doc.supplier.gstin}|${doc.invoiceNo}`,
     docType: doc.docType,
     date: doc.invoiceDate,
     amounts: [doc.amounts.taxable, doc.amounts.igst, doc.amounts.cgst, doc.amounts.sgst, doc.amounts.totalTax],
-    contact: expectedContact(contactOf(doc.supplier))
+    contact: expectedContact(contactOf(doc.supplier)),
+    scheme: filingFrequency(doc.supplier) ? 'QRMP' : null
   }));
   assertEqual(keyed(read), keyed(expected), `${path}: documents`);
 }

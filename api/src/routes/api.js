@@ -246,8 +246,13 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     // New data makes the period's existing run wrong the instant it lands: the
     // stored verdicts were computed against the old figures, while every read
     // joins the portal rows live. Rebuild every period the file touched rather
-    // than leaving a run that renders new numbers under an old answer.
-    const reruns = await rerunPeriods(req.orgId, result.periods);
+    // than leaving a run that renders new numbers under an old answer. A register
+    // that set a supplier's filing scheme moves that supplier's cut-off in every
+    // period, so then every reconciled period is rebuilt.
+    const [runs] = result.filingSchemes.changed
+      ? await pool.query('SELECT tax_period FROM runs WHERE org_id = ?', [req.orgId])
+      : [[]];
+    const reruns = await rerunPeriods(req.orgId, [...result.periods, ...runs.map((run) => run.tax_period)]);
     // `rerun` is the file's own period, as before; `reruns` is every period.
     const rerun = reruns.find((entry) => entry.taxPeriod === result.taxPeriod) ?? null;
     res.json({ ...result, rerun, reruns });

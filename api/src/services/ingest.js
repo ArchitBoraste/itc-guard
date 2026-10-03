@@ -12,6 +12,7 @@ import { stripBom } from '../adapters/values.js';
 import { isTwoBGenerated, twoBGenerationDate } from '../matching/cutoff.js';
 import { assignExpectedIdentities, assignPortalIdentities } from './identity.js';
 import { saveRegisterContacts } from './supplierContacts.js';
+import { applyDeclaredSchemes } from './supplierStats.js';
 import { planPortalDiff, writePortalDiff } from './syncDiff.js';
 import { displayDate, displayPeriod, workspaceAsOf } from './workspaceClock.js';
 import { adoptFileGstin, assertFileGstin, fileTraderGstin } from './workspaceGstin.js';
@@ -261,6 +262,10 @@ export async function commitUpload(orgId, id, { columnMap = null, allInvoices = 
     }
   );
   const replacedUploadIds = await markReplacedUploads(orgId, upload, upload.tax_period ?? parsed.taxPeriod);
+  // The register's "Supplier filing frequency" column, set as the trader's own.
+  const filingSchemes = upload.kind === 'PURCHASE_REGISTER'
+    ? await applyDeclaredSchemes(orgId, parsed.rows)
+    : { declared: 0, changed: 0 };
 
   return {
     uploadId: upload.id,
@@ -269,6 +274,7 @@ export async function commitUpload(orgId, id, { columnMap = null, allInvoices = 
     snapshotDate: upload.snapshot_date,
     warnings: [...snapshotWarnings(upload), ...parsed.warnings],
     replacedUploadIds,
+    filingSchemes,
     ...outcome
   };
 }

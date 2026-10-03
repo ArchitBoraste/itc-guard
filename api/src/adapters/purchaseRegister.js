@@ -84,12 +84,23 @@ const CONTACT_ALIASES = new Map(
       'supplier phone', 'phone', 'phone number', 'mobile', 'mobile number', 'supplier mobile',
       'contact number', 'whatsapp', 'whatsapp number'
     ],
-    contactEmail: ['supplier email', 'supplier e-mail', 'email', 'e-mail', 'email id', 'email address']
+    contactEmail: ['supplier email', 'supplier e-mail', 'email', 'e-mail', 'email id', 'email address'],
+    // Monthly or Quarterly: the trader saying how the supplier files GSTR-1, which
+    // sets the supplier's cut-off (services/supplierStats.js applyDeclaredSchemes).
+    filingFrequency: [
+      'supplier filing frequency', 'filing frequency', 'gstr-1 frequency', 'gstr1 frequency',
+      'return frequency', 'supplier filing scheme'
+    ]
   }).flatMap(([field, headers]) => headers.map((h) => [normalizeHeader(h), field]))
 );
 
 const fieldForHeader = (cell) =>
   HEADER_ALIASES.get(normalizeHeader(cell)) ?? CONTACT_ALIASES.get(normalizeHeader(cell));
+
+// "Supplier filing frequency" values -> the canonical filing scheme.
+const FILING_FREQUENCIES = new Map(
+  Object.entries({ monthly: 'MONTHLY', quarterly: 'QRMP', qrmp: 'QRMP' })
+);
 
 const REQUIRED_FIELDS = ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue'];
 
@@ -162,7 +173,8 @@ const HEADER_SYNONYMS = Object.freeze({
   ],
   contactPerson: ['supplier contact person', 'contact person', 'contact name', 'party contact'],
   contactPhone: ['supplier phone', 'phone', 'mobile', 'contact number', 'whatsapp', 'party phone'],
-  contactEmail: ['supplier email', 'email', 'e-mail', 'email id', 'party email']
+  contactEmail: ['supplier email', 'email', 'e-mail', 'email id', 'party email'],
+  filingFrequency: ['supplier filing frequency', 'filing frequency', 'gstr-1 frequency', 'return frequency']
 });
 
 // Lowercase, drop every non-alphanumeric character. 'Bill Dt' -> 'billdt', so
@@ -501,6 +513,13 @@ function readRow(row, mapped, at) {
     // apart that a supplier numbered and dated alike.
     voucherId: trimOrNull(cell(row, mapped, 'voucherId')),
     supplierContact: contactOf(row, mapped),
+    // Blank says nothing about the supplier.
+    supplierFilingScheme: enumValue(cell(row, mapped, 'filingFrequency'), FILING_FREQUENCIES, {
+      field: 'supplier filing frequency',
+      at,
+      fallback: null,
+      expected: 'Monthly or Quarterly'
+    }),
     sourceRowNo: null
   };
 }
@@ -541,6 +560,7 @@ function toExpectedInvoice(parts, { taxPeriod, orgId, rateLines }) {
     originalInvoiceNo: parts.originalInvoiceNo,
     originalInvoiceDate: parts.originalInvoiceDate,
     supplierContact: parts.supplierContact,
+    supplierFilingScheme: parts.supplierFilingScheme,
     sourceRowNo: parts.sourceRowNo,
     rateLines
   };
@@ -662,6 +682,7 @@ function parseGstr2Csv(buffer, columnMap, options) {
     }
     document.rateLines.push(rateLineOf(parts));
     document.head.supplierContact ??= parts.supplierContact;
+    document.head.supplierFilingScheme ??= parts.supplierFilingScheme;
     // Nothing in the file says whether these rows are one document: say so.
     if (parts.rate === null) {
       warnings.push(

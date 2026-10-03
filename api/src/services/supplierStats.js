@@ -279,6 +279,36 @@ export async function setSupplierScheme(orgId, gstin, scheme, { onlyIfInferred =
   return result.affectedRows > 0;
 }
 
+// The register's optional "Supplier filing frequency" column: the trader saying how
+// a supplier files, recorded exactly as PUT /suppliers/:gstin/filing-scheme records
+// it (USER), so whichever of the two came last wins. A blank cell says nothing.
+// -> { declared, changed }: changed counts suppliers whose scheme or source moved,
+// which is what tells the caller every reconciled period needs re-running.
+export async function applyDeclaredSchemes(orgId, invoices) {
+  const declared = new Map();
+  for (const invoice of invoices) {
+    if (invoice.supplierFilingScheme) declared.set(invoice.supplierGstin, invoice.supplierFilingScheme);
+  }
+  if (!declared.size) return { declared: 0, changed: 0 };
+
+  // The master as the data stands, so a supplier first seen in this register has
+  // a row to carry the scheme.
+  await refreshSupplierMaster(orgId);
+  let changed = 0;
+  for (const [gstin, scheme] of declared) {
+    const [result] = await pool.query(
+      `UPDATE suppliers
+          SET filing_scheme = ?, filing_scheme_confidence = 'HIGH', filing_scheme_reason = ?,
+              filing_scheme_source = 'USER'
+        WHERE org_id = ? AND gstin = ?
+          AND NOT (filing_scheme = ? AND filing_scheme_source = 'USER')`,
+      [scheme, USER_SCHEME_REASON, orgId, gstin, scheme]
+    );
+    changed += result.affectedRows;
+  }
+  return { declared: declared.size, changed };
+}
+
 // Hands the scheme back to inference. Reset to the no-history answer first, so a
 // supplier with no filing dates for inference to read does not keep the trader's
 // scheme under an INFERRED label; the next inference pass decides the rest.

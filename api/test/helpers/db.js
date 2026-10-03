@@ -76,7 +76,8 @@ export const TEST_ORGS = Object.freeze({
   supplierContacts: 27,
   savedRecords: 28,
   crossPeriod: 29,
-  workspaceGstin: 30
+  workspaceGstin: 30,
+  registerSchemes: 31
 });
 
 export async function ensureOrg(orgId, gstin) {
