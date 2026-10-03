@@ -112,7 +112,9 @@ export async function wipeOrgData(orgId) {
     'DELETE FROM expected_invoices WHERE org_id = ?',
     'DELETE FROM portal_rate_lines WHERE org_id = ?',
     'DELETE FROM portal_records WHERE org_id = ?',
-    'DELETE FROM uploads WHERE org_id = ?'
+    'DELETE FROM uploads WHERE org_id = ?',
+    // An empty workspace adopts its trader GSTIN afresh (services/workspaceGstin.js).
+    'UPDATE organizations SET workspace_gstin = NULL WHERE id = ?'
   ];
   for (const sql of statements) await pool.query(sql, [orgId]);
 }

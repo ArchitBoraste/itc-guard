@@ -185,12 +185,14 @@ function imsRecord(doc, state) {
   return record;
 }
 
+// The trader's GSTIN rides on the envelope, so an empty workspace adopts it from
+// whichever file comes first (services/workspaceGstin.js).
 function imsDownload(periodKey, date) {
   const imsDetails = Object.fromEntries(IMS_SECTIONS.map((section) => [section, []]));
   for (const { doc, state } of imsSnapshot(periodKey, date)) {
     imsDetails[imsSection(doc)].push(imsRecord(doc, state));
   }
-  return { imsDetails };
+  return { gstin: TRADER.gstin, imsDetails };
 }
 
 // --- GSTR-2B -----------------------------------------------------------------------
@@ -267,7 +269,7 @@ function twoBStatement(periodKey) {
   }
   const rtnprd = mmyyyy(PERIODS[periodKey].taxPeriod);
   const chksum = createHash('sha256').update(JSON.stringify({ rtnprd, docdata })).digest('hex').slice(0, 32);
-  return { chksum, rtnprd, docdata };
+  return { chksum, gstin: TRADER.gstin, rtnprd, docdata };
 }
 
 // --- contacts ----------------------------------------------------------------------
@@ -330,6 +332,7 @@ function checkRegister(path, periodKey, contactOf) {
   assertEqual(parsed.format, purchaseRegister.FORMAT_TEMPLATE_V24, `${path}: format`);
   assertEqual(parsed.taxPeriod, PERIODS[periodKey].taxPeriod, `${path}: tax period`);
   assertEqual(parsed.metadata.recipientGstin, TRADER.gstin, `${path}: recipient`);
+  assertEqual(purchaseRegister.recipientGstin(readFileSync(path)), TRADER.gstin, `${path}: trader GSTIN`);
   const read = parsed.invoices.map((invoice) => ({
     key: `${invoice.supplierGstin}|${invoice.invoiceNo}`,
     docType: invoice.docType,
@@ -374,6 +377,7 @@ function expectedPortalView(doc, state, section) {
 }
 
 function checkIms(path, periodKey, date) {
+  assertEqual(ims.recipientGstin(readFileSync(path)), TRADER.gstin, `${path}: trader GSTIN`);
   const read = ims.parse(readFileSync(path)).map(portalView);
   const expected = imsSnapshot(periodKey, date).map(({ doc, state }) =>
     expectedPortalView(doc, state, SECTION_OF_IMS[imsSection(doc)])
@@ -382,6 +386,7 @@ function checkIms(path, periodKey, date) {
 }
 
 function checkTwoB(path, periodKey) {
+  assertEqual(gstr2b.recipientGstin(readFileSync(path)), TRADER.gstin, `${path}: trader GSTIN`);
   const records = gstr2b.parse(readFileSync(path));
   assertEqual([...new Set(records.map((r) => r.taxPeriod))], [PERIODS[periodKey].taxPeriod], `${path}: period`);
   const read = records.map(portalView);

@@ -118,8 +118,12 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   // The trader's own identity. It goes on every screen and into the IMS upload as
   // rtin, so the UI has to be able to show which GSTIN it is about to file for.
   router.get('/org', wrap(async (req, res) => {
+    // gstin is the one the workspace adopted from its files (services/workspaceGstin.js),
+    // else the org's own; gstinAdopted says which.
     const [rows] = await pool.query(
-      'SELECT id, gstin, legal_name, trade_name, state_code, filer_type FROM organizations WHERE id = ?',
+      `SELECT id, COALESCE(workspace_gstin, gstin) AS gstin, workspace_gstin IS NOT NULL AS gstin_adopted,
+              legal_name, trade_name, state_code, filer_type
+         FROM organizations WHERE id = ?`,
       [req.orgId]
     );
     // Which periods in THIS org were loaded from the bundled sample files rather
@@ -140,6 +144,7 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
         ? {
             id: rows[0].id,
             gstin: rows[0].gstin,
+            gstinAdopted: Boolean(rows[0].gstin_adopted),
             legalName: rows[0].legal_name,
             tradeName: rows[0].trade_name,
             stateCode: rows[0].state_code,

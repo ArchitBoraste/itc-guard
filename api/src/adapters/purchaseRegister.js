@@ -768,6 +768,23 @@ export function parseWithMetadata(input, columnMap = null, options = {}) {
   throw refuse(buffer);
 }
 
+// The recipient's (trader's) GSTIN on the v2.4 template's first row, or null: a
+// CSV carries none. Reads the metadata rows only, and never throws, so it can
+// answer before the file is parsed.
+export function recipientGstin(input) {
+  try {
+    const buffer = asBuffer(input);
+    if (!looksLikeZip(buffer)) return null;
+    const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: METADATA_ROWS });
+    const sheet = wb.Sheets[SHEET_NAME] ?? wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) return null;
+    const value = String(readMetadata(sheetRows(sheet, METADATA_ROWS)).recipientGstin ?? '').trim().toUpperCase();
+    return /^[0-9A-Z]{15}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 // describeColumns(buffer) -> { format, layout, mappable, headerRow, headers[],
 //                              mapped, mappableFields, requiredFields, missingFields }
 //

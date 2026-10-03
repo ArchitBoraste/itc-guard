@@ -75,7 +75,8 @@ export const TEST_ORGS = Object.freeze({
   uploadRules: 26,
   supplierContacts: 27,
   savedRecords: 28,
-  crossPeriod: 29
+  crossPeriod: 29,
+  workspaceGstin: 30
 });
 
 export async function ensureOrg(orgId, gstin) {
@@ -123,6 +124,8 @@ export async function resetOrg(orgId) {
   // Back to following today: a suite that pinned the workspace date must not
   // hand it to the next run of the suite.
   await pool.query('UPDATE organizations SET as_of_date = NULL WHERE id = ?', [orgId]);
+  // ...nor the trader GSTIN its files made it adopt.
+  await pool.query('UPDATE organizations SET workspace_gstin = NULL WHERE id = ?', [orgId]);
 }
 
 export const COUNTED_TABLES = [

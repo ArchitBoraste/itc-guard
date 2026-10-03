@@ -384,6 +384,17 @@ export function statementPeriod(input) {
   }
 }
 
+// The recipient's (trader's) GSTIN the statement is for, from the envelope's
+// gstin, or null when the file does not say. Never throws.
+export function recipientGstin(input) {
+  try {
+    const value = String(parseJson(input).gstin ?? '').trim().toUpperCase();
+    return /^[0-9A-Z]{15}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 // parse(json, options?) -> PortalRecord[]
 //   options { orgId, taxPeriod }  taxPeriod overrides the envelope's rtnprd
 export function parse(input, options = {}) {

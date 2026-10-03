@@ -293,6 +293,7 @@ Migrations to run by hand on a deployment older than branch `phase1-audit-fixes`
 | `012_upload_snapshots.sql` | `uploads.snapshot_date` (an IMS upload's day), `replaced_at` and `replaced_by_upload_id` (a later upload of the same kind and period replaced it) | Uploads made before it show no snapshot date and are not marked replaced until the next upload of their kind and period |
 | `013_supplier_contacts.sql` | `supplier_contacts`: who to call at each supplier, from the register's contact columns or set by the trader; any old `suppliers.contact_phone/email` values are copied in (the columns stay, unused) | Contacts appear for a register on its next upload |
 | `014_cross_period_links.sql` | `match_results.linked_period` and `linked_via`: an earlier period's document (amendment or late filing) linked into a later period's run, kept out of that period's own totals | A later period links earlier documents at its next run; until then its old results still show them as phantoms |
+| `015_workspace_gstin.sql` | `organizations.workspace_gstin`: the trader GSTIN a workspace adopts from its first file that names one; a later file for another GSTIN is refused (422 `gstin_mismatch`); the IMS export files under it | An existing workspace adopts at its next upload; until then the export uses `organizations.gstin` as before |
 
 Existing data is never rewritten by these. To see the fixes on the demo straight
 away, reset the presenter's org (`dc exec api node /app/tools/demo-reset.js`);

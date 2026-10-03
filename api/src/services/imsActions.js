@@ -22,7 +22,11 @@ export async function buildRunImsActions(orgId, runId) {
   );
   if (!runs.length) throw new ServiceError('run not found', 404, 'not_found');
 
-  const [orgs] = await pool.query('SELECT gstin FROM organizations WHERE id = ?', [orgId]);
+  // The trader GSTIN the workspace adopted from its files, else the org's own.
+  const [orgs] = await pool.query(
+    'SELECT COALESCE(workspace_gstin, gstin) AS gstin FROM organizations WHERE id = ?',
+    [orgId]
+  );
   if (!orgs.length) throw new ServiceError('organization not found', 404, 'not_found');
 
   // Only IMS-sourced records can be actioned. A 2B-only record (ISD, imports, or

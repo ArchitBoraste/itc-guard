@@ -14,6 +14,7 @@ import { assignExpectedIdentities, assignPortalIdentities } from './identity.js'
 import { saveRegisterContacts } from './supplierContacts.js';
 import { planPortalDiff, writePortalDiff } from './syncDiff.js';
 import { displayDate, displayPeriod, workspaceAsOf } from './workspaceClock.js';
+import { adoptFileGstin, assertFileGstin, fileTraderGstin } from './workspaceGstin.js';
 
 export const UPLOAD_KINDS = Object.freeze(['PURCHASE_REGISTER', 'IMS', 'GSTR2B']);
 
@@ -49,6 +50,8 @@ export async function createUpload({ orgId, kind, filename, buffer, taxPeriod = 
 
   const fileHash = createHash('sha256').update(buffer).digest('hex');
   const detected = detectFormat(kind, buffer);
+  // Another trader's file is refused before it is stored (services/workspaceGstin.js).
+  await assertFileGstin(orgId, fileTraderGstin(kind, buffer));
   const asOfDate = await workspaceAsOf(orgId);
   if (kind === 'GSTR2B') assertTwoBGenerated(taxPeriod ?? gstr2b.statementPeriod(buffer), asOfDate);
 
@@ -233,11 +236,13 @@ export async function commitUpload(orgId, id, { columnMap = null, allInvoices = 
   if (upload.kind === 'GSTR2B') assertTwoBGenerated(parsed.taxPeriod, await workspaceAsOf(orgId));
 
   const outcome = await withTransaction(async (connection) => {
+    // Again at commit, where an empty workspace adopts the file's GSTIN.
+    const traderGstin = await adoptFileGstin(connection, orgId, fileTraderGstin(upload.kind, buffer));
     const committed = upload.kind === 'PURCHASE_REGISTER'
       ? await commitExpected(connection, orgId, upload, parsed)
       : await commitPortal(connection, orgId, upload, parsed);
     await markRunsStale(connection, orgId, committed.periods);
-    return committed;
+    return { ...committed, traderGstin };
   });
 
   // Committed now, so current again even if it was once replaced.

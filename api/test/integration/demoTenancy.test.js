@@ -24,6 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, pool } from '../../src/db/pool.js';
 import { requireDatabase } from '../helpers/db.js';
 import { demoIms, demoRegister } from '../helpers/demoFiles.js';
+import { TRADER } from '../../../tools/demo-timeline.js';
 
 // Imported after the environment is set in beforeAll. config.demo is read lazily,
 // but keeping the order explicit documents the dependency.
@@ -249,6 +250,10 @@ describe('Clear all data', () => {
     await withAugust(alice);
     await withAugust(bob);
     const bobBefore = await contents(bob);
+    // Both adopted the sample trader's GSTIN from its files: two workspaces may.
+    for (const visitor of [alice, bob]) {
+      expect((await visitor.call('/api/org')).body.org).toMatchObject({ gstin: TRADER.gstin, gstinAdopted: true });
+    }
 
     const cleared = await alice.json('POST', '/api/workspace/clear');
     expect(cleared.status).toBe(200);
@@ -260,6 +265,10 @@ describe('Clear all data', () => {
       runs: [],
       clock: { asOfDate: todayInIndia(), today: todayInIndia(), followsToday: true }
     });
+    // ...and the trader GSTIN with it: the next file sets it afresh.
+    const org = (await alice.call('/api/org')).body.org;
+    expect(org.gstinAdopted).toBe(false);
+    expect(org.gstin).not.toBe(TRADER.gstin);
     expect(await contents(bob)).toEqual(bobBefore);
   });
 

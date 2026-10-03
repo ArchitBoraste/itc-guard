@@ -41,9 +41,9 @@ const NEIGHBOUR_PERIOD = '2026-02';
 // NOT org 1. That is the running application's org — resetOrg() refuses it, so
 // this constant cannot drift back without the suite failing on setup.
 const ORG_ID = TEST_ORGS.reconcile;
-// This suite's own filer, following the one-gstin-per-org convention. It is what
-// buildRunImsActions puts in `rtin`, and it is deliberately NOT the GSTIN the
-// fixture files were generated for — see FIXTURE_TRADER_GSTIN below.
+// This suite's own org GSTIN, deliberately NOT the one the fixture files were
+// generated for (FIXTURE_TRADER_GSTIN). The workspace adopts the files' GSTIN on
+// the first upload, and that is the one the IMS export files under.
 const TRADER_GSTIN = '27AABCS1429F5Z4';
 // After 2B generation on the 14th, before GSTR-3B on the 20th: the reactive window.
 const AS_OF = '2026-04-16';
@@ -258,7 +258,9 @@ describe('integration: fixture period through the whole stack', () => {
     // Must survive a round trip through text, which is how it reaches the portal.
     const parsed = JSON.parse(JSON.stringify(built.json));
 
-    expect(parsed.rtin).toBe(TRADER_GSTIN);
+    // The GSTIN the register named, adopted by the workspace: not the org row's own.
+    expect(parsed.rtin).toBe(FIXTURE_TRADER_GSTIN);
+    expect(parsed.rtin).not.toBe(TRADER_GSTIN);
     expect(parsed.reqtyp).toBe('SAVE');
     expect(Object.keys(parsed.invdata)).toEqual(UPLOAD_SECTIONS);
 
