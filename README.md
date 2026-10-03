@@ -409,6 +409,8 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 | `web/` | `npm run dev` | Vite dev server on 5173 |
 | root | `npm run demo` | **the demo.** up, migrate, reset, print the URL |
 | root | `npm run gen:fixtures` | regenerate `fixtures/` |
+| root | `npm run gen:demo` | regenerate the live demo's files in `fixtures/demo/` ([script](docs/demo/DEMO-SCRIPT.md)) |
+| root | `npm run verify:demo` | replay the demo story in a fresh workspace and check every step |
 | root | `npm run seed:demo` | load a fixture period end to end for org 1 |
 | root | `npm run demo:reset` | wipe org 1 and rebuild the presentable demo state |
 | root | `npm run sweep:weights` | grid-search matching weights vs ground truth |
@@ -630,7 +632,12 @@ Stub auth: every request is org 1. No login yet.
 | `GET` | `/api/uploads/:id/preview` | detected format + first 20 canonical rows |
 | `GET` | `/api/uploads/:id/columns` | header row + auto-mapping, for unrecognised files |
 | `POST` | `/api/uploads/:id/commit` | `{ columnMap? }` -> upsert rows |
-| `POST` | `/api/runs` | `{ taxPeriod, mode, asOfDate? }` -> run + summary |
+| `GET` | `/api/session` | the visitor's workspace; creates an empty one on a per-visitor deployment |
+| `GET` | `/api/workspace/clock` | `?taxPeriod=` -> the workspace's as-of date, and that period's deadlines with days left |
+| `PUT` | `/api/workspace/clock` | `{ asOfDate \| null }` -> sets the date (null: today) and re-evaluates every run |
+| `POST` | `/api/workspace/clear` | Clear all data: the caller's workspace back to empty (per-visitor deployments) |
+| `DELETE` | `/api/uploads/:id` | removes an upload and the rows it owns, rebuilds the runs |
+| `POST` | `/api/runs` | `{ taxPeriod, mode }` -> run + summary, as of the workspace date |
 | `GET` | `/api/runs` | every reconciled period, newest first |
 | `GET` | `/api/runs?taxPeriod=` | the current run for a period |
 | `GET` | `/api/runs/:id` | summary, bucket counts, totals |
@@ -642,6 +649,8 @@ Stub auth: every request is org 1. No login yet.
 | `GET` | `/api/periods` | what each period holds, and whether it can be reconciled |
 | `GET` | `/api/suppliers` | list with stats |
 | `GET` | `/api/suppliers/:gstin` | period history |
+| `PUT` | `/api/suppliers/:gstin/filing-scheme` | `{ scheme: MONTHLY \| QRMP \| null }` |
+| `PUT` | `/api/suppliers/:gstin/contact` | `{ contactPerson, phone, email }` |
 
 A `VALUE_MISMATCH` explanation and its portal remark are built from the fields
 that actually differ — the same two `classify()` tests, measured with the same

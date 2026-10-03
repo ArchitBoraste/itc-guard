@@ -37,7 +37,8 @@ so the app never offers a WhatsApp link for it.
 
 **Krishna files quarterly.** Nothing in August's portal data can show that, so the
 app assumes monthly until told. Mark Krishna as quarterly once (Suppliers, filing
-scheme) after the first reconcile. Their cut-off is then the 13th, not the 11th.
+scheme) as soon as August's register is in. Their cut-off is then the 13th, not the
+11th.
 
 ## The calendar
 
@@ -210,3 +211,25 @@ Balaji Rs 1,800, deferred to a later period.
 | 6 | 10 Oct 2026 | `sep/ims_sep26_as_of_10oct.json` | National matched exactly |
 
 Try uploading `gstr2b_aug26.json` at step 2: it is refused until 14 Sep.
+
+## Where the app disagrees with this script today
+
+`npm run verify:demo` replays every step above: 125 of 132 checks pass. The
+engine and the sample files were deliberately left unchanged where they disagree,
+pending a decision on which one moves:
+
+1. **10 Sep shows 3 decisions, not 2.** National's saved NS-612 counts as needing
+   an IMS decision, because its action is still N, although the app recommends
+   chasing National for a free fix. The script treats it as a phone call.
+2. **14 Sep counts Anand as matched.** The 11 Sep IMS still carries AE/177 as
+   saved, and the engine matches books to a saved record whatever the date. The
+   2B step therefore reads exact matches Rs 22,860 and not filed Rs 5,400, not
+   Rs 18,900 and Rs 9,360, although a record still unfiled after the cut-off cannot
+   reach August's 2B.
+3. **September does not show August's late documents as August's.** MS-878's
+   GSTR-1A amendment and PS-3401 appear as purchases missing from September's
+   books, recommended for Reject, and KE-112 joins them on 14 Oct. AE/177 is not
+   shown in September at all: it merges with August's saved record. Re-reading
+   August afterwards pairs MS-878 with its amendment and turns the original into a
+   phantom. This is "late arrivals from earlier months", deferred on the roadmap
+   as P6.
