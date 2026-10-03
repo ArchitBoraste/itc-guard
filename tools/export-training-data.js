@@ -22,10 +22,14 @@
 //
 // The brief says to keep the hand-weighted scorer if the model cannot beat it on
 // held-out data. Judging that needs both scores over the same rows, and the
-// heuristic column is produced by CALLING scoreSupplierRisk() from
+// heuristic column is produced by CALLING heuristicRisk() from
 // services/preventive.js rather than by reimplementing it here. A second copy
 // would drift, and the comparison would then be against a scorer that is not the
 // one in production.
+//
+// heuristicRisk(), not scoreSupplierRisk(): the latter serves the MODEL whenever
+// ml/model.json exists, so after the first training this column held the previous
+// model's probabilities and train.py compared the new model against the old one.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +38,7 @@ import { closePool, pool } from '../api/src/db/pool.js';
 import { commitUpload, createUpload } from '../api/src/services/ingest.js';
 import { createRun } from '../api/src/services/reconcile.js';
 import { rebuildSupplierPeriods } from '../api/src/services/supplierStats.js';
-import { HISTORY_PERIODS, scoreSupplierRisk } from '../api/src/services/preventive.js';
+import { HISTORY_PERIODS, heuristicRisk } from '../api/src/services/preventive.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = join(REPO_ROOT, 'fixtures');
@@ -145,7 +149,7 @@ function nextPeriod(taxPeriod) {
   return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
 }
 
-// gstin -> tax_period -> observation. The same shape scoreSupplierRisk() consumes,
+// gstin -> tax_period -> observation. The same shape heuristicRisk() consumes,
 // so the heuristic column below is the production scorer's own answer.
 async function loadObservations(orgId) {
   const [rows] = await pool.query(
@@ -303,7 +307,7 @@ function buildRows(bySupplier) {
 
       const features = featuresFrom(history);
       // The production heuristic's own verdict over the same window.
-      const heuristic = scoreSupplierRisk(history, { scheme: period.filingScheme });
+      const heuristic = heuristicRisk(history, { scheme: period.filingScheme });
 
       rows.push({
         gstin,
