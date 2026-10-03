@@ -18,7 +18,8 @@ import { normalizeGstin } from './normalize.js';
 import { recommendAction } from './recommend.js';
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS, scorePair } from './score.js';
 
-export const ENGINE_VERSION = '1.0.0';
+// 1.1.0: scoring weights sum to 1.0 (see DEFAULT_WEIGHTS), so stored scores move.
+export const ENGINE_VERSION = '1.1.0';
 
 export * from './normalize.js';
 export * from './similarity.js';

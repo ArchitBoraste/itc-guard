@@ -22,6 +22,9 @@
 //            accepted amount only (an accepted invoice claims min(books, portal), an
 //            accepted credit note reverses max(books, portal)) and open decisions
 //            fall by the mismatches decided
+//   left out Still fixable as of the 16th: the documents it leaves out because they
+//            never enter IMS (count, suppliers, rupees as the screen shows them),
+//            and the documents it lists (count, suppliers, exposure)
 //
 // Exits non-zero if anything fails.
 import { readFileSync } from 'node:fs';
@@ -32,6 +35,7 @@ import { config, describeConnection } from '../api/src/config.js';
 import { closePool, pool } from '../api/src/db/pool.js';
 import { ensureOrg, seedDemoPeriod } from '../api/src/services/demo.js';
 import { STORY_PERIODS, rupees, seedDemoStory } from '../api/src/services/demoStory.js';
+import { preventiveAlerts } from '../api/src/services/preventive.js';
 import { confirmResult, createRun, getRun } from '../api/src/services/reconcile.js';
 import { rebuildSupplierStats } from '../api/src/services/supplierRisk.js';
 import { TEST_ORGS } from '../api/test/helpers/db.js';
@@ -201,6 +205,35 @@ function checkRecommendations(mismatches, resultFor) {
   return { pass: failures.length === 0, agree: mismatches.length - failures.length, total: mismatches.length, failures };
 }
 
+// Still fixable on the run's own date. Neither half depends on the supplier's
+// filing scheme, so the key's true-scheme figures apply as they are.
+async function checkStillFixable(period, key) {
+  const expected = Object.values(key.stillFixable).find((entry) => entry.trueScheme.asOf === key.runAsOf).trueScheme;
+  const alerts = await preventiveAlerts(ORG_ID, { taxPeriod: period, asOfDate: key.runAsOf });
+  const leftOut = {
+    docs: alerts.excluded.invoiceCount,
+    suppliers: alerts.excluded.supplierCount,
+    // The screen prints the left-out amount unsigned (excludedSentence).
+    itc: Math.abs(alerts.excluded.itcAtStake)
+  };
+  const listed = {
+    docs: alerts.totals.invoiceCount,
+    suppliers: alerts.totals.supplierCount,
+    exposure: alerts.totals.itcAtStake
+  };
+
+  const diffs = [
+    ...['docs', 'suppliers'].filter((k) => leftOut[k] !== expected.leftOut[k]).map(
+      (k) => `left out ${k} ${leftOut[k]} vs key ${expected.leftOut[k]}`
+    ),
+    ...(leftOut.itc === expected.leftOut.itc ? [] : [`left out ${rupees(leftOut.itc)} vs key ${rupees(expected.leftOut.itc)}`]),
+    ...(listed.docs === expected.docCount ? [] : [`listed docs ${listed.docs} vs key ${expected.docCount}`]),
+    ...(listed.suppliers === expected.supplierCount ? [] : [`listed suppliers ${listed.suppliers} vs key ${expected.supplierCount}`]),
+    ...(listed.exposure === expected.exposure ? [] : [`listed exposure ${rupees(listed.exposure)} vs key ${rupees(expected.exposure)}`])
+  ];
+  return { pass: diffs.length === 0, app: leftOut.docs, key: expected.leftOut.docs, diffs };
+}
+
 // --- the decided state ------------------------------------------------------
 
 async function claimable(runId) {
@@ -276,7 +309,8 @@ async function verifyPeriod(period, runId) {
     totals: compareTotals(run.totals, key.totalsAtRunAsOf),
     identity: identityHolds(run.totals),
     recs: checkRecommendations(key.valueMismatches, resultFor),
-    open: { app: appOpenDecisions(run), key: key.decisionNeededCount }
+    open: { app: appOpenDecisions(run), key: key.decisionNeededCount },
+    fixable: await checkStillFixable(period, key)
   };
   out.open.pass = out.open.app === out.open.key;
 
@@ -303,7 +337,7 @@ const cell = (text, width) => String(text).padEnd(width);
 function printReport(reports) {
   const columns = [
     ['period', 9], ['docs', 16], ['totals', 8], ['identity', 10], ['VM recs', 14],
-    ['open app/key', 18], ['decided totals', 16], ['decided open', 16]
+    ['open app/key', 18], ['decided totals', 16], ['decided open', 16], ['left out app/key', 18]
   ];
   console.log(columns.map(([name, width]) => cell(name, width)).join(''));
   console.log('-'.repeat(columns.reduce((n, [, w]) => n + w, 0)));
@@ -317,7 +351,8 @@ function printReport(reports) {
         cell(`${r.recs.agree}/${r.recs.total} ${mark(r.recs.pass)}`, 14),
         cell(`${r.open.app}/${r.open.key} ${mark(r.open.pass)}`, 18),
         cell(mark(r.decided.pass && r.decided.identity), 16),
-        cell(`${r.decidedOpen.app}/${r.decidedOpen.expected} ${mark(r.decidedOpen.pass)}`, 16)
+        cell(`${r.decidedOpen.app}/${r.decidedOpen.expected} ${mark(r.decidedOpen.pass)}`, 16),
+        cell(`${r.fixable.app}/${r.fixable.key} ${mark(r.fixable.pass)}`, 18)
       ].join('')
     );
   }
@@ -350,7 +385,8 @@ function printReport(reports) {
       ...(r.open.pass ? [] : [`open      app ${r.open.app}, key ${r.open.key}`]),
       ...r.decided.diffs.map((d) => `decided   ${d}`),
       ...(r.decided.identity ? [] : ['decided   identity does not hold']),
-      ...(r.decidedOpen.pass ? [] : [`decided   open ${r.decidedOpen.app}, expected ${r.decidedOpen.expected}`])
+      ...(r.decidedOpen.pass ? [] : [`decided   open ${r.decidedOpen.app}, expected ${r.decidedOpen.expected}`]),
+      ...r.fixable.diffs.map((d) => `fixable   ${d}`)
     ];
     if (r.docs.failures.length > 5) lines.splice(5, 0, `docs      ...and ${r.docs.failures.length - 5} more`);
     if (!lines.length) continue;
@@ -363,7 +399,8 @@ function allPass(reports) {
   return reports.every(
     (r) =>
       r.docs.pass && r.totals.pass && r.identity && r.recs.pass && r.open.pass &&
-      r.decided.pass && r.decided.identity && r.decidedOpen.pass && (r.story?.pass ?? true)
+      r.decided.pass && r.decided.identity && r.decidedOpen.pass && r.fixable.pass &&
+      (r.story?.pass ?? true)
   );
 }
 

@@ -6,12 +6,18 @@
 // null on one side would silently penalise every real match.
 import { amountSimilarity, dateSimilarity, gstinSimilarity, jaroWinkler } from './similarity.js';
 
-// Starting point from the build spec. Tunable — see tools/sweep-weights.js.
+// Each weight is that component's share of the score, so they sum to exactly 1.0
+// (the score popover shows them). Chosen with `node tools/sweep-weights.js --unit`:
+// the build spec's 0.40/0.25/0.15/0.15/0.05 gets 2458 of 2461 fixture documents
+// right — with the date at 15%, Feb's books 1-02661 pairs with the phantom
+// 1-02667 eight days earlier (0.81) — and no unit-sum grid point with the date
+// below 0.30 gets all 2461. This is the perfect point nearest the 1.2-sum weights
+// it replaces, whose effective date share was already 29%.
 export const DEFAULT_WEIGHTS = Object.freeze({
-  invoiceNo: 0.4,
-  taxableValue: 0.25,
-  totalTax: 0.15,
-  invoiceDate: 0.35,
+  invoiceNo: 0.35,
+  taxableValue: 0.2,
+  totalTax: 0.1,
+  invoiceDate: 0.3,
   gstin: 0.05
 });
 

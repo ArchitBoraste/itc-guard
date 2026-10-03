@@ -8,6 +8,7 @@
 // Run:  node tools/sweep-weights.js            (coarse grid, ~2 min)
 //       node tools/sweep-weights.js --fine     (denser grid, slower)
 //       node tools/sweep-weights.js --quick    (tiny grid, for a smoke check)
+//       node tools/sweep-weights.js --unit     (weights summing to exactly 1.0)
 //       node tools/sweep-weights.js --top 20
 //
 // Fidelity: similarities are computed once per candidate pair using the engine's
@@ -77,8 +78,25 @@ const GRIDS = {
     gstin: [0.02, 0.05, 0.1],
     autoMatch: [0.88, 0.9, 0.92, 0.94, 0.96],
     suggest: [0.6, 0.65, 0.7, 0.75, 0.8]
+  },
+  // Only weights that sum to exactly 1.0, so each one reads as its share of the
+  // score, as the score popover presents it. Thresholds stay at the shipped values:
+  // this grid chooses weights, it never buys accuracy by moving a threshold.
+  unit: {
+    invoiceNo: [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55],
+    taxableValue: [0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
+    totalTax: [0.05, 0.1, 0.15, 0.2, 0.25],
+    invoiceDate: [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4],
+    gstin: [0.05],
+    autoMatch: [DEFAULT_THRESHOLDS.autoMatch],
+    suggest: [DEFAULT_THRESHOLDS.suggest],
+    sumsToOne: true
   }
 };
+
+// Weights are hundredths, so compare in hundredths: 0.1 + 0.2 is not 0.3.
+const sumsToOne = (weights) =>
+  Math.round(Object.values(weights).reduce((sum, value) => sum + value, 0) * 100) === 100;
 
 // --- argv ------------------------------------------------------------------
 
@@ -88,6 +106,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--quick') args.grid = 'quick';
     else if (arg === '--fine') args.grid = 'fine';
+    else if (arg === '--unit') args.grid = 'unit';
     else if (arg === '--coarse') args.grid = 'coarse';
     else if (arg === '--top') args.top = Number(argv[++i]);
     else if (arg === '--periods') args.periods = argv[++i].split(',');
@@ -215,10 +234,9 @@ function* combinations(grid) {
             for (const autoMatch of grid.autoMatch) {
               for (const suggest of grid.suggest) {
                 if (suggest >= autoMatch) continue;
-                yield {
-                  weights: { invoiceNo, taxableValue, totalTax, invoiceDate, gstin },
-                  thresholds: { autoMatch, suggest }
-                };
+                const weights = { invoiceNo, taxableValue, totalTax, invoiceDate, gstin };
+                if (grid.sumsToOne && !sumsToOne(weights)) continue;
+                yield { weights, thresholds: { autoMatch, suggest } };
               }
             }
           }
@@ -289,7 +307,7 @@ const pct = (v) => `${(v * 100).toFixed(2)}%`;
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log('usage: node tools/sweep-weights.js [--quick|--coarse|--fine] [--top N] [--periods a,b]');
+    console.log('usage: node tools/sweep-weights.js [--quick|--coarse|--fine|--unit] [--top N] [--periods a,b]');
     return;
   }
 

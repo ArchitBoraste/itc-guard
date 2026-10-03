@@ -744,9 +744,16 @@ export async function preventiveAlerts(
     loadSupplierHistory(orgId, priorPeriods)
   ]);
 
+  // THIS PERIOD'S RECORDS ONLY. loadPortal() returns the ±1 month window Summary
+  // matches over, where a late-reported invoice can still find its books row. This
+  // screen asks what can still reach THIS period's return, and a record filed for
+  // another period cannot: April's ineligible C/2654 used to pair with March's
+  // C/2650 here and drop off the screen (audit P16).
+  const periodPortal = portal.filter((record) => record.taxPeriod === taxPeriod);
+
   // IMS ONLY. 2B does not exist before the 14th, and a record that has merely
   // been SAVED — exactly what this mode looks for — never appears in 2B at all.
-  const imsRecords = portal.filter((record) => record.source === 'IMS');
+  const imsRecords = periodPortal.filter((record) => record.source === 'IMS');
 
   // The 2B side is NOT matched against. It is read per invoice for one purpose:
   // to find out whether a document missing from IMS is missing because a supplier
@@ -758,9 +765,21 @@ export async function preventiveAlerts(
   // register cannot tell us this on its own — the GSTN v2.4 template has eleven
   // columns and carries neither a reverse-charge nor an ITC-eligibility one — so
   // the 2B record is the only place the fact exists.
-  const twoB = twoBPairs(expected, portal, { asOfDate: asOf, taxPeriod });
+  const twoB = twoBPairs(expected, periodPortal, { asOfDate: asOf, taxPeriod });
 
-  const results = reconcile(expected, imsRecords, { asOfDate: asOf, taxPeriod });
+  // Those documents never meet the IMS records at all. With no true partner in
+  // IMS, the matcher handed each the nearest unrelated record above 0.70 — April's
+  // reverse-charge 1582J took the phantom 1587J — and the screen then dropped them
+  // from both the list and "Left out" (audit P16). They are decided from the books
+  // row and its own 2B record instead, and reported as what they are: absent from
+  // IMS, for good.
+  const outsideIms = expected.filter((invoice) => neverEntersIms(invoice, twoB));
+  const imsBound = expected.filter((invoice) => !neverEntersIms(invoice, twoB));
+
+  const results = [
+    ...reconcile(imsBound, imsRecords, { asOfDate: asOf, taxPeriod }),
+    ...outsideIms.map(absentFromIms)
+  ];
 
   // This screen means one thing: credit the books expect that has not safely
   // reached IMS yet. A record that can never enter IMS is not unsafe, it is
@@ -993,6 +1012,18 @@ function excludedReasonFor({ expected, portal, inTwoB }) {
   if (portal?.reverseCharge) return EXCLUDED_REASONS.REVERSE_CHARGE;
   if (portal?.itcAvailable === false) return EXCLUDED_REASONS.ITC_INELIGIBLE;
   return inTwoB ? neverEntersImsReason(inTwoB) : null;
+}
+
+// Whether a books row can never enter IMS, known before any IMS matching: the same
+// rule as above, read from the row and its own 2B record alone.
+function neverEntersIms(invoice, twoB) {
+  return excludedReasonFor({ expected: invoice, portal: null, inTwoB: lookupTwoB(twoB, invoice) }) !== null;
+}
+
+// A books row that was never matched against IMS, in the shape alertItemFor()
+// reads: not in IMS, which for these is the finished state.
+function absentFromIms(invoice) {
+  return { expected: invoice, portal: null, bucket: BUCKETS.MISSING_IN_PORTAL };
 }
 
 export const EXCLUDED_REASONS = Object.freeze({

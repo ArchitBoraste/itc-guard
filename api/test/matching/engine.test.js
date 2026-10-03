@@ -13,6 +13,7 @@ import { FALLBACK_PASS, PRIMARY_PASS, candidatePairs } from '../../src/matching/
 import { assignOneToOne, comparePairs } from '../../src/matching/assign.js';
 import { BUCKETS, classify } from '../../src/matching/buckets.js';
 import { mergePortalRecords, reconcile, summarizeResults } from '../../src/matching/index.js';
+import { DEFAULT_WEIGHTS } from '../../src/matching/score.js';
 
 // --- builders --------------------------------------------------------------
 
@@ -501,5 +502,18 @@ describe('reconcile', () => {
     const weights = { invoiceNo: 0.4, taxableValue: 0.25, totalTax: 0.15, invoiceDate: 0.35, gstin: 0.05 };
     const [result] = reconcile([books()], [portal()], { weights });
     expect(result.scoreBreakdown.invoiceDate.weight).toBe(0.35);
+    expect(DEFAULT_WEIGHTS.invoiceDate).toBe(0.3);
+  });
+
+  // The score popover lists each weight beside its contribution, so the weights
+  // have to read as shares of the score. They summed to 1.2 (audit P34).
+  it('ships weights that are shares of the score: they sum to exactly 1.0', () => {
+    const hundredths = Object.values(DEFAULT_WEIGHTS).reduce((sum, w) => sum + Math.round(w * 100), 0);
+    expect(hundredths).toBe(100);
+
+    // So a full match scores the sum of its contributions, with nothing rescaled.
+    const [result] = reconcile([books()], [portal()]);
+    const contributions = Object.values(result.scoreBreakdown).reduce((sum, c) => sum + c.contribution, 0);
+    expect(result.score).toBeCloseTo(contributions, 4);
   });
 });
