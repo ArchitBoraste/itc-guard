@@ -9,7 +9,12 @@
 // Two kinds of check, both read from the API the screens use:
 //   portal    every document is on the portal side, or not, with the saved/filed
 //             status and the tax the timeline (tools/demo-timeline.js) says
-//   story     the counts and totals the demo brief promises (STORY below)
+//   story     the counts and totals the demo brief promises (STORY below),
+//             Corrections included
+//
+// Nothing is set by hand: the register says Krishna files quarterly. The one
+// decision taken is the one the script takes on 14 Sep, accepting Mahavir's
+// lower MS-878, so September's amendment is worth the Rs 900 August left open.
 //
 // Every document's verdict is printed at every step, so a failing check comes
 // with what the app showed instead. The workspace is deleted afterwards. Exits
@@ -59,8 +64,30 @@ const STORY = {
     ])
   ],
   'aug:2026-09-14': [twoBTotals({ books: 4266000, exact: 1890000, open: 1440000, notFiled: 936000 })],
-  'sep:2026-10-05': [nationalSavedInsideFreeFix()],
-  'sep:2026-10-10': [nationalMatchedExactly()]
+  'sep:2026-10-05': [
+    nationalSavedInsideFreeFix(),
+    noAugustPhantoms(),
+    corrections({ arrived: ['MS-878', 'PS-3401'], waiting: ['AE/177', 'KE-112', 'NS-612'] }),
+    mahavirWorth900()
+  ],
+  'sep:2026-10-07': [
+    noAugustPhantoms(),
+    corrections({ arrived: ['MS-878', 'PS-3401'], waiting: ['AE/177', 'KE-112', 'NS-612'] })
+  ],
+  'sep:2026-10-10': [
+    nationalMatchedExactly(),
+    noAugustPhantoms(),
+    corrections({ arrived: ['AE/177', 'MS-878', 'PS-3401'], waiting: ['KE-112', 'NS-612'] })
+  ],
+  'sep:2026-10-11': [
+    noAugustPhantoms(),
+    corrections({ arrived: ['AE/177', 'MS-878', 'PS-3401'], waiting: ['KE-112', 'NS-612'] })
+  ],
+  'sep:2026-10-14': [
+    noAugustPhantoms(),
+    corrections({ arrived: ['AE/177', 'KE-112', 'MS-878', 'PS-3401'], waiting: ['NS-612'] }),
+    septemberTotals({ own: 3708000, exact: 3168000, deferred: 180000, carriedInClaimable: 1026000 })
+  ]
 };
 
 const nameOf = (row) => row.books?.invoiceNo ?? row.portal?.invoiceNo;
@@ -138,6 +165,75 @@ function nationalSavedInsideFreeFix() {
         row.recommendedAction === 'CHASE_SUPPLIER' && !row.flags.includes('CUTOFF_PASSED') &&
         alert?.invoices.some((invoice) => invoice.status === 'SAVED_VALUE_MISMATCH') && alert.preCutOff === true;
       return { pass, actual: `${row?.bucket} ${row?.portal?.filingStatus} ${row?.recommendedAction}` };
+    }
+  };
+}
+
+// Every August document on September's portal side is shown as August's, linked
+// to its August books row: none is a purchase missing from September's books.
+function noAugustPhantoms() {
+  return {
+    name: 'no September phantoms; August documents shown as from August',
+    check: ({ results }) => {
+      const phantoms = results.filter((row) => row.bucket === 'MISSING_IN_BOOKS').map(nameOf);
+      const august = results.filter((row) => row.books?.taxPeriod === PERIODS.aug.taxPeriod);
+      const unlinked = august.filter((row) => row.linkedFrom?.taxPeriod !== PERIODS.aug.taxPeriod).map(nameOf);
+      return {
+        pass: phantoms.length === 0 && unlinked.length === 0,
+        actual: `phantoms: ${phantoms.join(', ') || 'none'}; August rows not linked: ${unlinked.join(', ') || 'none'}`
+      };
+    }
+  };
+}
+
+function corrections(expected) {
+  const sorted = (list) => [...list].sort();
+  return {
+    name: `Corrections: arrived ${expected.arrived.length} (${expected.arrived.join(', ')}), ` +
+      `waiting ${expected.waiting.length} (${expected.waiting.join(', ')})`,
+    check: ({ corrections: list }) => {
+      const of = (status) => sorted(list.items.filter((item) => item.status === status).map((item) => item.document.invoiceNo));
+      const actual = { arrived: of('ARRIVED'), waiting: of('WAITING') };
+      return {
+        pass: JSON.stringify(actual) === JSON.stringify({ arrived: sorted(expected.arrived), waiting: sorted(expected.waiting) }),
+        actual: `arrived ${actual.arrived.join(', ') || 'none'}; waiting ${actual.waiting.join(', ') || 'none'}`
+      };
+    }
+  };
+}
+
+// August accepted Rs 6,300 of MS-878's Rs 7,200, so its amendment brings Rs 900.
+function mahavirWorth900() {
+  return {
+    name: 'MS-878 amendment brings September the Rs 900 August left open',
+    check: ({ results, corrections: list }) => {
+      const row = results.find((entry) => entry.books?.invoiceNo === 'MS-878');
+      const item = list.items.find((entry) => entry.document.invoiceNo === 'MS-878');
+      const pass = row?.signedItc === 90000 && row.claimableItc === 90000 && item?.arrival?.creditItc === 90000 &&
+        item.arrival.via === 'AMENDMENT';
+      return { pass, actual: `row ${rupees(row?.signedItc ?? 0)}, Corrections ${rupees(item?.arrival?.creditItc ?? 0)}` };
+    }
+  };
+}
+
+// September's own books, and what arrives from August on top of them.
+function septemberTotals(expected) {
+  return {
+    name:
+      `September totals: books ${rupees(expected.own)}, exact ${rupees(expected.exact)}, ` +
+      `not filed ${rupees(expected.deferred)}, from August ${rupees(expected.carriedInClaimable)} claimable`,
+    check: ({ run }) => {
+      const actual = {
+        own: run.totals.expectedTotalItc,
+        exact: run.totals.claimableItc,
+        deferred: run.totals.deferredItc,
+        carriedInClaimable: run.carriedIn.claimableItc
+      };
+      return {
+        pass: Object.keys(expected).every((key) => actual[key] === expected[key]),
+        actual: `books ${rupees(actual.own)}, exact ${rupees(actual.exact)}, not filed ${rupees(actual.deferred)}, ` +
+          `from August ${rupees(actual.carriedInClaimable)}`
+      };
     }
   };
 }
@@ -245,14 +341,18 @@ async function snapshotOf(client, taxPeriod) {
   const { run } = await client.must(client.send(`/api/runs?taxPeriod=${taxPeriod}`), 'read run');
   const { results } = await client.must(client.send(`/api/runs/${run.id}/results?pageSize=500`), 'read results');
   const { alerts } = await client.must(client.send(`/api/alerts?taxPeriod=${taxPeriod}`), 'read alerts');
-  return { run, results, alerts };
+  const { corrections } = await client.must(client.send(`/api/corrections?taxPeriod=${taxPeriod}`), 'read corrections');
+  return { run, results, alerts, corrections };
 }
 
-function printRows({ run, results }) {
+function printRows({ run, results, corrections: list }) {
   console.log(
     `  run as of ${run.asOfDate}: claimable ${rupees(run.totals.claimableItc)}, at risk ` +
       `${rupees(run.totals.atRiskItc)}, deferred ${rupees(run.totals.deferredItc)}; ` +
-      `${run.openDecisions.count} need a decision`
+      `${run.openDecisions.count} need a decision` +
+      (run.carriedIn.count
+        ? `; from earlier months ${rupees(run.carriedIn.itc)}, ${rupees(run.carriedIn.claimableItc)} claimable`
+        : '')
   );
   const rows = [...results].sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   for (const row of rows) {
@@ -260,8 +360,14 @@ function printRows({ run, results }) {
     console.log(
       `    ${nameOf(row).padEnd(9)} ${(row.books?.supplierName ?? row.portal?.supplierName ?? '').padEnd(20)} ` +
         `${row.bucket.padEnd(18)} ${String(row.recommendedAction).padEnd(15)} portal ${portal.padEnd(16)}` +
-        `${row.needsDecision ? ' needs a decision' : ''}`
+        `${row.linkedFrom ? ` from ${row.linkedFrom.taxPeriod}` : ''}${row.needsDecision ? ' needs a decision' : ''}`
     );
+  }
+  for (const item of list?.items ?? []) {
+    const detail = item.status === 'ARRIVED'
+      ? `${item.arrival.text} Brings ${rupees(item.arrival.creditItc)}.`
+      : item.waiting.saved ? 'Saved this month, not filed yet.' : item.waiting.nextChance.text;
+    console.log(`    corrections  ${item.document.invoiceNo.padEnd(9)} ${item.status.padEnd(8)} ${item.needed.text} ${detail}`);
   }
 }
 
@@ -301,11 +407,16 @@ async function playMonth(client, periodKey) {
   await client.ingest('PURCHASE_REGISTER', join(dir, registerFileName(periodKey)));
 
   if (periodKey === 'aug') {
-    // The trader knows Krishna files quarterly; nothing in August's data can show it.
-    await client.must(
-      client.json('PUT', `/api/suppliers/${supplierOf('krishna').gstin}/filing-scheme`, { scheme: 'QRMP' }),
-      'mark Krishna quarterly'
-    );
+    // Nothing in August's portal data can show Krishna files quarterly: the
+    // register's "Supplier filing frequency" column says so, with no manual step.
+    const krishna = (await client.must(client.send(`/api/suppliers/${supplierOf('krishna').gstin}`), 'read Krishna')).supplier;
+    checks.push({
+      step: `${periodKey} ${display(period.snapshots[0])}`,
+      kind: 'rule',
+      name: 'the register sets Krishna quarterly',
+      pass: krishna.filingScheme === 'QRMP' && krishna.filingSchemeSource === 'USER',
+      actual: `${krishna.filingScheme} (${krishna.filingSchemeSource})`
+    });
     // GSTR-2B does not exist yet on the 5th.
     const early = await client.upload('GSTR2B', join(dir, twoBFileName(periodKey)));
     checks.push({
@@ -328,8 +439,38 @@ async function playMonth(client, periodKey) {
     periodKey, date: period.twoBOn, label: `${display(period.twoBOn)} GSTR-2B`, twoB: true,
     upload: { kind: 'GSTR2B', path: join(dir, twoBFileName(periodKey)) }
   })));
+
+  if (periodKey === 'aug') checks.push(await acceptMahavir(client));
   return checks;
 }
+
+// 14 Sep: the script accepts the portal's Rs 6,300 for MS-878 and chases the Rs 900.
+async function acceptMahavir(client) {
+  const { run, results } = await snapshotOf(client, PERIODS.aug.taxPeriod);
+  const mahavir = results.find((row) => row.books?.invoiceNo === 'MS-878');
+  await client.must(client.json('PATCH', `/api/results/${mahavir.id}`, { confirmedAction: 'ACCEPT' }), 'accept MS-878');
+  const after = await snapshotOf(client, PERIODS.aug.taxPeriod);
+  const pass = after.run.totals.claimableItc === run.totals.claimableItc + 630000 && after.run.openDecisions.count === 3;
+  console.log(`\naug  14 Sep 2026  accept MS-878: claimable ${rupees(after.run.totals.claimableItc)}`);
+  augustAsReviewed = fingerprint(after);
+  return {
+    step: 'aug 14 Sep 2026',
+    kind: 'story',
+    name: 'Accept MS-878: claimable Rs 6,300 more, 3 decisions left',
+    pass,
+    actual: `claimable ${rupees(after.run.totals.claimableItc)}, ${after.run.openDecisions.count} decisions`
+  };
+}
+
+// What a reviewer saw on a period: each row's pair, verdict and value, and the totals.
+let augustAsReviewed = null;
+const fingerprint = ({ run, results }) => JSON.stringify({
+  totals: run.totals,
+  rows: results
+    .map((row) => [nameOf(row), row.portal?.filingStatus, row.bucket, row.recommendedAction, row.signedItc,
+      row.totalBucket, row.confirmedAction].join('|'))
+    .sort()
+});
 
 // --- main ------------------------------------------------------------------------------
 
@@ -359,9 +500,19 @@ async function main() {
 
     for (const periodKey of PERIOD_KEYS) checks.push(...(await playMonth(client, periodKey)));
 
-    // August as it reads once September's data is in, for the record.
+    // August once September's data is in: exactly as reviewed on 14 Sep.
     console.log('\naug  re-read at the last workspace date');
-    printRows(await snapshotOf(client, PERIODS.aug.taxPeriod));
+    const augustNow = await snapshotOf(client, PERIODS.aug.taxPeriod);
+    printRows(augustNow);
+    const unchanged = fingerprint(augustNow) === augustAsReviewed;
+    const linked = augustNow.results.some((row) => row.linkedFrom);
+    checks.push({
+      step: 'end',
+      kind: 'story',
+      name: "August stays exactly as reviewed after September's data",
+      pass: unchanged && !linked,
+      actual: unchanged ? 'linked rows in August' : 'August changed'
+    });
 
     const failed = checks.filter((check) => !check.pass);
     console.log(`\n${checks.length - failed.length}/${checks.length} checks pass`);

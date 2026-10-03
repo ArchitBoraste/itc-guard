@@ -62,12 +62,16 @@ function neededText(item) {
   );
 }
 
+// When the supplier filed it: only 2B says, so from whichever copy carries it.
+const filedOnOf = (link, seenIn) =>
+  link.portal_filed_on ?? seenIn.find((entry) => entry.filedOn)?.filedOn ?? null;
+
 function arrivalText(link, seenIn) {
   const how = link.linked_via === 'AMENDMENT'
     ? 'Amended by the supplier'
     : link.portal_source_form === 'R1A' ? 'Added through GSTR-1A' : 'Filed late';
-  // IMS carries no filing date; 2B does.
-  const filed = link.portal_filed_on ? ` on ${displayDate(link.portal_filed_on)}` : '';
+  const filedOn = filedOnOf(link, seenIn);
+  const filed = filedOn ? ` on ${displayDate(filedOn)}` : '';
   const where = seenIn
     .map((entry) => (entry.source === 'GSTR2B'
       ? 'GSTR-2B'
@@ -82,7 +86,7 @@ async function sightings(orgId, taxPeriod, links) {
   if (!links.length) return new Map();
   const [rows] = await pool.query(
     `SELECT pr.source, pr.section, pr.supplier_gstin, pr.invoice_no_norm, pr.invoice_date,
-            pr.doc_type, u.id AS upload_id, u.original_filename, u.snapshot_date
+            pr.doc_type, pr.supplier_filed_on, u.id AS upload_id, u.original_filename, u.snapshot_date
        FROM portal_records pr
        JOIN uploads u ON u.id = pr.upload_id AND u.org_id = pr.org_id
       WHERE pr.org_id = ? AND pr.tax_period = ? AND pr.absent_since IS NULL
@@ -100,7 +104,8 @@ async function sightings(orgId, taxPeriod, links) {
       section: row.section,
       uploadId: row.upload_id,
       filename: row.original_filename,
-      snapshotDate: row.snapshot_date
+      snapshotDate: row.snapshot_date,
+      filedOn: row.supplier_filed_on
     });
   }
   return new Map(links.map((link) => [
@@ -171,7 +176,7 @@ export async function listCorrections(orgId, { taxPeriod }) {
       view.arrival = {
         via: link.linked_via,
         sourceForm: link.portal_source_form,
-        filedOn: link.portal_filed_on,
+        filedOn: filedOnOf(link, seenIn),
         resultId: link.result_id,
         bucket: link.bucket,
         recommendedAction: link.recommended_action,

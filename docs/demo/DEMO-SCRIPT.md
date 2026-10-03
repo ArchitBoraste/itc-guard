@@ -36,9 +36,15 @@ Every GSTIN passes the real check-digit test. Placeholder contacts are
 so the app never offers a WhatsApp link for it.
 
 **Krishna files quarterly.** Nothing in August's portal data can show that, so the
-app assumes monthly until told. Mark Krishna as quarterly once (Suppliers, filing
-scheme) as soon as August's register is in. Their cut-off is then the 13th, not the
-11th.
+register says it: its optional "Supplier filing frequency" column reads Quarterly
+for Krishna and is blank for everyone else, who are assumed monthly. Uploading the
+register sets Krishna quarterly exactly as the Suppliers screen would; nothing has
+to be set by hand. Their cut-off is the 13th, not the 11th.
+
+**The trader's GSTIN.** Every file names Sharma Electronics' GSTIN. An empty
+workspace takes it from the first file uploaded, and from then on refuses a file
+for another GSTIN ("These files belong to GSTIN X; this workspace is for Y.").
+Clear all data forgets it.
 
 ## The calendar
 
@@ -123,6 +129,13 @@ never filed, so it is not in 2B.
 
 Reliable's Rs 5,400 is on top: credit the portal offers for something never bought.
 
+Anand's AE/177 shows as **not filed**, with its saved record beside it: saved on
+8 Sep and never filed by the 11th, so it cannot reach August's 2B whatever the
+trader does. It is not a decision.
+
+**Then accept Mahavir.** The portal's Rs 6,300 becomes claimable (exact matches
+Rs 25,200) and the Rs 900 difference stays open: Mahavir has to amend it.
+
 ## September 2026
 
 `purchase_register_sep26.xlsx`: 10 documents, net ITC **Rs 37,080**.
@@ -153,8 +166,22 @@ September's portal data also carries four **August** documents:
 - **Krishna KE-112**, filed with KE-130 in Krishna's quarterly GSTR-1 on 12 Oct, so
   in the 14 Oct 2B only. National's NS-612 is never corrected.
 
-**The app should show these as August's documents arriving late**, credit landing in
-September, not as purchases missing from September's books.
+**The app shows these as August's documents arriving late.** Each one appears in
+September's results marked "from August", beside its August books row: never as a
+purchase missing from September's books. Its IMS action goes out with September's
+export and its credit is September's, reported beside September's own totals as
+"from earlier months", worth what August did not already claim: MS-878 brings
+Rs 900 because August accepted Rs 6,300 (it would bring all Rs 7,200 had August
+rejected it or left it open). August's own results never change: September's data
+is never read into August.
+
+**Corrections** (`GET /api/corrections?taxPeriod=2026-09`) lists every August
+document that needed its supplier to fix something: not filed (Patel PS-3401,
+Krishna KE-112), saved but never filed (Anand AE/177), filed with a different
+amount (Mahavir MS-878, National NS-612). Balaji's typo and Reliable's phantom
+need nothing from a supplier and are not listed. Each is **Arrived** (how, when it
+was filed, which download, and the credit it brings to September) or **Waiting**
+(how long, and the supplier's next chance).
 
 ### 5 Oct: `ims_sep26_as_of_05oct.json`
 
@@ -164,14 +191,24 @@ exact (5 Oct). Plus the August carry-overs: MS-878's amendment, PS-3401, and AE/
 (saved).
 
 **The app should show.** National is **saved with a different amount and still
-inside the free-fix window**: call them before 11 Oct.
+inside the free-fix window**: call them before 11 Oct. That is a phone call, not an
+IMS decision.
+
+**Corrections: 2 arrived, 3 waiting.**
+
+- Arrived: Mahavir MS-878, amended by the supplier on 18 Sep, in this IMS download,
+  bringing Rs 900. Patel PS-3401, added through GSTR-1A on 19 Sep, Rs 3,240.
+- Waiting: Anand AE/177 (saved again in September's IMS, not filed yet), Krishna
+  KE-112 (files quarterly: by 13 Oct it reaches September's 2B), National NS-612
+  (can still amend it by 11 Oct for September's 2B).
 
 ### 7 Oct: `ims_sep26_as_of_07oct.json`
 
 **On the portal.** Ganesh filed GT/0201 (6 Oct) and Mahavir filed MS-951 (7 Oct),
 both exact.
 
-**The app should show.** Both matched.
+**The app should show.** Both matched. Corrections unchanged: 2 arrived, 3
+waiting.
 
 ### 10 Oct: `ims_sep26_as_of_10oct.json`
 
@@ -182,54 +219,49 @@ both exact.
 **The app should show.** **National matched exactly.** The phone call on the 5th
 fixed it for free, with no GSTR-1A and no month's delay.
 
+**Corrections: 3 arrived, 2 waiting.** Anand's AE/177 has arrived: filed with
+September's GSTR-1, Rs 3,960. Krishna and National are still waiting.
+
 ### 11 Oct: `ims_sep26_as_of_11oct.json`
 
 **On the portal.** Unity filed UD-2011 at Rs 16,000 / Rs 2,880 (11 Oct). Balaji has
 still not reported BA/305.
 
 **The app should show.** Unity: portal Rs 720 lower, so accept Rs 2,880 and chase the
-difference. Balaji: cut-off is today. Krishna: quarterly, 2 days left.
+difference. Balaji: cut-off is today. Krishna: quarterly, 2 days left. Corrections
+unchanged: 3 arrived, 2 waiting.
 
 ### 14 Oct, GSTR-2B: `gstr2b_sep26.json`
 
 **On the portal.** Every filed record, including Krishna's quarterly GSTR-1 (KE-130
 and August's KE-112) and the August carry-overs. Balaji's BA/305 is missing.
 
-**The app should show.** Matched exactly: Rs 31,680 (Orbit, Ganesh, Laxmi, National,
-Mahavir, Patel, Crystal, Krishna). Unity's mismatch: Rs 3,600 in the books. Not filed:
-Balaji Rs 1,800, deferred to a later period.
+**The app should show.** September's own books, Rs 37,080: matched exactly
+Rs 31,680 (Orbit, Ganesh, Laxmi, National, Mahavir, Patel, Crystal, Krishna).
+Unity's mismatch: Rs 3,600 in the books. Not filed: Balaji Rs 1,800, deferred to a
+later period. From August, on top: Rs 10,260 claimable in September (MS-878
+Rs 900, PS-3401 Rs 3,240, AE/177 Rs 3,960, KE-112 Rs 2,160).
+
+**Corrections: 4 arrived, 1 waiting.** Krishna's KE-112 arrived in the 2B, filed
+12 Oct with their quarterly GSTR-1. National's NS-612 is still waiting: missed
+September's cut-off too, so the next chance is an amendment by 11 Nov for
+October's 2B.
+
+August, read again now, is exactly as it was reviewed on 14 Sep.
 
 ## The suggested 6-upload demo path
 
 | Step | Workspace date | Upload | What to show |
 |---|---|---|---|
-| 1 | 11 Sep 2026 | `aug/purchase_register_aug26.xlsx` | The books: 11 documents, Rs 42,660 |
-| 2 | 11 Sep 2026 | `aug/ims_aug26_as_of_11sep.json`, then reconcile | 4 decisions; mark Krishna quarterly; Patel, Anand and Krishna not filed yet |
-| 3 | 14 Sep 2026 | `aug/gstr2b_aug26.json` | 18,900 matched, 14,400 open, 9,360 not filed |
+| 1 | 11 Sep 2026 | `aug/purchase_register_aug26.xlsx` | The books: 11 documents, Rs 42,660; Krishna already quarterly (Suppliers) |
+| 2 | 11 Sep 2026 | `aug/ims_aug26_as_of_11sep.json`, then reconcile | 4 decisions; Patel, Anand and Krishna not filed yet, Krishna with 2 days left |
+| 3 | 14 Sep 2026 | `aug/gstr2b_aug26.json` | 18,900 matched, 14,400 open, 9,360 not filed; accept Mahavir |
 | 4 | 5 Oct 2026 | `sep/purchase_register_sep26.xlsx` | September's books |
-| 5 | 5 Oct 2026 | `sep/ims_sep26_as_of_05oct.json`, then reconcile | National saved with a different amount: a free fix |
-| 6 | 10 Oct 2026 | `sep/ims_sep26_as_of_10oct.json` | National matched exactly |
+| 5 | 5 Oct 2026 | `sep/ims_sep26_as_of_05oct.json`, then reconcile | National saved with a different amount: a free fix. August's documents arriving "from August"; Corrections 2 arrived (MS-878 brings Rs 900), 3 waiting |
+| 6 | 10 Oct 2026 | `sep/ims_sep26_as_of_10oct.json` | National matched exactly; Corrections 3 arrived (Anand) |
 
 Try uploading `gstr2b_aug26.json` at step 2: it is refused until 14 Sep.
 
-## Where the app disagrees with this script today
-
-`npm run verify:demo` replays every step above: 125 of 132 checks pass. The
-engine and the sample files were deliberately left unchanged where they disagree,
-pending a decision on which one moves:
-
-1. **10 Sep shows 3 decisions, not 2.** National's saved NS-612 counts as needing
-   an IMS decision, because its action is still N, although the app recommends
-   chasing National for a free fix. The script treats it as a phone call.
-2. **14 Sep counts Anand as matched.** The 11 Sep IMS still carries AE/177 as
-   saved, and the engine matches books to a saved record whatever the date. The
-   2B step therefore reads exact matches Rs 22,860 and not filed Rs 5,400, not
-   Rs 18,900 and Rs 9,360, although a record still unfiled after the cut-off cannot
-   reach August's 2B.
-3. **September does not show August's late documents as August's.** MS-878's
-   GSTR-1A amendment and PS-3401 appear as purchases missing from September's
-   books, recommended for Reject, and KE-112 joins them on 14 Oct. AE/177 is not
-   shown in September at all: it merges with August's saved record. Re-reading
-   August afterwards pairs MS-878 with its amendment and turns the original into a
-   phantom. This is "late arrivals from earlier months", deferred on the roadmap
-   as P6.
+`npm run verify:demo` replays every step above, every IMS snapshot and both 2Bs
+included, and checks each figure on this page, Corrections included, and that
+August reads the same at the end as it did when it was reviewed.
