@@ -11,6 +11,7 @@ import * as gstr2b from '../adapters/gstr2b.js';
 import { stripBom } from '../adapters/values.js';
 import { isTwoBGenerated, twoBGenerationDate } from '../matching/cutoff.js';
 import { assignExpectedIdentities, assignPortalIdentities } from './identity.js';
+import { saveRegisterContacts } from './supplierContacts.js';
 import { planPortalDiff, writePortalDiff } from './syncDiff.js';
 import { displayDate, displayPeriod, workspaceAsOf } from './workspaceClock.js';
 
@@ -350,6 +351,7 @@ async function commitExpected(connection, orgId, upload, parsed) {
   // Rate lines are children of the invoice, so replace them wholesale for the
   // invoices this upload touched rather than trying to diff them.
   await replaceExpectedRateLines(connection, orgId, invoices);
+  const contacts = await saveRegisterContacts(connection, orgId, upload.id, invoices);
 
   const afterUpsert = await countRows(connection, 'expected_invoices', orgId);
   const filePeriod = upload.tax_period ?? parsed.taxPeriod;
@@ -360,6 +362,7 @@ async function commitExpected(connection, orgId, upload, parsed) {
     inserted: afterUpsert - before,
     updated: invoices.length - (afterUpsert - before),
     replaced,
+    contacts,
     periods: periodsOf(invoices, filePeriod)
   };
 }

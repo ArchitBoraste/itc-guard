@@ -320,9 +320,12 @@ function assertEqual(actual, expected, what) {
   if (a !== e) throw new Error(`${what}\n  expected ${e}\n  read     ${a}`);
 }
 
+// What the adapter reads back for a contact: null when every field is blank.
+const expectedContact = (contact) => (contact.person || contact.phone || contact.email ? contact : null);
+
 const keyed = (rows) => [...rows].sort((x, y) => x.key.localeCompare(y.key));
 
-function checkRegister(path, periodKey) {
+function checkRegister(path, periodKey, contactOf) {
   const parsed = purchaseRegister.parseWithMetadata(readFileSync(path));
   assertEqual(parsed.format, purchaseRegister.FORMAT_TEMPLATE_V24, `${path}: format`);
   assertEqual(parsed.taxPeriod, PERIODS[periodKey].taxPeriod, `${path}: tax period`);
@@ -331,13 +334,15 @@ function checkRegister(path, periodKey) {
     key: `${invoice.supplierGstin}|${invoice.invoiceNo}`,
     docType: invoice.docType,
     date: invoice.invoiceDate,
-    amounts: [invoice.taxableValue, invoice.igst, invoice.cgst, invoice.sgst, invoice.totalTax]
+    amounts: [invoice.taxableValue, invoice.igst, invoice.cgst, invoice.sgst, invoice.totalTax],
+    contact: invoice.supplierContact
   }));
   const expected = REGISTER[periodKey].map((doc) => ({
     key: `${doc.supplier.gstin}|${doc.invoiceNo}`,
     docType: doc.docType,
     date: doc.invoiceDate,
-    amounts: [doc.amounts.taxable, doc.amounts.igst, doc.amounts.cgst, doc.amounts.sgst, doc.amounts.totalTax]
+    amounts: [doc.amounts.taxable, doc.amounts.igst, doc.amounts.cgst, doc.amounts.sgst, doc.amounts.totalTax],
+    contact: expectedContact(contactOf(doc.supplier))
   }));
   assertEqual(keyed(read), keyed(expected), `${path}: documents`);
 }
@@ -393,10 +398,10 @@ const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, 
 // Reads every file of a written set back through the adapters and compares it with
 // the timeline. Throws on the first difference. The test suite runs this over the
 // committed set, so an edit to the timeline cannot ship without regenerating.
-export function checkSet(root = DEMO_DIR) {
+export function checkSet(root = DEMO_DIR, contactOf = placeholderContact) {
   for (const periodKey of PERIOD_KEYS) {
     const dir = join(root, periodKey);
-    checkRegister(join(dir, registerFileName(periodKey)), periodKey);
+    checkRegister(join(dir, registerFileName(periodKey)), periodKey, contactOf);
     for (const date of PERIODS[periodKey].snapshots) {
       checkIms(join(dir, imsFileName(periodKey, date)), periodKey, date);
     }
@@ -425,7 +430,7 @@ function writeSet(root, contactOf) {
     writeJson(twoBPath, twoBStatement(periodKey));
     written.push(twoBPath);
   }
-  checkSet(root);
+  checkSet(root, contactOf);
   return written;
 }
 

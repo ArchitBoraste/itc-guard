@@ -67,6 +67,7 @@ async function resetOrgData() {
     'DELETE FROM supplier_risk WHERE org_id = ?',
     'DELETE FROM supplier_gstin_aliases WHERE org_id = ?',
     'DELETE FROM suppliers WHERE org_id = ?',
+    'DELETE FROM supplier_contacts WHERE org_id = ?',
     'DELETE FROM expected_rate_lines WHERE org_id = ?',
     'DELETE FROM expected_invoices WHERE org_id = ?',
     'DELETE FROM portal_rate_lines WHERE org_id = ?',

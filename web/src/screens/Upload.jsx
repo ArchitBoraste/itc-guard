@@ -52,7 +52,10 @@ const FIELD_LABEL = {
   cess: 'Cess',
   itcEligibility: 'ITC eligibility',
   originalInvoiceNo: 'Original document number',
-  originalInvoiceDate: 'Original document date'
+  originalInvoiceDate: 'Original document date',
+  contactPerson: 'Supplier contact person',
+  contactPhone: 'Supplier phone',
+  contactEmail: 'Supplier email'
 };
 
 // --- one drop zone ---------------------------------------------------------

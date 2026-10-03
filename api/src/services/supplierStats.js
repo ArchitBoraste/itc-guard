@@ -11,6 +11,7 @@ import { FILING_SCHEMES, cutoffDate, inferFilingScheme } from '../matching/cutof
 import { daysBetween, gstinDistance, isValidGstin } from '../matching/normalize.js';
 import { itcSign } from './totals.js';
 import { ServiceError } from './ingest.js';
+import { CONTACT_COLUMNS, contactView } from './supplierContacts.js';
 
 // The supplier a portal record (aliased pr) belongs to: its own GSTIN, or the
 // supplier a variant of it was attached to (supplier_gstin_aliases, aliased a).
@@ -28,8 +29,11 @@ const ALIAS_JOIN =
 const IMPORT_SECTIONS = Object.freeze(['impg', 'impgsez']);
 
 // Upserts a supplier row per supplier seen on the portal side, a mistyped GSTIN
-// counting as the supplier it belongs to (resolveGstinAliases). Imports are
-// skipped (IMPORT_SECTIONS).
+// counting as the supplier it belongs to (resolveGstinAliases), and per supplier
+// the trader booked a purchase from: one who never reports anything is exactly
+// the one to chase, and the trader may need to set their scheme or contact before
+// they ever appear. Imports are skipped (IMPORT_SECTIONS). The portal's name is
+// preferred, the register's used until there is one.
 export async function syncSuppliers(orgId) {
   const aliases = await resolveGstinAliases(orgId);
   return withTransaction(async (connection) => {
@@ -46,7 +50,7 @@ export async function syncSuppliers(orgId) {
       );
     }
 
-    const [rows] = await connection.query(
+    const [portalRows] = await connection.query(
       `SELECT ${SUPPLIER_OF_RECORD} AS supplier_gstin,
               SUBSTRING_INDEX(
                 GROUP_CONCAT(pr.supplier_name ORDER BY a.gstin IS NULL DESC, pr.id DESC), ',', 1
@@ -58,13 +62,27 @@ export async function syncSuppliers(orgId) {
         GROUP BY ${SUPPLIER_OF_RECORD}`,
       [orgId, IMPORT_SECTIONS]
     );
+    const [booksRows] = await connection.query(
+      `SELECT supplier_gstin,
+              SUBSTRING_INDEX(GROUP_CONCAT(supplier_name ORDER BY id DESC), ',', 1) AS trade_name,
+              MIN(tax_period) AS first_period,
+              MAX(tax_period) AS last_period
+         FROM expected_invoices WHERE org_id = ?
+        GROUP BY supplier_gstin`,
+      [orgId]
+    );
+    const rows = mergeSupplierRows(portalRows, booksRows);
     await dropRetiredSuppliers(connection, orgId, rows.map((row) => row.supplier_gstin));
     if (!rows.length) return { suppliers: 0, aliases: aliases.length };
 
+    // A new row starts on the no-history answer, so even a supplier nothing has
+    // been inferred for says why its scheme is assumed.
+    const assumed = inferFilingScheme([]);
     await insertInChunks(
       connection,
       `INSERT INTO suppliers
-         (org_id, gstin, legal_name, trade_name, state_code, first_seen_period, last_seen_period)
+         (org_id, gstin, legal_name, trade_name, state_code, first_seen_period, last_seen_period,
+          filing_scheme_reason)
        VALUES ?
        ON DUPLICATE KEY UPDATE
          trade_name = VALUES(trade_name),
@@ -78,11 +96,29 @@ export async function syncSuppliers(orgId) {
         row.trade_name,
         row.supplier_gstin.slice(0, 2),
         row.first_period,
-        row.last_period
+        row.last_period,
+        assumed.reason
       ])
     );
     return { suppliers: rows.length, aliases: aliases.length };
   });
+}
+
+// One row per supplier GSTIN across the portal and the books: the portal's name
+// when it has one, and the widest span of periods either side has seen.
+function mergeSupplierRows(portalRows, booksRows) {
+  const merged = new Map(portalRows.map((row) => [row.supplier_gstin, { ...row }]));
+  for (const row of booksRows) {
+    const existing = merged.get(row.supplier_gstin);
+    if (!existing) {
+      merged.set(row.supplier_gstin, { ...row });
+      continue;
+    }
+    existing.trade_name = existing.trade_name ?? row.trade_name;
+    existing.first_period = [existing.first_period, row.first_period].sort()[0];
+    existing.last_period = [existing.last_period, row.last_period].sort().at(-1);
+  }
+  return [...merged.values()];
 }
 
 // Which reported GSTINs are a variant of another supplier's (audit P15: each
@@ -463,7 +499,7 @@ export async function listSuppliers(orgId, { limit = 200, window = null } = {}) 
   const [rows] = await pool.query(
     `SELECT s.id, s.gstin, s.trade_name, s.legal_name, s.state_code, s.filing_scheme,
             s.filing_scheme_confidence, s.filing_scheme_reason, s.filing_scheme_source,
-            s.first_seen_period, s.last_seen_period, s.contact_phone,
+            s.first_seen_period, s.last_seen_period, ${CONTACT_COLUMNS},
             ${VARIANTS_OF_SUPPLIER} AS gstin_variants,
             COUNT(sp.id) AS periods_observed,
             SUM(sp.filed_late) AS late_count,
@@ -481,6 +517,7 @@ export async function listSuppliers(orgId, { limit = 200, window = null } = {}) 
               ORDER BY sp.tax_period SEPARATOR ','
             ) AS days_late_series
        FROM suppliers s
+       LEFT JOIN supplier_contacts sc ON sc.org_id = s.org_id AND sc.gstin = s.gstin
        LEFT JOIN supplier_periods sp
               ON sp.supplier_id = s.id AND sp.org_id = s.org_id ${inWindow}
       WHERE s.org_id = ?
@@ -507,7 +544,9 @@ export async function listSuppliers(orgId, { limit = 200, window = null } = {}) 
     filingSchemeSource: row.filing_scheme_source,
     firstSeenPeriod: row.first_seen_period,
     lastSeenPeriod: row.last_seen_period,
-    contactPhone: row.contact_phone,
+    // Who to call; null until the register or the trader says. whatsapp is the
+    // number a wa.me link takes, null for anything that is not a mobile number.
+    contact: contactView(row),
     stats: {
       periodsObserved: Number(row.periods_observed ?? 0),
       lateCount: Number(row.late_count ?? 0),
@@ -560,8 +599,9 @@ export async function getSupplierHistory(orgId, gstinValue) {
   const [suppliers] = await pool.query(
     `SELECT s.id, s.gstin, s.trade_name, s.legal_name, s.state_code, s.filing_scheme,
             s.filing_scheme_confidence, s.filing_scheme_reason, s.filing_scheme_source,
-            s.contact_phone, ${VARIANTS_OF_SUPPLIER} AS gstin_variants
+            ${CONTACT_COLUMNS}, ${VARIANTS_OF_SUPPLIER} AS gstin_variants
        FROM suppliers s
+       LEFT JOIN supplier_contacts sc ON sc.org_id = s.org_id AND sc.gstin = s.gstin
       WHERE s.org_id = ?
         AND s.gstin = COALESCE(
               (SELECT gstin FROM supplier_gstin_aliases WHERE org_id = ? AND alias_gstin = ?), ?)`,
@@ -592,7 +632,7 @@ export async function getSupplierHistory(orgId, gstinValue) {
     filingSchemeConfidence: supplier.filing_scheme_confidence,
     filingSchemeReason: supplier.filing_scheme_reason,
     filingSchemeSource: supplier.filing_scheme_source,
-    contactPhone: supplier.contact_phone,
+    contact: contactView(supplier),
     periods: periods.map((row) => ({
       taxPeriod: row.tax_period,
       expectedCount: Number(row.expected_count),

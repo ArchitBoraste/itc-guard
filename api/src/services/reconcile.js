@@ -39,6 +39,7 @@ import {
 import { supplierSchemeMap } from './supplierStats.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
 import { workspaceAsOf } from './workspaceClock.js';
+import { CONTACT_COLUMNS, contactView } from './supplierContacts.js';
 
 export const RUN_MODES = Object.freeze(['PREVENTIVE', 'REACTIVE']);
 
@@ -863,10 +864,16 @@ export async function listResults(orgId, runId, { bucket = null, page = 1, pageS
             pr.filing_status, pr.ims_action, pr.pending_blocked, pr.remarks_blocked,
             pr.itc_available, pr.itc_ineligible_reason, pr.supplier_filed_on,
             mr.portal_record_id, mr.portal_content_hash,
-            pr.content_hash AS portal_current_hash, pr.absent_since
+            pr.content_hash AS portal_current_hash, pr.absent_since,
+            ${CONTACT_COLUMNS}
        FROM match_results mr
        LEFT JOIN expected_invoices ei ON ei.id = mr.expected_invoice_id
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
+       LEFT JOIN supplier_gstin_aliases sa
+              ON sa.org_id = mr.org_id AND sa.alias_gstin = pr.supplier_gstin
+       LEFT JOIN supplier_contacts sc
+              ON sc.org_id = mr.org_id
+             AND sc.gstin = COALESCE(ei.supplier_gstin, sa.gstin, pr.supplier_gstin)
       WHERE ${where.join(' AND ')}
       ORDER BY FIELD(mr.bucket,'VALUE_MISMATCH','MISSING_IN_BOOKS','SUGGESTED',
                      'MISSING_IN_PORTAL','INELIGIBLE','NON_IMS','MATCHED'),
@@ -948,6 +955,8 @@ function toResultView(row) {
     confirmedAt: row.confirmed_at,
     needsDecision: needsDecision(decision),
     decisionCategory: decisionCategory(decision),
+    // The supplier's contact (a typo GSTIN reads its supplier's), or null.
+    supplierContact: contactView(row),
     books: row.books_invoice_no === null ? null : {
       invoiceNo: row.books_invoice_no,
       invoiceDate: row.books_invoice_date,

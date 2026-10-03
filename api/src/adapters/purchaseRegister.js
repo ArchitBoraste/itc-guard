@@ -73,11 +73,31 @@ const HEADER_ALIASES = new Map(
   }).flatMap(([field, headers]) => headers.map((h) => [normalizeHeader(h), field]))
 );
 
+// The supplier's contact, in three optional columns no GSTN template has: the
+// app's own extension, which a trader adds to their register so the chase
+// message has somebody to go to. Matched exactly like the template headers, but
+// kept out of HEADER_ALIASES: they are never evidence of a template.
+const CONTACT_ALIASES = new Map(
+  Object.entries({
+    contactPerson: ['supplier contact person', 'contact person', 'contact name', 'supplier contact'],
+    contactPhone: [
+      'supplier phone', 'phone', 'phone number', 'mobile', 'mobile number', 'supplier mobile',
+      'contact number', 'whatsapp', 'whatsapp number'
+    ],
+    contactEmail: ['supplier email', 'supplier e-mail', 'email', 'e-mail', 'email id', 'email address']
+  }).flatMap(([field, headers]) => headers.map((h) => [normalizeHeader(h), field]))
+);
+
+const fieldForHeader = (cell) =>
+  HEADER_ALIASES.get(normalizeHeader(cell)) ?? CONTACT_ALIASES.get(normalizeHeader(cell));
+
 const REQUIRED_FIELDS = ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue'];
 
 // Every canonical field a columnMap may point at, in the order a mapping UI
-// should offer them. Derived from the alias table so the two cannot drift.
-export const MAPPABLE_FIELDS = Object.freeze([...new Set(HEADER_ALIASES.values())]);
+// should offer them. Derived from the alias tables so they cannot drift.
+export const MAPPABLE_FIELDS = Object.freeze([
+  ...new Set([...HEADER_ALIASES.values(), ...CONTACT_ALIASES.values()])
+]);
 
 // ---------------------------------------------------------------------------
 // Fuzzy header suggestion
@@ -139,7 +159,10 @@ const HEADER_SYNONYMS = Object.freeze({
   originalInvoiceDate: [
     'original invoice date', 'original document date',
     'invoice/advance payment voucher date', 'against invoice date'
-  ]
+  ],
+  contactPerson: ['supplier contact person', 'contact person', 'contact name', 'party contact'],
+  contactPhone: ['supplier phone', 'phone', 'mobile', 'contact number', 'whatsapp', 'party phone'],
+  contactEmail: ['supplier email', 'email', 'e-mail', 'email id', 'party email']
 });
 
 // Lowercase, drop every non-alphanumeric character. 'Bill Dt' -> 'billdt', so
@@ -339,7 +362,7 @@ function mapHeaderRow(headerCells, columnMap = null) {
   const mapped = {};
 
   headerCells.forEach((cell, index) => {
-    const field = HEADER_ALIASES.get(normalizeHeader(cell));
+    const field = fieldForHeader(cell);
     if (field && !(field in mapped)) mapped[field] = index;
   });
 
@@ -477,8 +500,20 @@ function readRow(row, mapped, at) {
     // names one (no GSTN template has it): the surest way to tell two documents
     // apart that a supplier numbered and dated alike.
     voucherId: trimOrNull(cell(row, mapped, 'voucherId')),
+    supplierContact: contactOf(row, mapped),
     sourceRowNo: null
   };
+}
+
+// { person, phone, email } from the optional contact columns, or null when the
+// row carries none. A phone typed into Excel arrives as a number; it is text here.
+function contactOf(row, mapped) {
+  const contact = {
+    person: trimOrNull(cell(row, mapped, 'contactPerson')),
+    phone: trimOrNull(cell(row, mapped, 'contactPhone')),
+    email: trimOrNull(cell(row, mapped, 'contactEmail'))
+  };
+  return contact.person || contact.phone || contact.email ? contact : null;
 }
 
 function toExpectedInvoice(parts, { taxPeriod, orgId, rateLines }) {
@@ -505,6 +540,7 @@ function toExpectedInvoice(parts, { taxPeriod, orgId, rateLines }) {
     itcEligibility: parts.itcEligibility,
     originalInvoiceNo: parts.originalInvoiceNo,
     originalInvoiceDate: parts.originalInvoiceDate,
+    supplierContact: parts.supplierContact,
     sourceRowNo: parts.sourceRowNo,
     rateLines
   };
@@ -625,6 +661,7 @@ function parseGstr2Csv(buffer, columnMap, options) {
       continue;
     }
     document.rateLines.push(rateLineOf(parts));
+    document.head.supplierContact ??= parts.supplierContact;
     // Nothing in the file says whether these rows are one document: say so.
     if (parts.rate === null) {
       warnings.push(

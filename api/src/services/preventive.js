@@ -49,6 +49,7 @@ import { loadExpected, loadPortal } from './reconcile.js';
 import { itcSign } from './totals.js';
 import { loadModel, outOfDistribution, scoreSupplier } from '../risk/score.js';
 import { workspaceAsOf } from './workspaceClock.js';
+import { CONTACT_COLUMNS, contactView, whatsappLink } from './supplierContacts.js';
 
 // How far back the risk model looks. Six months is what the fixtures carry and
 // what a trader can sanity-check from memory.
@@ -696,9 +697,11 @@ async function loadSupplierHistory(orgId, periods) {
 
 async function loadSupplierMaster(orgId) {
   const [rows] = await pool.query(
-    `SELECT gstin, trade_name, legal_name, filing_scheme, filing_scheme_confidence,
-            filing_scheme_reason, contact_phone
-       FROM suppliers WHERE org_id = ?`,
+    `SELECT s.gstin, s.trade_name, s.legal_name, s.filing_scheme, s.filing_scheme_confidence,
+            s.filing_scheme_reason, ${CONTACT_COLUMNS}
+       FROM suppliers s
+       LEFT JOIN supplier_contacts sc ON sc.org_id = s.org_id AND sc.gstin = s.gstin
+      WHERE s.org_id = ?`,
     [orgId]
   );
   return new Map(rows.map((row) => [row.gstin, row]));
@@ -837,7 +840,7 @@ export async function preventiveAlerts(
       gstin,
       tradeName: name,
       legalName: supplier?.legal_name ?? null,
-      contactPhone: supplier?.contact_phone ?? null,
+      contact: contactView(supplier),
       filingScheme: scheme,
       filingSchemeConfidence: supplier?.filing_scheme_confidence ?? null,
       filingSchemeReason: supplier?.filing_scheme_reason ?? null,
@@ -868,6 +871,8 @@ export async function preventiveAlerts(
       })
     };
     entry.chaseMessage = buildChaseMessage({ org, supplier: entry, taxPeriod, asOf });
+    // The same text, ready to send: null without a mobile number to send it to.
+    entry.whatsappUrl = whatsappLink(entry.contact?.phone, entry.chaseMessage);
     suppliers.push(entry);
   }
 

@@ -33,6 +33,7 @@ import { pool } from '../db/pool.js';
 import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
 import { rebuildSupplierStats, supplierRiskMap, supplierView } from '../services/supplierRisk.js';
 import { changeSupplierScheme } from '../services/supplierScheme.js';
+import { setSupplierContact } from '../services/supplierContacts.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
@@ -437,6 +438,13 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     res.json(
       await changeSupplierScheme(req.orgId, String(req.params.gstin).toUpperCase(), scheme)
     );
+  }));
+
+  // Sets or edits a supplier's contact: { contactPerson, phone, email }, each
+  // replaced as given (omitted or empty clears it). The way to reach a supplier
+  // who is on the portal but not in the register. A typo GSTIN sets its supplier's.
+  router.put('/suppliers/:gstin/contact', wrap(async (req, res) => {
+    res.json(await setSupplierContact(req.orgId, String(req.params.gstin).toUpperCase(), req.body ?? {}));
   }));
 
   return router;

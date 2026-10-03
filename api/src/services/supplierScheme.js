@@ -12,7 +12,12 @@ import { pool } from '../db/pool.js';
 import { FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
 import { rerunPeriods } from './reconcile.js';
-import { clearSupplierScheme, getSupplierHistory, setSupplierScheme } from './supplierStats.js';
+import {
+  clearSupplierScheme,
+  getSupplierHistory,
+  refreshSupplierMaster,
+  setSupplierScheme
+} from './supplierStats.js';
 
 // changeSupplierScheme(orgId, gstin, scheme) -> { supplier, reruns }
 //
@@ -23,7 +28,10 @@ export async function changeSupplierScheme(orgId, gstin, scheme) {
       `scheme must be one of ${Object.values(FILING_SCHEMES).join(', ')}, or null to infer it`
     );
   }
-  // 404 for a supplier this org has never seen; a GSTIN variant is its supplier.
+  // The master as the data stands now, so a supplier known only from a register
+  // uploaded a moment ago can be set before anything is reconciled. 404 for a
+  // supplier this org has never seen; a GSTIN variant is its supplier.
+  await refreshSupplierMaster(orgId);
   const { gstin: supplierGstin } = await getSupplierHistory(orgId, gstin);
 
   if (scheme === null) await clearSupplierScheme(orgId, supplierGstin);
