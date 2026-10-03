@@ -229,8 +229,8 @@ export async function createRun({
     // Carry human decisions across the rebuild, keyed on the pair identity rather
     // than on row ids, which are about to change — and BEFORE the totals, which a
     // decision the trader already made has to keep counting in.
-    const confirmed = await loadConfirmedActions(connection, orgId, taxPeriod);
-    const decided = results.map((result) => carryForward(confirmed, result));
+    const carried = await loadCarriedState(connection, orgId, taxPeriod);
+    const decided = results.map((result) => carryForward(carried, result));
 
     const totals = computeRunTotals(decided, { asOfDate, taxPeriod, filingScheme, schemeFor });
     // If this throws, a bucket has no home in the total mapping. Fix the
@@ -316,41 +316,59 @@ async function upsertRunRow(connection, {
   return result.insertId;
 }
 
-// A rebuilt run must not silently discard a decision the trader already made.
-// Keyed on (expected_invoice_id, portal_record_id) — stable across the delete.
-// One run per (org, period), so the period finds the run being replaced.
-async function loadConfirmedActions(connection, orgId, taxPeriod) {
+// Flag added when a decision is dropped because the record it was about changed.
+export const CONFIRMATION_RESET = 'CONFIRMATION_RESET';
+
+const pairKey = (expectedId, portalId) => `${expectedId ?? ''}:${portalId ?? ''}`;
+
+const hasFlag = (flags, flag) => (parseJsonColumn(flags) ?? []).includes(flag);
+
+// A flags column with one flag taken out, ready to write back.
+const withoutFlag = (flags, flag) =>
+  (parseJsonColumn(flags) ?? []).filter((entry) => entry !== flag);
+
+// What a rebuilt run must not silently lose: every decision the trader made, and
+// every warning that one was dropped and has not been made again. Keyed on
+// (expected_invoice_id, portal_record_id) — stable across the delete. One run per
+// (org, period), so the period finds the run being replaced.
+async function loadCarriedState(connection, orgId, taxPeriod) {
   const [rows] = await connection.query(
     `SELECT mr.expected_invoice_id, mr.portal_record_id, mr.confirmed_action,
             mr.confirmed_by, mr.confirmed_at, mr.confirmed_content_hash,
-            mr.confirmed_bucket, mr.remarks
+            mr.confirmed_bucket, mr.remarks, mr.flags
        FROM match_results mr
        JOIN runs r ON r.id = mr.run_id AND r.org_id = mr.org_id
-      WHERE mr.org_id = ? AND r.tax_period = ? AND mr.confirmed_action IS NOT NULL`,
-    [orgId, taxPeriod]
+      WHERE mr.org_id = ? AND r.tax_period = ?
+        AND (mr.confirmed_action IS NOT NULL OR JSON_CONTAINS(mr.flags, JSON_QUOTE(?)))`,
+    [orgId, taxPeriod, CONFIRMATION_RESET]
   );
-  const map = new Map();
-  for (const row of rows) {
-    map.set(`${row.expected_invoice_id ?? ''}:${row.portal_record_id ?? ''}`, row);
-  }
-  return map;
+  return new Map(rows.map((row) => [pairKey(row.expected_invoice_id, row.portal_record_id), row]));
 }
 
-// Flag added when a decision is dropped because the record it was about changed.
-export const CONFIRMATION_RESET = 'CONFIRMATION_RESET';
+// A dropped decision stays flagged until the trader decides that row again or
+// dismisses the warning. A rebuild is neither: re-running used to erase "1
+// decision you made was dropped" with nothing decided again (audit P14). N does
+// not count as deciding again — it is never a decision.
+const awaitingRedecision = (row) =>
+  hasFlag(row.flags, CONFIRMATION_RESET) && !isImsDecision(row.confirmed_action);
+
+// carryForward(carried, result) -> the result with what survives the rebuild on it:
+// the decision (confirmedAction, and the row it came from as `confirmation`),
+// and/or confirmationReset.
+export function carryForward(carried, result) {
+  const previous = carried.get(pairKey(result.expected?.id, result.portal?.id));
+  if (!previous) return result;
+
+  const next = previous.confirmed_action ? applyConfirmation(previous, result) : result;
+  return awaitingRedecision(previous) ? { ...next, confirmationReset: true } : next;
+}
 
 // A confirmation survives the rebuild only if it is still a decision about the
 // SAME thing: same portal content, same bucket. A supplier who corrects a value
 // has produced a different record, and IMS resets the recipient's action in
 // exactly that situation — carrying a stale REJECT onto a now-clean match would
 // reject an invoice the trader already agreed with.
-//
-// Returns the result with the surviving decision on it (confirmedAction, and the
-// row it came from as `confirmation`), or marked confirmationReset.
-function carryForward(confirmed, result) {
-  const previous = confirmed.get(`${result.expected?.id ?? ''}:${result.portal?.id ?? ''}`);
-  if (!previous) return result;
-
+function applyConfirmation(previous, result) {
   const currentHash = result.portal?.contentHash ?? null;
   const contentUnchanged = (previous.confirmed_content_hash ?? null) === currentHash;
   const bucketUnchanged = (previous.confirmed_bucket ?? null) === result.bucket;
@@ -930,7 +948,7 @@ const CONFIRMABLE = new Set(['ACCEPT', 'REJECT', 'PENDING', 'NO_ACTION']);
 // What every confirmation path reads about a row before deciding on it.
 const CONFIRM_SELECT = `
   SELECT mr.id, mr.run_id, mr.bucket, mr.recommended_action, mr.confirmed_action,
-         mr.portal_record_id, mr.portal_content_hash, pr.pending_blocked,
+         mr.flags, mr.portal_record_id, mr.portal_content_hash, pr.pending_blocked,
          pr.content_hash, pr.content_hash AS portal_current_hash, pr.absent_since,
          pr.section, pr.source AS portal_source, pr.ims_action
     FROM match_results mr
@@ -1016,20 +1034,47 @@ export async function confirmRecommendations(orgId, runId, { resultIds, userId =
 }
 
 // Records WHAT each decision was about, so a later rebuild can tell whether it
-// still applies.
+// still applies. A real decision also answers a "your decision was dropped"
+// warning on the row, so it clears CONFIRMATION_RESET; N leaves it standing.
 async function recordDecisions(orgId, decisions, userId) {
   if (!decisions.length) return;
   await withTransaction(async (connection) => {
     for (const { row, action } of decisions) {
+      const flags = isImsDecision(action)
+        ? withoutFlag(row.flags, CONFIRMATION_RESET)
+        : parseJsonColumn(row.flags) ?? [];
       await connection.query(
         `UPDATE match_results
             SET confirmed_action = ?, confirmed_by = ?, confirmed_at = NOW(),
-                confirmed_content_hash = ?, confirmed_bucket = ?
+                confirmed_content_hash = ?, confirmed_bucket = ?, flags = ?
           WHERE org_id = ? AND id = ?`,
-        [action, userId, row.content_hash ?? null, row.bucket, orgId, row.id]
+        [action, userId, row.content_hash ?? null, row.bucket, JSON.stringify(flags), orgId, row.id]
       );
     }
   });
+}
+
+// "Your decision was dropped" — seen, and not to be repeated. Takes the warning
+// off the row and nothing else: a row with no decision stays open. The rebuild
+// carries only what the row still says, so the dismissal survives re-runs.
+// Idempotent; `dismissed` says whether there was a warning to take off.
+export async function dismissConfirmationReset(orgId, resultId) {
+  const [rows] = await pool.query(
+    'SELECT id, flags FROM match_results WHERE org_id = ? AND id = ?',
+    [orgId, resultId]
+  );
+  if (!rows.length) throw new ServiceError('result not found', 404, 'not_found');
+
+  const dismissed = hasFlag(rows[0].flags, CONFIRMATION_RESET);
+  const flags = withoutFlag(rows[0].flags, CONFIRMATION_RESET);
+  if (dismissed) {
+    await pool.query('UPDATE match_results SET flags = ? WHERE org_id = ? AND id = ?', [
+      JSON.stringify(flags),
+      orgId,
+      resultId
+    ]);
+  }
+  return { id: rows[0].id, flags, dismissed };
 }
 
 // Every reason a decision cannot be recorded on this row. Shared by the single and

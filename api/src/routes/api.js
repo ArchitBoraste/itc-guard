@@ -13,6 +13,7 @@ import {
   confirmRecommendations,
   confirmResult,
   createRun,
+  dismissConfirmationReset,
   getRun,
   getRunByPeriod,
   listPeriodInventory,
@@ -371,6 +372,12 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
       userId: req.userId
     });
     res.json({ result: updated });
+  }));
+
+  // Dismisses "your decision was dropped" on one row. The warning otherwise stands,
+  // across re-runs, until the trader decides that row again. Decides nothing.
+  router.post('/results/:id/dismiss-reset', wrap(async (req, res) => {
+    res.json({ result: await dismissConfirmationReset(req.orgId, Number(req.params.id)) });
   }));
 
   // --- suppliers -----------------------------------------------------------
