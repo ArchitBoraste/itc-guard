@@ -23,6 +23,7 @@ import {
   rerunPeriods
 } from '../services/reconcile.js';
 import { listChangesForRun } from '../services/syncDiff.js';
+import { listCorrections } from '../services/corrections.js';
 import { preventiveAlerts } from '../services/preventive.js';
 import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
 import { config } from '../config.js';
@@ -386,6 +387,15 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     if (!taxPeriod) throw new ServiceError('taxPeriod is required (YYYY-MM)');
     const asOfDate = req.query.asOf ? String(req.query.asOf) : null;
     res.json({ alerts: await preventiveAlerts(req.orgId, { taxPeriod, asOfDate }) });
+  }));
+
+  // --- corrections ---------------------------------------------------------
+
+  // Every document an earlier period left waiting on its supplier (not filed,
+  // saved but never filed, filed with a different amount), and whether a fix has
+  // arrived in this period: where, and the credit it brings here.
+  router.get('/corrections', wrap(async (req, res) => {
+    res.json({ corrections: await listCorrections(req.orgId, { taxPeriod: req.query.taxPeriod }) });
   }));
 
   // --- results -------------------------------------------------------------

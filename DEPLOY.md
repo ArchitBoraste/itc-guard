@@ -292,6 +292,7 @@ Migrations to run by hand on a deployment older than branch `phase1-audit-fixes`
 | `011_workspace_clock.sql` | `organizations.as_of_date`: one as-of date per workspace (NULL follows today in India); every run is computed against it | Existing runs keep the date they were computed for until the period is re-run or the workspace date is set (`PUT /api/workspace/clock`) |
 | `012_upload_snapshots.sql` | `uploads.snapshot_date` (an IMS upload's day), `replaced_at` and `replaced_by_upload_id` (a later upload of the same kind and period replaced it) | Uploads made before it show no snapshot date and are not marked replaced until the next upload of their kind and period |
 | `013_supplier_contacts.sql` | `supplier_contacts`: who to call at each supplier, from the register's contact columns or set by the trader; any old `suppliers.contact_phone/email` values are copied in (the columns stay, unused) | Contacts appear for a register on its next upload |
+| `014_cross_period_links.sql` | `match_results.linked_period` and `linked_via`: an earlier period's document (amendment or late filing) linked into a later period's run, kept out of that period's own totals | A later period links earlier documents at its next run; until then its old results still show them as phantoms |
 
 Existing data is never rewritten by these. To see the fixes on the demo straight
 away, reset the presenter's org (`dc exec api node /app/tools/demo-reset.js`);

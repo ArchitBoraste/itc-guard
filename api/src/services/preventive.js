@@ -752,11 +752,10 @@ export async function preventiveAlerts(
   // still a free fix on the 12th.
   const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
 
-  // THIS PERIOD'S RECORDS ONLY. loadPortal() returns the ±1 month window Summary
-  // matches over, where a late-reported invoice can still find its books row. This
-  // screen asks what can still reach THIS period's return, and a record filed for
-  // another period cannot: April's ineligible C/2654 used to pair with March's
-  // C/2650 here and drop off the screen (audit P16).
+  // THIS PERIOD'S RECORDS ONLY. loadPortal() reads nothing else now; the filter
+  // stays as the guard. A record filed for another period cannot reach THIS
+  // period's return: April's ineligible C/2654 used to pair with March's C/2650
+  // here and drop off the screen (audit P16).
   const periodPortal = portal.filter((record) => record.taxPeriod === taxPeriod);
 
   // IMS ONLY. 2B does not exist before the 14th, and a record that has merely

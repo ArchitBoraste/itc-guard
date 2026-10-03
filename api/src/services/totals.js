@@ -44,8 +44,13 @@ export function signedTax(document) {
 // side when there is no books row (MISSING_IN_BOOKS), because that is credit in
 // play whether the trader asked for it or not: left untouched it is deemed
 // accepted at GSTR-3B.
+//
+// An earlier period's document arriving late (linkedFrom) is worth only what its
+// own period has not already claimed: MS-878's amendment brings Rs 900 to
+// September when August accepted Rs 6,300 of Rs 7,200, and all of it otherwise.
 export function resultItc(result) {
-  return result.expected ? signedTax(result.expected) : signedTax(result.portal);
+  if (!result.expected) return signedTax(result.portal);
+  return signedTax(result.expected) - (result.linkedFrom?.claimedItc ?? 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +187,20 @@ export function sumAllocations(allocations) {
   return { ...totals, expectedTotalItc, grandTotalItc: expectedTotalItc + totals.nonImsItc };
 }
 
+// The credit earlier periods' documents bring to this one, summed like the run
+// totals: { count, claimableItc, atRiskItc, deferredItc, ..., expectedTotalItc }.
+export function sumCarriedIn(allocations) {
+  return { count: allocations.length, ...sumAllocations(allocations) };
+}
+
 // computeRunTotals(results, context) -> {
 //   expectedTotalItc, claimableItc, atRiskItc, deferredItc, ineligibleItc,
-//   nonImsItc, grandTotalItc, bucketCounts, totalCounts, perResult
+//   nonImsItc, grandTotalItc, bucketCounts, totalCounts, carriedIn, perResult
 // }
+//
+// The run totals describe the period's own books. An earlier period's document
+// arriving late is allocated the same way (perResult) but summed apart, in
+// carriedIn: its books are another period's, and its credit is this period's.
 export function computeRunTotals(results, context = {}) {
   const bucketCounts = {};
   const totalCounts = {};
@@ -194,12 +209,20 @@ export function computeRunTotals(results, context = {}) {
 
   const perResult = results.map((result) => {
     const allocation = allocate(result, context);
-    bucketCounts[result.bucket] = (bucketCounts[result.bucket] ?? 0) + 1;
-    totalCounts[allocation.totalBucket] += 1;
+    if (!result.linkedFrom) {
+      bucketCounts[result.bucket] = (bucketCounts[result.bucket] ?? 0) + 1;
+      totalCounts[allocation.totalBucket] += 1;
+    }
     return { result, ...allocation };
   });
 
-  return { ...sumAllocations(perResult), bucketCounts, totalCounts, perResult };
+  return {
+    ...sumAllocations(perResult.filter(({ result }) => !result.linkedFrom)),
+    bucketCounts,
+    totalCounts,
+    carriedIn: sumCarriedIn(perResult.filter(({ result }) => result.linkedFrom)),
+    perResult
+  };
 }
 
 // Guard for the caller: if this ever fails, a bucket has no home in the mapping

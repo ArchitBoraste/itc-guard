@@ -5,6 +5,7 @@
 //
 // Pipeline:
 //   1. merge   the same document seen in both IMS and 2B is ONE portal document
+//      link    an earlier period's document arriving late joins its own books row
 //   2. block   candidate pairs, plus the GSTIN-typo fallback pass
 //   3. score   weighted similarity with a full breakdown
 //   4. assign  greedy one-to-one by descending score
@@ -17,10 +18,12 @@ import { FILING_SCHEMES, isBeforeCutoff, supplierSchemeFor } from './cutoff.js';
 import { normalizeGstin } from './normalize.js';
 import { recommendAction } from './recommend.js';
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS, scorePair } from './score.js';
+import { LINK_VIA, linkEarlier } from './link.js';
 
 // 1.1.0: scoring weights sum to 1.0 (see DEFAULT_WEIGHTS), so stored scores move.
 // 1.2.0: a saved record that agrees, past its supplier's cut-off, is not filed.
-export const ENGINE_VERSION = '1.2.0';
+// 1.3.0: earlier periods' documents arriving late link to their own books row.
+export const ENGINE_VERSION = '1.3.0';
 
 export * from './normalize.js';
 export * from './similarity.js';
@@ -30,6 +33,7 @@ export * from './assign.js';
 export * from './buckets.js';
 export * from './cutoff.js';
 export * from './recommend.js';
+export * from './link.js';
 
 // ---------------------------------------------------------------------------
 // 1. Merge the portal sides
@@ -113,6 +117,7 @@ export function mergePortalRecords(portal) {
 //   materialityTolerancePaise,                       // mismatch accepted as immaterial
 //   asOfDate, taxPeriod, filingScheme,               // calendar context
 //   schemeFor,                                       // gstin -> that supplier's scheme
+//   earlier,                                         // earlier periods' documents (link.js)
 //   merge = true                                     // pre-merge IMS + 2B
 // }
 //
@@ -132,7 +137,17 @@ export function reconcile(expected = [], portal = [], options = {}) {
     materialityTolerancePaise: options.materialityTolerancePaise
   };
 
-  const portalRecords = options.merge === false ? [...portal] : mergePortalRecords(portal);
+  const merged = options.merge === false ? [...portal] : mergePortalRecords(portal);
+
+  // An earlier period's document arriving now is tried against that period's
+  // documents first (link.js). Only what links to nothing meets this period's books.
+  const { links, rest: portalRecords } = linkEarlier(options.earlier ?? [], merged, {
+    taxPeriod: context.taxPeriod,
+    weights,
+    thresholds,
+    blocking: options.blocking,
+    tolerancePaise: options.tolerancePaise
+  });
 
   const pairs = candidatePairs(expected, portalRecords, options);
 
@@ -149,7 +164,7 @@ export function reconcile(expected = [], portal = [], options = {}) {
     portalCount: portalRecords.length
   });
 
-  const results = [];
+  const results = links.map((link) => buildResult({ ...link, context }));
 
   for (const pair of assigned) {
     const books = expected[pair.expectedIndex];
@@ -196,6 +211,7 @@ function buildResult({
   score = null,
   scoreDetail = null,
   via = null,
+  linkedFrom = null,
   context
 }) {
   const gstin = expected?.supplierGstin ?? portal?.supplierGstin ?? null;
@@ -225,7 +241,9 @@ function buildResult({
     matchedVia: via,
     deltaTaxableValue:
       expected && portal ? portal.taxableValue - expected.taxableValue : null,
-    deltaTotalTax: expected && portal ? portal.totalTax - expected.totalTax : null
+    deltaTotalTax: expected && portal ? portal.totalTax - expected.totalTax : null,
+    // Set when this is an earlier period's document arriving in this one.
+    linkedFrom
   };
 
   const recommendation = recommendAction(result, { ...context, filingScheme });
@@ -238,11 +256,25 @@ function buildResult({
   }
   result.recommendedAction = recommendation.action;
   result.imsActionCode = recommendation.imsActionCode;
-  result.recommendationReason = recommendation.reason;
+  result.recommendationReason = linkedFrom
+    ? `${arrivalSentence(linkedFrom)} ${recommendation.reason}`
+    : recommendation.reason;
   result.remarks = recommendation.remarks;
   result.requiresConfirmation = recommendation.requiresConfirmation;
   result.itcAtRisk = recommendation.itcAtRisk;
   return result;
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+// "An August 2026 document, amended by the supplier and arriving in this period."
+function arrivalSentence({ taxPeriod, via }) {
+  const [year, month] = String(taxPeriod).split('-').map(Number);
+  const document = `An ${MONTHS[month - 1]} ${year} document`;
+  return via === LINK_VIA.AMENDMENT
+    ? `${document}, amended by the supplier and arriving in this period.`
+    : `${document} the supplier reported late, arriving in this period.`;
 }
 
 // Saved, not filed, and its supplier's cut-off is behind the as-of date. False

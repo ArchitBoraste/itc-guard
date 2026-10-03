@@ -320,12 +320,9 @@ export async function writePortalDiff(connection, { orgId, uploadId, plan }) {
 // --- reading ---------------------------------------------------------------
 
 // The change feed for one run: everything that moved on the portal records this
-// run could have shown, most recent first.
-//
-// A run is scoped to a tax period, and the matcher's blocking window reaches one
-// month either side (see reconcile.periodWindow), so the feed covers the same
-// three periods. Anything narrower would drop a change on a record the run
-// actually matched against.
+// run could have shown, most recent first. A run reads its own period's records
+// only (reconcile.loadPortal), so the feed covers that period and no other: a
+// later month's download says nothing about a month already reviewed.
 export async function listChangesForRun(orgId, runId, { limit = 200 } = {}) {
   const [runRows] = await pool.query(
     'SELECT id, tax_period FROM runs WHERE org_id = ? AND id = ?',
@@ -353,10 +350,10 @@ export async function listChangesForRun(orgId, runId, { limit = 200 } = {}) {
        LEFT JOIN uploads u ON u.id = rc.detected_from_upload_id
        LEFT JOIN match_results mr
               ON mr.org_id = rc.org_id AND mr.run_id = ? AND mr.portal_record_id = pr.id
-      WHERE rc.org_id = ? AND pr.tax_period IN (?)
+      WHERE rc.org_id = ? AND pr.tax_period = ?
       ORDER BY rc.id DESC
       LIMIT ?`,
-    [runId, orgId, periodWindow(taxPeriod), capped]
+    [runId, orgId, taxPeriod, capped]
   );
 
   const changes = rows.map(toChangeView);
@@ -380,16 +377,6 @@ export async function listChangesForRun(orgId, runId, { limit = 200 } = {}) {
     invalidatedItc,
     changes
   };
-}
-
-// Same ±1 month window the matcher blocks on.
-function periodWindow(taxPeriod) {
-  const [year, month] = String(taxPeriod).split('-').map(Number);
-  const shift = (delta) => {
-    const index = year * 12 + (month - 1) + delta;
-    return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
-  };
-  return [shift(-1), taxPeriod, shift(1)];
 }
 
 function toChangeView(row) {

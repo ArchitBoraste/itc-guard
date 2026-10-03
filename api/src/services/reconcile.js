@@ -38,6 +38,7 @@ import {
   sumAllocations
 } from './totals.js';
 import { supplierSchemeMap } from './supplierStats.js';
+import { earlierItems } from './carryOver.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
 import { workspaceAsOf } from './workspaceClock.js';
 import { CONTACT_COLUMNS, contactView } from './supplierContacts.js';
@@ -50,18 +51,6 @@ export const RUN_MODES = Object.freeze(['PREVENTIVE', 'REACTIVE']);
 const REASON_MAX_LENGTH = 512;
 
 // --- loading ---------------------------------------------------------------
-
-// Candidates come from the tax period and its immediate neighbours, matching the
-// engine's ±1 month blocking window: a supplier reporting a late invoice files it
-// in the next period.
-function periodWindow(taxPeriod) {
-  const [year, month] = taxPeriod.split('-').map(Number);
-  const shift = (delta) => {
-    const index = year * 12 + (month - 1) + delta;
-    return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
-  };
-  return [shift(-1), taxPeriod, shift(1)];
-}
 
 export async function loadExpected(orgId, taxPeriod) {
   const [rows] = await pool.query(
@@ -78,6 +67,11 @@ export async function loadExpected(orgId, taxPeriod) {
   return rows.map(toExpectedShape);
 }
 
+// The period's own portal records: a record belongs to the period of the upload it
+// came from, and no other period's run reads it. An earlier period's document
+// arriving late is linked to its own books row instead (loadEarlierRows), so a
+// later upload can never change what an earlier period was reconciled against.
+//
 // A record missing from the latest download of its source is no longer on the
 // portal (absent_since, set by syncDiff): it stays in the table for the change
 // feed and leaves reconciliation, so a re-upload replaces rather than adds.
@@ -92,11 +86,45 @@ export async function loadPortal(orgId, taxPeriod) {
             itc_reduction_blocked, original_invoice_no, original_invoice_date,
             port_code, source_form, content_hash, identity_key
        FROM portal_records
-      WHERE org_id = ? AND tax_period IN (?) AND absent_since IS NULL
+      WHERE org_id = ? AND tax_period = ? AND absent_since IS NULL
       ORDER BY id`,
-    [orgId, periodWindow(taxPeriod)]
+    [orgId, taxPeriod]
   );
   return rows.map(toPortalShape);
+}
+
+// Every result, in any run, about a books document from a period before
+// taxPeriod: each document's result in its own period's run, and any later run's
+// link to it. services/carryOver.js reads these: which documents are still open,
+// and which a later period has already received. Books columns as loadExpected
+// names them, so toExpectedShape() reads a row as the document.
+export async function loadEarlierRows(orgId, taxPeriod) {
+  const [rows] = await pool.query(
+    `SELECT r.tax_period AS run_period, mr.run_id, mr.id AS result_id, mr.bucket,
+            mr.recommended_action, mr.recommendation_reason, mr.claimable_itc, mr.signed_itc,
+            mr.delta_total_tax, mr.total_bucket, mr.confirmed_action, mr.flags AS result_flags,
+            mr.linked_period, mr.linked_via, mr.portal_record_id,
+            ei.id, ei.supplier_gstin, ei.supplier_name, ei.doc_type, ei.supply_type,
+            ei.invoice_no, ei.invoice_no_norm, ei.invoice_date, ei.tax_period,
+            ei.place_of_supply, ei.taxable_value, ei.igst, ei.cgst, ei.sgst, ei.cess,
+            ei.total_tax, ei.invoice_value, ei.reverse_charge, ei.itc_eligibility,
+            ei.original_invoice_no, ei.original_invoice_date, ei.identity_key,
+            pr.source AS portal_source, pr.section AS portal_section,
+            pr.filing_status AS portal_filing_status, pr.supplier_gstin AS portal_supplier_gstin,
+            pr.invoice_no AS portal_invoice_no, pr.invoice_no_norm AS portal_invoice_no_norm,
+            pr.invoice_date AS portal_invoice_date, pr.doc_type AS portal_doc_type,
+            pr.taxable_value AS portal_taxable_value, pr.total_tax AS portal_total_tax,
+            pr.supplier_filed_on AS portal_filed_on, pr.source_form AS portal_source_form,
+            pr.upload_id AS portal_upload_id
+       FROM match_results mr
+       JOIN runs r ON r.id = mr.run_id AND r.org_id = mr.org_id
+       JOIN expected_invoices ei ON ei.id = mr.expected_invoice_id
+       LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
+      WHERE mr.org_id = ? AND ei.tax_period < ?
+      ORDER BY ei.id, r.tax_period`,
+    [orgId, taxPeriod]
+  );
+  return rows;
 }
 
 // DB row -> the canonical shapes the engine expects. camelCase, integer paise,
@@ -195,11 +223,12 @@ export async function createRun({
     throw new ServiceError(`mode must be one of ${RUN_MODES.join(', ')}`);
   }
 
-  const [expected, portal, schemeMap, asOf] = await Promise.all([
+  const [expected, portal, schemeMap, asOf, earlierRows] = await Promise.all([
     loadExpected(orgId, taxPeriod),
     loadPortal(orgId, taxPeriod),
     supplierSchemeMap(orgId),
-    asOfDate ?? workspaceAsOf(orgId)
+    asOfDate ?? workspaceAsOf(orgId),
+    loadEarlierRows(orgId, taxPeriod)
   ]);
 
   if (!expected.length && !portal.length) {
@@ -219,23 +248,26 @@ export async function createRun({
   // Each supplier's own scheme decides their cut-off; the run's is the default.
   const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
 
-  const allResults = matchReconcile(expected, portal, {
+  // Earlier periods' documents a late record of this period may belong to: open
+  // ones (not filed, saved past the cut-off, a value mismatch), and settled ones
+  // for an amendment to name by number. One a period in between already received
+  // is nobody's any more.
+  const earlier = earlierItems(earlierRows, taxPeriod, tuning)
+    .filter((item) => !item.closedIn)
+    .map((item) => ({
+      expected: toExpectedShape(item.row),
+      open: item.open,
+      claimedItc: Number(item.row.claimable_itc ?? 0)
+    }));
+
+  const results = matchReconcile(expected, portal, {
     ...tuning,
     taxPeriod,
     asOfDate: asOf,
     filingScheme,
-    schemeFor
+    schemeFor,
+    earlier
   });
-
-  // The ±1 month window exists so a books row can match a portal record the
-  // supplier reported late, in the neighbouring period. It is a CANDIDATE window,
-  // not a reporting window: an unmatched portal record from another period belongs
-  // to that period's run, not this one. Without this filter, every neighbouring
-  // period's portal rows would surface here as MISSING_IN_BOOKS — hundreds of
-  // phantom exceptions that grow as more periods are loaded.
-  const results = allResults.filter(
-    (result) => result.expected || result.portal?.taxPeriod === taxPeriod
-  );
 
   const inputCounts = runInputCounts(expected, portal, taxPeriod);
 
@@ -274,11 +306,10 @@ export async function createRun({
 // these against the live counts to notice records that arrived afterwards and so
 // appear in no result at all — a record nobody has seen is deemed accepted.
 //
-// Portal records are counted for the run's OWN period. The ±1 month window is a
-// candidate window, and records filed for a neighbouring period are that period's
-// run's business: counting the window made loading April put March "out of date"
-// with 804 April records it never had to show (audit P2). `portal` keeps the
-// window count, which is what the engine actually read.
+// Portal records are counted for the run's OWN period, the only one it reads:
+// counting a neighbour's made loading April put March "out of date" with 804
+// April records it never had to show (audit P2). `portal` and `periodPortal` are
+// now the same count; both are kept because runs written earlier carry both.
 export function runInputCounts(expected, portal, taxPeriod) {
   return {
     expected: expected.length,
@@ -428,6 +459,8 @@ async function insertResults(connection, orgId, runId, totals) {
       signedItc,
       totalBucket,
       claimableItc,
+      result.linkedFrom?.taxPeriod ?? null,
+      result.linkedFrom?.via ?? null,
       confirmation?.confirmed_action ?? null,
       confirmation?.confirmed_by ?? null,
       confirmation?.confirmed_at ?? null,
@@ -443,8 +476,8 @@ async function insertResults(connection, orgId, runId, totals) {
        (org_id, run_id, expected_invoice_id, portal_record_id, portal_content_hash,
         bucket, score, matched_via, score_breakdown, flags, recommended_action,
         recommendation_reason, remarks, delta_taxable_value, delta_total_tax,
-        itc_impact, signed_itc, total_bucket, claimable_itc, confirmed_action,
-        confirmed_by, confirmed_at, confirmed_content_hash, confirmed_bucket)
+        itc_impact, signed_itc, total_bucket, claimable_itc, linked_period, linked_via,
+        confirmed_action, confirmed_by, confirmed_at, confirmed_content_hash, confirmed_bucket)
      VALUES ?`,
     rows
   );
@@ -494,13 +527,37 @@ export async function rerunPeriodIfRun(orgId, taxPeriod, { supplierStats = true 
 }
 
 // rerunPeriodIfRun for several periods, oldest first: a period's supplier risk
-// reads the periods before it. -> [{ taxPeriod, ran, ... }]
+// reads the periods before it. Every later period with a run is rebuilt too,
+// after them: its run links late records to these periods' open documents, and
+// what is open may just have changed. Never the other way round: a later
+// period's data never changes an earlier one. -> [{ taxPeriod, ran, ... }]
 export async function rerunPeriods(orgId, periods = [], options = {}) {
+  const requested = [...new Set(periods)].filter(Boolean).sort();
+  if (!requested.length) return [];
+  const [later] = await pool.query(
+    'SELECT tax_period FROM runs WHERE org_id = ? AND tax_period > ?',
+    [orgId, requested[0]]
+  );
   const reruns = [];
-  for (const taxPeriod of [...new Set(periods)].sort()) {
+  for (const taxPeriod of [...new Set([...requested, ...later.map((row) => row.tax_period)])].sort()) {
     reruns.push({ taxPeriod, ...(await rerunPeriodIfRun(orgId, taxPeriod, options)) });
   }
   return reruns;
+}
+
+// The later periods whose runs link these books documents, rebuilt: what an
+// earlier period claims for a document decides what its late arrival is worth.
+async function rerunLinkingPeriods(orgId, expectedInvoiceIds) {
+  const ids = expectedInvoiceIds.filter(Boolean);
+  if (!ids.length) return [];
+  const [rows] = await pool.query(
+    `SELECT DISTINCT r.tax_period
+       FROM match_results mr
+       JOIN runs r ON r.id = mr.run_id AND r.org_id = mr.org_id
+      WHERE mr.org_id = ? AND mr.linked_period IS NOT NULL AND mr.expected_invoice_id IN (?)`,
+    [orgId, ids]
+  );
+  return rerunPeriods(orgId, rows.map((row) => row.tax_period));
 }
 
 // Every reconciled period again, against the workspace's date as it is now. This
@@ -571,9 +628,10 @@ export async function getRun(orgId, runId) {
   if (!rows.length) throw new ServiceError('run not found', 404, 'not_found');
   const run = rows[0];
 
+  // The period's own documents. Earlier periods' late arrivals are carriedIn.
   const [counts] = await pool.query(
     `SELECT bucket, COUNT(*) AS n, SUM(signed_itc) AS itc
-       FROM match_results WHERE org_id = ? AND run_id = ?
+       FROM match_results WHERE org_id = ? AND run_id = ? AND linked_period IS NULL
       GROUP BY bucket`,
     [orgId, runId]
   );
@@ -588,6 +646,7 @@ export async function getRun(orgId, runId) {
   const totalsBreakdown = await runTotalsBreakdown(orgId, runId);
   const staleness = await runStaleness(orgId, run);
   const openDecisions = await runOpenDecisions(orgId, runId);
+  const carriedIn = await runCarriedIn(orgId, runId);
 
   return {
     id: run.id,
@@ -614,6 +673,10 @@ export async function getRun(orgId, runId) {
       grandTotalItc: Number(run.grand_total_itc)
     },
     totalsBreakdown,
+    // Earlier periods' documents arriving in this one (amendments, late filings):
+    // their credit belongs to this period, their books to their own, so they sit
+    // beside the totals rather than in them. See runCarriedIn().
+    carriedIn,
     // The period's deadlines against the date this run was computed for.
     calendar: filingCalendar(run.as_of_date, run.tax_period, run.filing_scheme),
     // Whether this run still describes the data underneath it. See runStaleness().
@@ -623,6 +686,37 @@ export async function getRun(orgId, runId) {
     openDecisions,
     summary: parseJsonColumn(run.summary)
   };
+}
+
+// -> { count, itc, claimableItc, atRiskItc, deferredItc, byPeriod: { 'YYYY-MM': { count, itc, claimableItc } } }
+//
+// itc is what the late arrivals are worth to this period: each document's books
+// amount less what its own period already claimed. claimableItc is the part this
+// period can claim now; the rest is at risk (an open decision, a saved record)
+// or deferred.
+async function runCarriedIn(orgId, runId) {
+  const [rows] = await pool.query(
+    `SELECT linked_period, total_bucket, COUNT(*) AS n, SUM(signed_itc) AS itc,
+            SUM(claimable_itc) AS claimable
+       FROM match_results
+      WHERE org_id = ? AND run_id = ? AND linked_period IS NOT NULL
+      GROUP BY linked_period, total_bucket`,
+    [orgId, runId]
+  );
+  const summary = { count: 0, itc: 0, claimableItc: 0, atRiskItc: 0, deferredItc: 0, byPeriod: {} };
+  for (const row of rows) {
+    const itc = Number(row.itc ?? 0);
+    const claimable = Number(row.claimable ?? 0);
+    const period = (summary.byPeriod[row.linked_period] ??= { count: 0, itc: 0, claimableItc: 0 });
+    for (const entry of [summary, period]) {
+      entry.count += Number(row.n);
+      entry.itc += itc;
+      entry.claimableItc += claimable;
+    }
+    if (row.total_bucket === 'DEFERRED') summary.deferredItc += itc;
+    else if (row.total_bucket === 'AT_RISK' || row.total_bucket === 'CLAIMABLE') summary.atRiskItc += itc - claimable;
+  }
+  return summary;
 }
 
 async function runOpenDecisions(orgId, runId) {
@@ -739,7 +833,7 @@ export async function runTotalsBreakdown(orgId, runId) {
        FROM match_results mr
        LEFT JOIN expected_invoices ei ON ei.id = mr.expected_invoice_id
        LEFT JOIN portal_records pr ON pr.id = mr.portal_record_id
-      WHERE mr.org_id = ? AND mr.run_id = ?
+      WHERE mr.org_id = ? AND mr.run_id = ? AND mr.linked_period IS NULL
       GROUP BY mr.total_bucket, COALESCE(ei.doc_type, pr.doc_type)`,
     [orgId, runId]
   );
@@ -846,7 +940,9 @@ export async function listResults(orgId, runId, { bucket = null, page = 1, pageS
     `SELECT mr.id, mr.bucket, mr.score, mr.matched_via, mr.score_breakdown, mr.flags,
             mr.recommended_action, mr.recommendation_reason, mr.remarks,
             mr.delta_taxable_value, mr.delta_total_tax, mr.itc_impact, mr.signed_itc,
-            mr.total_bucket, mr.confirmed_action, mr.confirmed_at,
+            mr.total_bucket, mr.claimable_itc, mr.confirmed_action, mr.confirmed_at,
+            mr.linked_period, mr.linked_via, mr.expected_invoice_id,
+            ei.tax_period AS books_tax_period,
             ei.invoice_no  AS books_invoice_no,
             ei.invoice_date AS books_invoice_date,
             ei.supplier_gstin AS books_supplier_gstin,
@@ -954,13 +1050,20 @@ function toResultView(row) {
     itcImpact: row.itc_impact === null ? null : Number(row.itc_impact),
     signedItc: Number(row.signed_itc ?? 0),
     totalBucket: row.total_bucket,
+    claimableItc: Number(row.claimable_itc ?? 0),
     confirmedAction: row.confirmed_action,
     confirmedAt: row.confirmed_at,
     needsDecision: needsDecision(decision),
     decisionCategory: decisionCategory(decision),
+    // "From August": an earlier period's document arriving in this one. signedItc
+    // is then what it brings to this period, net of what its own period claimed.
+    linkedFrom: row.linked_period === null
+      ? null
+      : { taxPeriod: row.linked_period, via: row.linked_via, expectedInvoiceId: row.expected_invoice_id },
     // The supplier's contact (a typo GSTIN reads its supplier's), or null.
     supplierContact: contactView(row),
     books: row.books_invoice_no === null ? null : {
+      taxPeriod: row.books_tax_period,
       invoiceNo: row.books_invoice_no,
       invoiceDate: row.books_invoice_date,
       supplierGstin: row.books_supplier_gstin,
@@ -1007,7 +1110,7 @@ const CONFIRMABLE = new Set(['ACCEPT', 'REJECT', 'PENDING', 'NO_ACTION']);
 // What every confirmation path reads about a row before deciding on it.
 const CONFIRM_SELECT = `
   SELECT mr.id, mr.run_id, mr.bucket, mr.recommended_action, mr.confirmed_action,
-         mr.flags, mr.portal_record_id, mr.portal_content_hash, pr.pending_blocked,
+         mr.flags, mr.expected_invoice_id, mr.linked_period, mr.portal_record_id, mr.portal_content_hash, pr.pending_blocked,
          pr.content_hash, pr.content_hash AS portal_current_hash, pr.absent_since,
          pr.section, pr.source AS portal_source, pr.ims_action, pr.filing_status
     FROM match_results mr
@@ -1034,6 +1137,7 @@ export async function confirmResult(orgId, resultId, { confirmedAction, userId =
   // A confirmation can move a result between claimable and at-risk, so the run
   // totals have to be recomputed rather than left stale.
   await recomputeRunTotals(orgId, row.run_id);
+  await rerunLinkingPeriods(orgId, ownDocuments([row]));
 
   const [updated] = await pool.query(
     'SELECT id, bucket, recommended_action, confirmed_action, confirmed_at FROM match_results WHERE org_id = ? AND id = ?',
@@ -1082,7 +1186,10 @@ export async function confirmRecommendations(orgId, runId, { resultIds, userId =
   const open = rows.filter((row) => !isImsDecision(row.confirmed_action));
   for (const row of open) assertConfirmable(row, row.recommended_action);
   await recordDecisions(orgId, open.map((row) => ({ row, action: row.recommended_action })), userId);
-  if (open.length) await recomputeRunTotals(orgId, runId);
+  if (open.length) {
+    await recomputeRunTotals(orgId, runId);
+    await rerunLinkingPeriods(orgId, ownDocuments(open));
+  }
 
   return {
     confirmed: open.map((row) => row.id),
@@ -1091,6 +1198,11 @@ export async function confirmRecommendations(orgId, runId, { resultIds, userId =
       .map((row) => ({ resultId: row.id, reason: 'already decided' }))
   };
 }
+
+// The books documents these rows decide in their own period. A decision there
+// changes what that period claims, and so what a later period's link is worth.
+const ownDocuments = (rows) =>
+  rows.filter((row) => row.linked_period === null).map((row) => row.expected_invoice_id);
 
 // Records WHAT each decision was about, so a later rebuild can tell whether it
 // still applies. A real decision also answers a "your decision was dropped"
@@ -1206,7 +1318,7 @@ export async function recomputeRunTotals(orgId, runId) {
 
   const [rows] = await pool.query(
     `SELECT mr.id, mr.bucket, mr.signed_itc, mr.delta_total_tax, mr.confirmed_action,
-            pr.ims_action, pr.filing_status,
+            mr.linked_period, pr.ims_action, pr.filing_status,
             COALESCE(ei.supplier_gstin, pr.supplier_gstin) AS supplier_gstin,
             COALESCE(ei.doc_type, pr.doc_type) AS doc_type
        FROM match_results mr
@@ -1230,6 +1342,7 @@ export async function recomputeRunTotals(orgId, runId) {
   // rather than recomputing money — no re-derivation, no drift.
   const allocations = rows.map((row) => ({
     id: row.id,
+    linked: row.linked_period !== null,
     ...allocate(
       {
         bucket: row.bucket,
@@ -1249,7 +1362,8 @@ export async function recomputeRunTotals(orgId, runId) {
     )
   }));
 
-  const totals = sumAllocations(allocations);
+  // The period's own documents; earlier periods' late arrivals are carriedIn.
+  const totals = sumAllocations(allocations.filter((allocation) => !allocation.linked));
   assertTotalsBalance(totals);
 
   await withTransaction(async (connection) => {
