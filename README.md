@@ -873,7 +873,14 @@ lines.
 
 ```bash
 npm run ml:export      # seeds org 10 from fixtures, writes ml/training-data.csv
+pip install -r ml/requirements.txt
 python ml/train.py     # prints metrics and coefficients, writes ml/model.json
+```
+
+Without Python on the host, the same in a throwaway container:
+
+```bash
+docker run --rm -v "$PWD/ml:/ml" -w /ml python:3.12-slim sh -c "pip install -q -r requirements.txt && python train.py"
 ```
 
 **Label.** One row per (supplier, period): did that supplier's invoices reach that
