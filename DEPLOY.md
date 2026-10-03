@@ -151,8 +151,9 @@ Once, on a new database:
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec api node src/db/migrate.js
 ```
 
-Expect `applied 7 migration(s)`. It is idempotent — safe to re-run, and it skips
-what is already applied.
+Expect `applied 10 migration(s)`. It is idempotent — safe to re-run, and it skips
+what is already applied. An existing deployment is upgraded by hand: see
+[Upgrading: migrations](#upgrading-migrations-by-hand) under Operations.
 
 ---
 
@@ -262,8 +263,40 @@ alias dc='docker compose -f docker-compose.prod.yml --env-file .env.prod'
 | Memory right now | `docker stats --no-stream` |
 | Restart one service | `dc restart api` |
 | Apply an `.env.prod` change | `dc up -d api` |
-| Deploy new code | `git pull && dc up -d --build` |
+| Deploy new code | see [Upgrading: migrations](#upgrading-migrations-by-hand) |
 | Disk | `df -h && docker system df` |
+
+### Upgrading: migrations by hand
+
+`dc up -d --build` never migrates. When a deploy brings a new file in
+`api/src/db/migrations/`, apply it from the NEW image before the stack switches to
+it — the new code reads the new columns and tables, and every migration so far is
+additive, so the old code keeps serving while it runs:
+
+```bash
+git pull
+dc build api web
+dc run --rm api node src/db/migrate.js
+dc up -d
+```
+
+`migrate.js` applies only what is new, in filename order, and refuses to re-apply
+a migration whose file changed since it ran. It prints each `apply`/`skip`.
+
+Migrations to run by hand on a deployment older than branch `phase1-audit-fixes`:
+
+| Migration | What it adds | Afterwards |
+|---|---|---|
+| `008_claimable_split.sql` | `match_results.claimable_itc`: an accepted value mismatch claims min(books, portal); existing rows are backfilled as claimed whole | Totals of runs made before it are unchanged until the period is re-run |
+| `009_supplier_scheme_source.sql` | `suppliers.filing_scheme_source` (`INFERRED`/`USER`): a scheme the trader sets is never overwritten by inference | Visitor orgs seeded from now on have the 7 QRMP sample suppliers "set by you" |
+| `010_supplier_gstin_aliases.sql` | `supplier_gstin_aliases`: a mistyped GSTIN counts under the supplier it belongs to | An existing org's typo "suppliers" go at its next run (any upload, re-run or "Reset my data") |
+
+Existing data is never rewritten by these. To see the fixes on the demo straight
+away, reset the presenter's org (`dc exec api node /app/tools/demo-reset.js`);
+visitor orgs pick them up on "Reset my data", and idle ones are reaped and reseeded
+by the sweeper. Runs made before the upgrade cannot tell new records from a
+neighbouring month's (`staleness.inputCountsKnown: false`) and report on stale rows
+alone until re-run.
 
 **Tuning the demo knobs.** `DEMO_POOL_SIZE`, `DEMO_MAX_ORGS`,
 `DEMO_IDLE_MINUTES`, `DEMO_SWEEP_MINUTES` and `DEMO_SEED_CONCURRENCY` are all
