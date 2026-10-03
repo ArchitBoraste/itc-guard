@@ -6,8 +6,8 @@ import {
   DeemedAcceptanceBanner
 } from './components/DeemedAcceptanceBanner.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
-import { ErrorBox, InlineError, Loading } from './components/States.jsx';
-import { PreparingScreen, ResetMyData } from './components/DemoSession.jsx';
+import { ErrorBox, Loading } from './components/States.jsx';
+import { ClearAllData } from './components/DemoSession.jsx';
 import { UploadScreen } from './screens/Upload.jsx';
 import { SummaryScreen } from './screens/Summary.jsx';
 import { ActionsScreen } from './screens/Actions.jsx';
@@ -94,7 +94,7 @@ function useHashRoute(fallback) {
 
 export default function App() {
   const [session, setSession] = useState(null);
-  const [resetting, setResetting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [org, setOrg] = useState(null);
   const [runs, setRuns] = useState(null);
   const [period, setPeriod] = useState(null);
@@ -131,11 +131,10 @@ export default function App() {
     }
   }, []);
 
-  // --- this visitor's own copy of the demo ---------------------------------
+  // --- this visitor's own workspace ----------------------------------------
   //
-  // On a public deployment the first call mints a private org and sets the
-  // session cookie, so nothing below it may run until it has answered. Usually it
-  // returns READY immediately — orgs are seeded in advance and handed out warm.
+  // On a public deployment the first call creates an empty workspace and sets the
+  // session cookie, so nothing below it may run until it has answered.
   const refreshSession = useCallback(async () => {
     try {
       const next = await api.session();
@@ -159,44 +158,35 @@ export default function App() {
     refreshSession();
   }, [refreshSession]);
 
-  // While the org is being seeded, ask again. The seed is a few seconds; polling
-  // costs one small query and is simpler than a socket for a demo that will not
-  // outlive the judging.
-  useEffect(() => {
-    if (session?.state !== 'PROVISIONING') return undefined;
-    const timer = setInterval(() => refreshSession(), 1500);
-    return () => clearInterval(timer);
-  }, [session?.state, refreshSession]);
-
-  // Load the data once — and again after a reset, because the state flips back
-  // through PROVISIONING and this key goes null and returns.
+  // Load the data once the session has answered: on a per-visitor deployment
+  // that answer is what created the workspace.
   const sessionReady = session?.state === 'READY';
   useEffect(() => {
     if (!sessionReady) return;
     boot();
   }, [sessionReady, boot]);
 
-  // Wipes and reloads THIS visitor's org. Everything held for the old data is
-  // dropped first so nothing renders against run ids that no longer exist.
-  const resetMyData = useCallback(async () => {
-    setResetting(true);
+  // Empties THIS visitor's workspace. Everything held for the old data is dropped
+  // first so nothing renders against run ids that no longer exist; boot then finds
+  // no runs and the app goes to Upload.
+  const clearAllData = useCallback(async () => {
+    setClearing(true);
     setBootError(null);
     setRunError(null);
     try {
-      const next = await api.resetSession();
+      await api.clearWorkspace();
       setRuns(null);
       setResults(null);
       setRun(null);
       setPeriod(null);
       setOrg(null);
-      setBooting(true);
-      setSession((current) => ({ ...current, ...next }));
+      await boot();
     } catch (err) {
       setBootError(err);
     } finally {
-      setResetting(false);
+      setClearing(false);
     }
-  }, []);
+  }, [boot]);
 
   // --- the selected period's run + its results -----------------------------
 
@@ -297,9 +287,7 @@ export default function App() {
 
   // With nothing loaded there is only one useful screen. Send people there rather
   // than showing three empty ones.
-  // Gated on the session too: an org that is still being seeded has no runs yet,
-  // and redirecting to Upload while it is being built shows the wrong screen for
-  // the two seconds before the data lands.
+  // Gated on the session too, so nothing redirects before the workspace exists.
   useEffect(() => {
     if (!sessionReady) return;
     if (booting || hasData) return;
@@ -351,12 +339,10 @@ export default function App() {
           ))}
         </nav>
 
-        {/* Only on a deployment that gives each visitor their own copy. On a
+        {/* Only on a deployment that gives each visitor their own workspace. On a
             single-org dev run this button would wipe the developer's own data,
             so the API says whether it applies and the UI believes it. */}
-        {session?.perVisitor ? (
-          <ResetMyData onReset={resetMyData} busy={resetting || session.state === 'PROVISIONING'} />
-        ) : null}
+        {session?.perVisitor ? <ClearAllData onClear={clearAllData} busy={clearing} /> : null}
 
         <div className="period-picker">
           <label htmlFor="period">Tax period</label>
@@ -379,17 +365,6 @@ export default function App() {
           </select>
         </div>
       </header>
-
-      {/* A seed or a reset that failed. The org is usable but empty, so this has
-          to say why rather than leaving a blank app to be interpreted. */}
-      {session?.error ? (
-        <div className="banners">
-          <InlineError
-            error={{ message: `Could not load your sample data: ${session.error}` }}
-            onDismiss={resetMyData}
-          />
-        </div>
-      ) : null}
 
       {hasData ? (
         <div className="banners">
@@ -415,10 +390,6 @@ export default function App() {
           <AboutScreen />
         ) : route === 'howto' ? (
           <HowToUseScreen onGoTo={navigate} hasData={hasData} />
-        ) : session?.state === 'PROVISIONING' ? (
-          /* This visitor's private copy is being built. Rare — the pool usually
-             has one ready — but it is what a reset always goes through. */
-          <PreparingScreen />
         ) : booting ? (
           <Loading label="Starting up" rows={4} />
         ) : bootError ? (

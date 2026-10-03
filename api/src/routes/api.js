@@ -26,8 +26,8 @@ import { listChangesForRun } from '../services/syncDiff.js';
 import { preventiveAlerts } from '../services/preventive.js';
 import { DEMO_PERIOD, availableDemoPeriods, seedDemoPeriod } from '../services/demo.js';
 import { config } from '../config.js';
-import { demoSession, requireReadySession } from '../http/session.js';
-import { resetSession, tenancyStats } from '../services/demoTenancy.js';
+import { demoSession } from '../http/session.js';
+import { clearWorkspace, tenancyStats } from '../services/demoTenancy.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
 import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
@@ -77,48 +77,39 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
 
   // --- this visitor's session ---------------------------------------------
 
-  // The first call the web app makes. It is what mints a session, so it is
-  // mounted ABOVE requireReadySession — it has to answer while the org it just
-  // created is still being seeded, since saying "not ready yet" is its whole job
-  // in that case.
-  //
-  // state: READY        use the app
-  //        PROVISIONING show "preparing your demo data" and poll this again
+  // The first call the web app makes; on a per-visitor deployment it is what
+  // creates the visitor's workspace. state is always READY: a new workspace is
+  // empty, so there is nothing to wait for.
   router.get('/session', wrap(async (req, res) => {
     res.json({
       session: {
         orgId: req.orgId,
         state: req.sessionState ?? 'READY',
         isNew: Boolean(req.sessionIsNew),
-        // Set when a seed or a reset failed. The screen shows it with a retry
-        // rather than dropping the visitor into an empty app with no explanation.
         error: req.sessionError ?? null,
-        // Whether this deployment gives each visitor their own copy at all. The
-        // UI hides "Reset my data" when it does not — on a single-org dev run the
-        // button would wipe the developer's own data.
+        // Whether this deployment gives each visitor their own workspace at all.
+        // The UI hides "Clear all data" when it does not: on a single-org dev run
+        // the button would wipe the developer's own data.
         perVisitor: config.demo.enabled
       },
       pool: config.demo.enabled ? await tenancyStats() : null
     });
   }));
 
-  // "Reset my data". Wipes and rebuilds the CALLER's org and nothing else, then
-  // answers PROVISIONING so the UI switches to the same preparing screen a cold
-  // first visit uses.
-  router.post('/session/reset', wrap(async (req, res) => {
+  // "Clear all data": the CALLER's workspace back to empty, the date back to
+  // following today, and nothing else touched.
+  router.post('/workspace/clear', wrap(async (req, res) => {
     if (!config.demo.enabled) {
       throw new ServiceError(
-        'per-visitor demo data is not enabled on this deployment — use "npm run demo:reset"',
+        'this deployment has one shared workspace, so it is not cleared from here: use ' +
+          '"npm run demo:reset"',
         409,
         'conflict'
       );
     }
-    const result = await resetSession(req.orgId);
-    res.status(202).json({ session: { orgId: req.orgId, state: result.state, error: null } });
+    const cleared = await clearWorkspace(req.orgId);
+    res.json({ cleared, clock: await readWorkspaceClock(req.orgId) });
   }));
-
-  // From here down, every route needs an org whose data is actually there.
-  router.use(requireReadySession);
 
   // --- who this is ---------------------------------------------------------
 

@@ -62,9 +62,9 @@ export const api = {
   // state is READY or PROVISIONING — see PreparingScreen.
   session: () => request('/api/session').then((body) => body.session),
 
-  // Reloads the sample data into the caller's own org. Answers immediately with
-  // PROVISIONING; the app polls session() until it is READY again.
-  resetSession: () => json('POST', '/api/session/reset').then((body) => body.session),
+  // Empties the caller's own workspace: every upload and decision goes, and the
+  // workspace date follows today again.
+  clearWorkspace: () => json('POST', '/api/workspace/clear'),
 
   // --- uploads -------------------------------------------------------------
   listUploads: () => request('/api/uploads').then((body) => body.uploads),

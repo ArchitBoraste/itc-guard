@@ -100,21 +100,21 @@ function demoConfig() {
     // repo is a forgeable cookie; an absent one is replaced by a random key at
     // boot, which merely means cookies do not survive a restart.
     secret: process.env.DEMO_SESSION_SECRET ?? null,
-    cookieSecure: (process.env.DEMO_COOKIE_SECURE ?? 'false').toLowerCase() === 'true',
-    sessionHours: Number(process.env.DEMO_SESSION_HOURS ?? 12),
-    // How many seeded orgs sit ready. Each one costs a seed up front and roughly
-    // a purchase register's worth of rows in MySQL.
-    poolSize: Number(process.env.DEMO_POOL_SIZE ?? 3),
-    // Hard ceiling on live demo orgs (POOL + CLAIMED + PROVISIONING). Org 1 and
-    // the reserved test orgs are not demo orgs and never count towards it.
+    // Secure in production unless told otherwise; a local http run needs it off.
+    cookieSecure: (process.env.DEMO_COOKIE_SECURE ?? String(process.env.NODE_ENV === 'production'))
+      .toLowerCase() === 'true',
+    // How long a visitor's cookie lasts, renewed as they use the app. A workspace
+    // has to survive coming back to the demo days later.
+    sessionDays: Number(process.env.DEMO_SESSION_DAYS ?? 180),
+    // Hard ceiling on live workspaces. Org 1 and the reserved test orgs are not
+    // demo orgs and never count towards it.
     maxOrgs: Number(process.env.DEMO_MAX_ORGS ?? 40),
-    // A claimed org untouched for this long is deleted.
+    // A workspace untouched for this long is deleted, unless it was uploaded to
+    // within retainDays.
     idleMinutes: Number(process.env.DEMO_IDLE_MINUTES ?? 180),
-    // How often the reaper runs and the pool is topped back up.
-    sweepMinutes: Number(process.env.DEMO_SWEEP_MINUTES ?? 5),
-    // Concurrent seeds. This is a 1 GB / 2 vCPU box; a seed parses an xlsx and
-    // two JSON downloads, so more than a couple at once is how it falls over.
-    seedConcurrency: Number(process.env.DEMO_SEED_CONCURRENCY ?? 2)
+    retainDays: Number(process.env.DEMO_RETAIN_DAYS ?? 30),
+    // How often the reaper runs.
+    sweepMinutes: Number(process.env.DEMO_SWEEP_MINUTES ?? 5)
   };
 }
 

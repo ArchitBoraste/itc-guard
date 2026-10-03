@@ -171,8 +171,9 @@ curl -s  https://itc.example.com/health
 curl -s  https://itc.example.com/api/session
 ```
 
-`/api/session` should return `"state":"READY"` and set an `itcg_session` cookie.
-If it says `PROVISIONING`, the warm pool is still filling — wait ~10 s and retry.
+`/api/session` should return `"state":"READY"` and set an `itcg_session` cookie
+(`HttpOnly; SameSite=Lax; Secure`, 180 days). Each new visitor gets an empty
+workspace.
 
 **Confirm the MySQL tuning actually took.** It is applied via a file MySQL will
 silently ignore if its permissions are wrong, and the failure mode is a server
@@ -239,12 +240,10 @@ the images, and `docker load` them here.)
 
 ### If the box struggles, in this order
 
-1. `DEMO_MAX_ORGS` down (20 → 10). Each org is ~5 MB; fewer means less buffer
-   pool pressure. Biggest effect, no downside for judging.
+1. `DEMO_MAX_ORGS` down (20 → 10). Fewer workspaces means less buffer pool
+   pressure. Biggest effect.
 2. `DB_MEM_LIMIT=320M` and `innodb_buffer_pool_size = 64M` in
    `deploy/mysql/small.cnf` (this needs `--build` on the db service).
-3. `DEMO_POOL_SIZE=1` — first visits then more often show the "preparing your
-   demo data" screen instead of being instant.
 
 ---
 
@@ -295,15 +294,17 @@ Migrations to run by hand on a deployment older than branch `phase1-audit-fixes`
 
 Existing data is never rewritten by these. To see the fixes on the demo straight
 away, reset the presenter's org (`dc exec api node /app/tools/demo-reset.js`);
-visitor orgs pick them up on "Reset my data", and idle ones are reaped and reseeded
-by the sweeper. Runs made before the upgrade cannot tell new records from a
+visitors pick them up on their next upload, or start again with "Clear all data". Runs made before the upgrade cannot tell new records from a
 neighbouring month's (`staleness.inputCountsKnown: false`) and report on stale rows
 alone until re-run.
 
-**Tuning the demo knobs.** `DEMO_POOL_SIZE`, `DEMO_MAX_ORGS`,
-`DEMO_IDLE_MINUTES`, `DEMO_SWEEP_MINUTES` and `DEMO_SEED_CONCURRENCY` are all
-read from the environment at access time, so changing one is: edit `.env.prod`,
-then `dc up -d api`. No rebuild.
+**Tuning the demo knobs.** `DEMO_SESSION_DAYS`, `DEMO_MAX_ORGS`,
+`DEMO_IDLE_MINUTES`, `DEMO_RETAIN_DAYS` and `DEMO_SWEEP_MINUTES` are all read
+from the environment at access time, so changing one is: edit `.env.prod`, then
+`dc up -d api`. No rebuild. Since `phase2-demo` there is no seeded pool:
+`DEMO_POOL_SIZE`, `DEMO_SESSION_HOURS` and `DEMO_SEED_CONCURRENCY` are ignored
+and can be deleted from `.env.prod`. Leftover pooled orgs are deleted by the
+next sweep.
 
 **Reset the presenter's own org** (org 1 — the one used for a scripted walkthrough,
 never handed to a visitor):
@@ -312,8 +313,9 @@ never handed to a visitor):
 dc exec api node /app/tools/demo-reset.js
 ```
 
-Visitors reset their own data with the "Reset my data" button; that never touches
-org 1 or anyone else's org.
+Visitors empty their own workspace with the "Clear all data" button
+(`POST /api/workspace/clear`); that never touches org 1 or anyone else's. A
+workspace with an upload in the last `DEMO_RETAIN_DAYS` (30) is never reaped.
 
 **Reboot.** Nothing to do. `restart: unless-stopped` on all four services plus an
 enabled Docker daemon brings the stack back. Verified: killing the API process
@@ -342,11 +344,8 @@ exhaust that.
 while serving plain HTTP. A `Secure` cookie is silently dropped over HTTP, so
 every request looks like a first visit. Either set it `false` or fix TLS.
 
-**`demo_at_capacity` (503)** — `DEMO_MAX_ORGS` reached. Raise it, or lower
-`DEMO_IDLE_MINUTES` so idle sessions are reclaimed sooner.
-
-**`session_provisioning` (409)** — normal and self-clearing. That visitor's org is
-still being seeded; the UI polls and takes itself out of the state.
+**`demo_at_capacity` (503)** — `DEMO_MAX_ORGS` reached and every workspace is
+either in use or holds an upload from the last `DEMO_RETAIN_DAYS`. Raise the cap.
 
 **Disk filling** — container logs are capped (10 MB × 3 per service). The usual
 culprit is old images: `docker image prune -a`.

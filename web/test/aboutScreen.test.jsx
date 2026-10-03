@@ -14,7 +14,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
     ...actual,
     api: {
       session: vi.fn(),
-      resetSession: vi.fn(),
+      clearWorkspace: vi.fn(),
       org: vi.fn(),
       listRuns: vi.fn(),
       getRunByPeriod: vi.fn(),
