@@ -31,6 +31,10 @@ export const TALLY_COLUMN_MAP = Object.freeze({
 
 const VOUCHER_TYPE = { INVOICE: 'Invoice', CREDIT_NOTE: 'Credit Note', DEBIT_NOTE: 'Debit Note' };
 
+// What Tally actually writes: every purchase invoice is a "Purchase" voucher.
+export const tallyVoucherType = (invoice) =>
+  invoice.docType === 'INVOICE' ? 'Purchase' : VOUCHER_TYPE[invoice.docType];
+
 const quote = (value) => (/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
 const ddmmyyyy = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 

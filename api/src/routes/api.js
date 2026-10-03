@@ -201,7 +201,8 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   router.get('/uploads/:id/preview', wrap(async (req, res) => {
     const preview = await previewUpload(req.orgId, Number(req.params.id), {
       limit: Number(req.query.limit ?? 20),
-      columnMap: parseColumnMap(req.query.columnMap)
+      columnMap: parseColumnMap(req.query.columnMap),
+      allInvoices: req.query.allInvoices === 'true'
     });
     res.json(preview);
   }));
@@ -220,7 +221,10 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
 
   router.post('/uploads/:id/commit', wrap(async (req, res) => {
     const result = await commitUpload(req.orgId, Number(req.params.id), {
-      columnMap: req.body?.columnMap ?? null
+      columnMap: req.body?.columnMap ?? null,
+      // A register with no document-type column is refused unless the trader
+      // confirms every row is an invoice.
+      allInvoices: req.body?.allInvoices === true
     });
     // New data makes the period's existing run wrong the instant it lands: the
     // stored verdicts were computed against the old figures, while every read

@@ -16,11 +16,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
 import { closePool, pool } from '../../src/db/pool.js';
-import { commitUpload, createUpload } from '../../src/services/ingest.js';
+import { commitUpload, createUpload, listUploads } from '../../src/services/ingest.js';
 import { createRun, getRun, rerunPeriodIfRun } from '../../src/services/reconcile.js';
 import { TEST_ORGS, ensureOrg, ingest, requireDatabase, resetOrg } from '../helpers/db.js';
 import { FIXTURES_PRESENT, readJson } from '../helpers/fixtures.js';
-import { TALLY_COLUMN_MAP, columnMapWithout, tallyCsv } from '../helpers/tallyCsv.js';
+import { TALLY_COLUMN_MAP, columnMapWithout, tallyCsv, tallyVoucherType } from '../helpers/tallyCsv.js';
 
 const ORG_ID = TEST_ORGS.registerReupload;
 const TRADER_GSTIN = '27AABCS1429F22Z';
@@ -33,10 +33,14 @@ if (!FIXTURES_PRESENT) {
 
 const asBuffer = (json) => Buffer.from(JSON.stringify(json), 'utf8');
 
-// The register exactly as the trader would upload it: a CSV, no declared period.
+// The register exactly as the trader would upload it: Tally's own CSV, with
+// "Purchase" vouchers (the export the audit saw refused, P32), no declared period.
 async function uploadRegister(columnMap, options = {}) {
   const upload = await createUpload({
-    orgId: ORG_ID, kind: 'PURCHASE_REGISTER', filename: 'tally_june.csv', buffer: tallyCsv(JUNE)
+    orgId: ORG_ID,
+    kind: 'PURCHASE_REGISTER',
+    filename: 'tally_june.csv',
+    buffer: tallyCsv(JUNE, { voucherType: tallyVoucherType })
   });
   const committed = await commitUpload(ORG_ID, upload.id, { columnMap, ...options });
   return { upload, committed };
@@ -67,6 +71,7 @@ async function call(method, path) {
 
 describe('a re-uploaded file replaces the period, never adds to it', () => {
   let baseline;
+  let first;
   let latestRegister;
 
   beforeAll(async () => {
@@ -74,7 +79,8 @@ describe('a re-uploaded file replaces the period, never adds to it', () => {
     await ensureOrg(ORG_ID, TRADER_GSTIN);
     await resetOrg(ORG_ID);
 
-    latestRegister = (await uploadRegister(TALLY_COLUMN_MAP)).upload;
+    first = await uploadRegister(TALLY_COLUMN_MAP);
+    latestRegister = first.upload;
     await ingest(ORG_ID, 'IMS', 'ims.json', JUNE);
     await ingest(ORG_ID, 'GSTR2B', 'gstr2b.json', JUNE);
     const run = await createRun({ orgId: ORG_ID, taxPeriod: JUNE, mode: 'REACTIVE', asOfDate: AS_OF });
@@ -109,9 +115,36 @@ describe('a re-uploaded file replaces the period, never adds to it', () => {
     expect(baseline.totals.deferredItc).toBe(22858135);
   });
 
+  it('reads Tally "Purchase" vouchers as invoices and keeps the notes as notes', async () => {
+    const [types] = await pool.query(
+      `SELECT doc_type, COUNT(*) AS n FROM expected_invoices
+        WHERE org_id = ? AND tax_period = ? GROUP BY doc_type`,
+      [ORG_ID, JUNE]
+    );
+    const byType = Object.fromEntries(types.map((row) => [row.doc_type, Number(row.n)]));
+    expect(byType.INVOICE).toBeGreaterThan(0);
+    expect(byType.CREDIT_NOTE).toBeGreaterThan(0);
+  });
+
+  it('gives a CSV upload the period its rows are in, so the history lists it (P33)', async () => {
+    expect(first.committed.taxPeriod).toBe(JUNE);
+    const listed = (await listUploads(ORG_ID)).find((upload) => upload.id === first.upload.id);
+    expect(listed.tax_period).toBe(JUNE);
+  });
+
+  it('refuses a re-upload with the document type unmapped, and leaves the register alone', async () => {
+    await expect(uploadRegister(columnMapWithout('docType'))).rejects.toMatchObject({
+      status: 422,
+      code: 'document_type_unmapped'
+    });
+    expect(await registerRows()).toBe(baseline.rows);
+    expect((await getRun(ORG_ID, baseline.runId)).staleness.isStale).toBe(false);
+  });
+
   it('replaces the register when the same period is uploaded again with a column unmapped', async () => {
-    // The audit's second upload: "Voucher Type" left unmapped, every row an invoice.
-    const second = await uploadRegister(columnMapWithout('docType'));
+    // The audit's second upload: "Voucher Type" left unmapped, every row an invoice —
+    // now only on the trader's explicit say-so.
+    const second = await uploadRegister(columnMapWithout('docType'), { allInvoices: true });
     latestRegister = second.upload;
     const staleBeforeRebuild = (await getRun(ORG_ID, baseline.runId)).staleness.isStale;
 

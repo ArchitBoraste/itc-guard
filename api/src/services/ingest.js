@@ -94,12 +94,12 @@ export async function getUpload(orgId, id, { withBytes = false } = {}) {
 
 // Detected format plus the first N canonical rows, so the trader can see that the
 // mapping worked before committing anything.
-export async function previewUpload(orgId, id, { limit = 20, columnMap = null } = {}) {
+export async function previewUpload(orgId, id, { limit = 20, columnMap = null, allInvoices = false } = {}) {
   const upload = await getUpload(orgId, id, { withBytes: true });
   const buffer = upload.raw_bytes;
   if (!buffer) throw new ServiceError('upload has no stored bytes', 409, 'conflict');
 
-  const parsed = parseUpload(upload, buffer, columnMap);
+  const parsed = parseUpload(upload, buffer, columnMap, { allInvoices });
   return {
     uploadId: upload.id,
     kind: upload.kind,
@@ -111,16 +111,22 @@ export async function previewUpload(orgId, id, { limit = 20, columnMap = null } 
   };
 }
 
-function parseUpload(upload, buffer, columnMap) {
+// allInvoices: the trader confirms a register with no document-type column
+// holds invoices only (purchaseRegister.requireDocumentType).
+function parseUpload(upload, buffer, columnMap, { allInvoices = false } = {}) {
   try {
     if (upload.kind === 'PURCHASE_REGISTER') {
       const out = purchaseRegister.parseWithMetadata(buffer, columnMap, {
         taxPeriod: upload.tax_period ?? undefined,
-        orgId: upload.org_id
+        orgId: upload.org_id,
+        allInvoices
       });
       return {
         format: out.format,
-        taxPeriod: out.taxPeriod,
+        // A CSV carries no file-level period, so it is the one most of its rows
+        // fall in. Recorded on the upload at commit, which is what puts a CSV in
+        // the period-filtered upload history (audit P33).
+        taxPeriod: out.taxPeriod ?? dominantPeriod(out.invoices),
         metadata: out.metadata,
         rows: out.invoices
       };
@@ -154,12 +160,12 @@ function parseUpload(upload, buffer, columnMap) {
 //     (loadPortal). It is kept for the change feed.
 // Every period the file touched has its run marked out of date until rebuilt.
 // Returns what changed, and those periods.
-export async function commitUpload(orgId, id, { columnMap = null } = {}) {
+export async function commitUpload(orgId, id, { columnMap = null, allInvoices = false } = {}) {
   const upload = await getUpload(orgId, id, { withBytes: true });
   const buffer = upload.raw_bytes;
   if (!buffer) throw new ServiceError('upload has no stored bytes', 409, 'conflict');
 
-  const parsed = parseUpload(upload, buffer, columnMap);
+  const parsed = parseUpload(upload, buffer, columnMap, { allInvoices });
 
   const outcome = await withTransaction(async (connection) => {
     const committed = upload.kind === 'PURCHASE_REGISTER'
@@ -252,7 +258,7 @@ async function commitExpected(connection, orgId, upload, parsed) {
   await replaceExpectedRateLines(connection, orgId, invoices);
 
   const afterUpsert = await countRows(connection, 'expected_invoices', orgId);
-  const filePeriod = upload.tax_period ?? parsed.taxPeriod ?? dominantPeriod(invoices);
+  const filePeriod = upload.tax_period ?? parsed.taxPeriod;
   const replaced = await replacePeriodRegister(connection, orgId, filePeriod, invoices);
 
   return {

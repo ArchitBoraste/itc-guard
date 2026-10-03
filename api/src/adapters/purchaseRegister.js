@@ -241,17 +241,43 @@ const SUPPLY_TYPES = new Map(
   })
 );
 
+// Every spelling of a document type a register uses, in one table: the GSTN
+// templates' own (and the CSV's single letters), and Tally's voucher types, where
+// every purchase invoice is a "Purchase" voucher (audit P32: a real Tally export
+// was refused over it). Read through docTypeKey(), so case, dots and dashes do not
+// matter: "CR. NOTE" is "cr note".
+//
+// Values name the DOCUMENT. A trader who books a supplier's credit note as a
+// Tally "Debit Note" voucher (Tally's purchase-return habit) has to map or fix
+// that column; nothing in the file can tell the two habits apart.
 const DOC_TYPES = new Map(
   Object.entries({
     invoice: 'INVOICE',
     inv: 'INVOICE',
     i: 'INVOICE',
-    'debit note': 'DEBIT_NOTE',
-    d: 'DEBIT_NOTE',
+    'tax invoice': 'INVOICE',
+    purchase: 'INVOICE',
+    purchases: 'INVOICE',
+    'purchase invoice': 'INVOICE',
+    'purchase voucher': 'INVOICE',
+    bill: 'INVOICE',
     'credit note': 'CREDIT_NOTE',
-    c: 'CREDIT_NOTE'
+    'credit notes': 'CREDIT_NOTE',
+    'cr note': 'CREDIT_NOTE',
+    'credit memo': 'CREDIT_NOTE',
+    cn: 'CREDIT_NOTE',
+    c: 'CREDIT_NOTE',
+    'debit note': 'DEBIT_NOTE',
+    'debit notes': 'DEBIT_NOTE',
+    'dr note': 'DEBIT_NOTE',
+    'debit memo': 'DEBIT_NOTE',
+    dn: 'DEBIT_NOTE',
+    d: 'DEBIT_NOTE'
   })
 );
+
+const docTypeKey = (raw) =>
+  String(raw).toLowerCase().replace(/[.\-_]/g, ' ').replace(/\s+/g, ' ').trim();
 
 function looksLikeZip(buffer) {
   return buffer.length > 1 && buffer[0] === 0x50 && buffer[1] === 0x4b; // 'PK'
@@ -356,17 +382,41 @@ function cell(row, mapped, field) {
   return index === undefined ? null : row[index] ?? null;
 }
 
-function enumValue(raw, table, { field, at, fallback }) {
+function enumValue(raw, table, { field, at, fallback, keyOf = (v) => String(v).trim().toLowerCase(), expected }) {
   if (isBlank(raw)) {
     if (fallback !== undefined) return fallback;
     throw new AdapterError(`${field} is empty`, { at, field });
   }
-  const key = String(raw).trim().toLowerCase();
-  const value = table.get(key);
+  const value = table.get(keyOf(raw));
   if (!value) {
-    throw new AdapterError(`${field} has unknown value ${JSON.stringify(raw)}`, { at, field });
+    throw new AdapterError(
+      `${field} has unknown value ${JSON.stringify(raw)}${expected ? ` — expected ${expected}` : ''}`,
+      { at, field }
+    );
   }
   return value;
+}
+
+// No document-type column means every row reads as an invoice, and a credit note
+// read as an invoice ADDS the credit it should take away (audit P32: unmapping
+// the column was the obvious workaround, and it did exactly that, silently).
+// Two cases may go without one: the GSTR-2 B2B section CSV, whose rows are all
+// invoices by definition (its notes are the CDNR section, with its own Document
+// Type column), and a caller who confirms the file holds invoices only.
+function requireDocumentType(mapped, headerCells, columnMap, { allInvoices = false } = {}) {
+  if ('docType' in mapped || allInvoices) return;
+  const invoiceHeader = normalizeHeader(headerCells[mapped.invoiceNo]);
+  const b2bSection = invoiceHeader === 'invoice number' && !columnMap?.invoiceNo;
+  if (b2bSection) return;
+  throw Object.assign(
+    new AdapterError(
+      'no document-type column is mapped, so credit and debit notes cannot be told from ' +
+        'invoices: every row would be read as an invoice, and a credit note would add credit ' +
+        'instead of reducing it. Map the column that says Invoice, Credit Note or Debit Note ' +
+        '(Tally calls it Voucher Type), or confirm that every row is an invoice.'
+    ),
+    { code: 'document_type_unmapped' }
+  );
 }
 
 function readRow(row, mapped, at) {
@@ -389,7 +439,9 @@ function readRow(row, mapped, at) {
     docType: enumValue(cell(row, mapped, 'docType'), DOC_TYPES, {
       field: 'document type',
       at,
-      fallback: 'INVOICE'
+      fallback: 'INVOICE',
+      keyOf: docTypeKey,
+      expected: 'Invoice (or Purchase), Credit Note or Debit Note'
     }),
     invoiceNo,
     invoiceNoNorm: normalizeInvoiceNo(invoiceNo),
@@ -466,6 +518,7 @@ function parseTemplateV24(buffer, columnMap, options) {
   const rows = sheetRows(sheet);
   const mapped = mapHeaderRow(rows[HEADER_ROW - 1] ?? [], columnMap);
   requireFields(mapped, `row ${HEADER_ROW}`);
+  requireDocumentType(mapped, rows[HEADER_ROW - 1] ?? [], columnMap, options);
 
   // Row 1: recipient GSTIN + financial year. Row 2: trade name + tax period.
   const metadata = readMetadata(rows.slice(0, METADATA_ROWS));
@@ -540,6 +593,7 @@ function parseGstr2Csv(buffer, columnMap, options) {
 
   const mapped = mapHeaderRow(data[0], columnMap);
   requireFields(mapped, 'row 1');
+  requireDocumentType(mapped, data[0], columnMap, options);
 
   // Rate rows for one document must collapse into a single ExpectedInvoice.
   const groups = new Map();
@@ -615,7 +669,9 @@ function refuse(buffer) {
 
 // parse(buffer, columnMap?, options?) -> ExpectedInvoice[]
 //   columnMap  { canonicalField: headerText | columnIndex } for non-template files
-//   options    { taxPeriod, orgId, format }
+//   options    { taxPeriod, orgId, format, allInvoices }
+//              allInvoices: the caller confirms a file with no document-type
+//              column holds invoices only (see requireDocumentType)
 export function parse(input, columnMap = null, options = {}) {
   const buffer = asBuffer(input);
   const format = resolveFormat(buffer, columnMap, options);
