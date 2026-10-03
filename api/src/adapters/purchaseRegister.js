@@ -473,6 +473,10 @@ function readRow(row, mapped, at) {
     cgst: rupeesToPaise(cell(row, mapped, 'cgst'), { at, field: 'central tax' }),
     sgst: rupeesToPaise(cell(row, mapped, 'sgst'), { at, field: 'state/ut tax' }),
     cess: rupeesToPaise(cell(row, mapped, 'cess'), { at, field: 'cess' }),
+    // A voucher or row-group id from the trader's own system, when the columnMap
+    // names one (no GSTN template has it): the surest way to tell two documents
+    // apart that a supplier numbered and dated alike.
+    voucherId: trimOrNull(cell(row, mapped, 'voucherId')),
     sourceRowNo: null
   };
 }
@@ -595,8 +599,14 @@ function parseGstr2Csv(buffer, columnMap, options) {
   requireFields(mapped, 'row 1');
   requireDocumentType(mapped, data[0], columnMap, options);
 
-  // Rate rows for one document must collapse into a single ExpectedInvoice.
+  // Rate rows for one document must collapse into a single ExpectedInvoice,
+  // grouped on supplier, number and date (and voucher id, when mapped). That key
+  // alone merged two DIFFERENT documents a supplier numbered and dated alike
+  // (audit P31: Deepak Sales Corp's two D1404s of 16 June became one entry), so a
+  // row joins a document only if it fits it; see fitsDocument().
   const groups = new Map();
+  const documents = [];
+  const warnings = [];
   for (let i = 1; i < data.length; i += 1) {
     const row = data[i];
     if (row.every((value) => isBlank(value))) continue;
@@ -604,16 +614,28 @@ function parseGstr2Csv(buffer, columnMap, options) {
     const parts = readRow(row, mapped, at);
     parts.sourceRowNo = i + 1;
 
-    const key = [parts.supplierGstin, parts.invoiceNoNorm, parts.invoiceDate].join('|');
-    const group = groups.get(key);
-    if (group) {
-      group.rateLines.push(rateLineOf(parts));
+    const key = [parts.supplierGstin, parts.invoiceNoNorm, parts.invoiceDate, parts.voucherId ?? ''].join('|');
+    const sameKey = groups.get(key) ?? [];
+    const document = sameKey.find((candidate) => fitsDocument(candidate, parts));
+    if (!document) {
+      const created = { head: parts, rateLines: [rateLineOf(parts)] };
+      sameKey.push(created);
+      groups.set(key, sameKey);
+      documents.push(created);
       continue;
     }
-    groups.set(key, { head: parts, rateLines: [rateLineOf(parts)] });
+    document.rateLines.push(rateLineOf(parts));
+    // Nothing in the file says whether these rows are one document: say so.
+    if (parts.rate === null) {
+      warnings.push(
+        `${at}: read as part of the document on row ${document.head.sourceRowNo} ` +
+          `(${parts.invoiceNo}, ${parts.invoiceDate}): same supplier, number and date, and no ` +
+          'rate, document value or voucher id to tell them apart'
+      );
+    }
   }
 
-  const invoices = [...groups.values()].map(({ head, rateLines }) => {
+  const invoices = documents.map(({ head, rateLines }) => {
     const totals = sumRateLines(rateLines);
     return toExpectedInvoice(
       { ...head, ...totals },
@@ -621,7 +643,20 @@ function parseGstr2Csv(buffer, columnMap, options) {
     );
   });
 
-  return { invoices, metadata: null, taxPeriod: options.taxPeriod ?? null };
+  return { invoices, metadata: null, taxPeriod: options.taxPeriod ?? null, warnings };
+}
+
+// Whether a row is another rate line of `document` rather than a second document
+// under the same supplier, number and date. Each document has one row per rate,
+// and every row carries the document's own value; a repeated rate or a different
+// value is a different document.
+function fitsDocument(document, parts) {
+  const rateTaken =
+    parts.rate !== null && document.rateLines.some((line) => line.rate === parts.rate);
+  const valueDiffers =
+    parts.invoiceValue !== null && document.head.invoiceValue !== null &&
+    parts.invoiceValue !== document.head.invoiceValue;
+  return !rateTaken && !valueDiffers;
 }
 
 function rateLineOf(parts) {

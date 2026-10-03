@@ -106,6 +106,7 @@ export async function previewUpload(orgId, id, { limit = 20, columnMap = null, a
     detectedFormat: parsed.format,
     taxPeriod: parsed.taxPeriod,
     metadata: parsed.metadata,
+    warnings: parsed.warnings,
     totalRows: parsed.rows.length,
     rows: parsed.rows.slice(0, limit)
   };
@@ -128,6 +129,8 @@ function parseUpload(upload, buffer, columnMap, { allInvoices = false } = {}) {
         // the period-filtered upload history (audit P33).
         taxPeriod: out.taxPeriod ?? dominantPeriod(out.invoices),
         metadata: out.metadata,
+        // Rows read as one document without the file saying so (P31).
+        warnings: out.warnings ?? [],
         rows: out.invoices
       };
     }
@@ -140,6 +143,7 @@ function parseUpload(upload, buffer, columnMap, { allInvoices = false } = {}) {
       format: upload.kind === 'IMS' ? 'IMS_JSON' : 'GSTR2B_JSON',
       taxPeriod: upload.tax_period ?? rows[0]?.taxPeriod ?? null,
       metadata: null,
+      warnings: [],
       rows
     };
   } catch (err) {
@@ -190,7 +194,13 @@ export async function commitUpload(orgId, id, { columnMap = null, allInvoices = 
     }
   );
 
-  return { uploadId: upload.id, kind: upload.kind, taxPeriod: parsed.taxPeriod, ...outcome };
+  return {
+    uploadId: upload.id,
+    kind: upload.kind,
+    taxPeriod: parsed.taxPeriod,
+    warnings: parsed.warnings,
+    ...outcome
+  };
 }
 
 async function commitExpected(connection, orgId, upload, parsed) {

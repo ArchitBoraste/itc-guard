@@ -19,7 +19,8 @@ import { closePool, pool } from '../../src/db/pool.js';
 import { commitUpload, createUpload, listUploads } from '../../src/services/ingest.js';
 import { createRun, getRun, rerunPeriodIfRun } from '../../src/services/reconcile.js';
 import { TEST_ORGS, ensureOrg, ingest, requireDatabase, resetOrg } from '../helpers/db.js';
-import { FIXTURES_PRESENT, readJson } from '../helpers/fixtures.js';
+import { parse as parseRegister } from '../../src/adapters/purchaseRegister.js';
+import { FIXTURES_PRESENT, readBuffer, readJson } from '../helpers/fixtures.js';
 import { TALLY_COLUMN_MAP, columnMapWithout, tallyCsv, tallyVoucherType } from '../helpers/tallyCsv.js';
 
 const ORG_ID = TEST_ORGS.registerReupload;
@@ -124,6 +125,24 @@ describe('a re-uploaded file replaces the period, never adds to it', () => {
     const byType = Object.fromEntries(types.map((row) => [row.doc_type, Number(row.n)]));
     expect(byType.INVOICE).toBeGreaterThan(0);
     expect(byType.CREDIT_NOTE).toBeGreaterThan(0);
+  });
+
+  it('reads the CSV as the same documents as the template, both D1404s included (P31)', async () => {
+    // Deepak Sales Corp's two invoices numbered D1404, both of 16 June, used to
+    // merge into one book entry here: one read as a mismatch, one as not in books.
+    expect(baseline.rows).toBe(parseRegister(readBuffer(JUNE, 'purchase_register.xlsx')).length);
+    const [rows] = await pool.query(
+      `SELECT ei.total_tax, mr.bucket
+         FROM expected_invoices ei JOIN match_results mr ON mr.expected_invoice_id = ei.id
+        WHERE ei.org_id = ? AND mr.run_id = ? AND ei.invoice_no = 'D1404'
+        ORDER BY ei.total_tax`,
+      [ORG_ID, baseline.runId]
+    );
+    expect(rows.map((row) => [Number(row.total_tax), row.bucket])).toEqual([
+      [3572750, 'MATCHED'],
+      [8723148, 'MATCHED']
+    ]);
+    expect(first.committed.warnings).toEqual([]);
   });
 
   it('gives a CSV upload the period its rows are in, so the history lists it (P33)', async () => {
