@@ -51,6 +51,21 @@ export function parseAsOfDate(value) {
   return iso;
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+// '2026-09-14' -> '14 Sep 2026', for messages the trader reads.
+export function displayDate(iso) {
+  const [year, month, day] = String(iso).split('-').map(Number);
+  return `${day} ${MONTHS[month - 1].slice(0, 3)} ${year}`;
+}
+
+// '2026-08' -> 'August 2026'
+export function displayPeriod(taxPeriod) {
+  const [year, month] = String(taxPeriod).split('-').map(Number);
+  return `${MONTHS[month - 1]} ${year}`;
+}
+
 // asOfDate: yyyy-mm-dd, or null to follow today again.
 export async function writeWorkspaceClock(orgId, asOfDate) {
   const value = asOfDate === null ? null : parseAsOfDate(asOfDate);

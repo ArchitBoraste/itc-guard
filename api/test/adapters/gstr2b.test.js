@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NON_IMS_SECTIONS, TWOB_SECTIONS, identityKey, parse } from '../../src/adapters/gstr2b.js';
+import { NON_IMS_SECTIONS, TWOB_SECTIONS, identityKey, parse, statementPeriod } from '../../src/adapters/gstr2b.js';
 import { parse as parseIms } from '../../src/adapters/ims.js';
 import { computeContentHash } from '../../src/adapters/contentHash.js';
 import {
@@ -352,5 +352,17 @@ describe('GSTR-2B adapter — shapes and failure modes', () => {
   it('knows which sections never enter IMS', () => {
     expect([...NON_IMS_SECTIONS].sort()).toEqual(['impg', 'impgsez', 'isd', 'isda']);
     expect(TWOB_SECTIONS).toHaveLength(10);
+  });
+});
+
+describe('statementPeriod', () => {
+  it("reads the statement's own return period from the envelope", () => {
+    expect(statementPeriod(JSON.stringify({ rtnprd: '082026', docdata: {} }))).toBe('2026-08');
+  });
+
+  it('is null, never an error, when the file does not say', () => {
+    expect(statementPeriod(JSON.stringify({ docdata: {} }))).toBeNull();
+    expect(statementPeriod(JSON.stringify({ rtnprd: 'August', docdata: {} }))).toBeNull();
+    expect(statementPeriod('not json')).toBeNull();
   });
 });

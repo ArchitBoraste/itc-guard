@@ -291,6 +291,7 @@ Migrations to run by hand on a deployment older than branch `phase1-audit-fixes`
 | `009_supplier_scheme_source.sql` | `suppliers.filing_scheme_source` (`INFERRED`/`USER`): a scheme the trader sets is never overwritten by inference | Visitor orgs seeded from now on have the 7 QRMP sample suppliers "set by you" |
 | `010_supplier_gstin_aliases.sql` | `supplier_gstin_aliases`: a mistyped GSTIN counts under the supplier it belongs to | An existing org's typo "suppliers" go at its next run (any upload, re-run or "Reset my data") |
 | `011_workspace_clock.sql` | `organizations.as_of_date`: one as-of date per workspace (NULL follows today in India); every run is computed against it | Existing runs keep the date they were computed for until the period is re-run or the workspace date is set (`PUT /api/workspace/clock`) |
+| `012_upload_snapshots.sql` | `uploads.snapshot_date` (an IMS upload's day), `replaced_at` and `replaced_by_upload_id` (a later upload of the same kind and period replaced it) | Uploads made before it show no snapshot date and are not marked replaced until the next upload of their kind and period |
 
 Existing data is never rewritten by these. To see the fixes on the demo straight
 away, reset the presenter's org (`dc exec api node /app/tools/demo-reset.js`);
