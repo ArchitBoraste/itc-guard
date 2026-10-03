@@ -11,7 +11,7 @@
 import { pool } from '../db/pool.js';
 import { FILING_SCHEMES } from '../matching/cutoff.js';
 import { ServiceError } from './ingest.js';
-import { rerunPeriodIfRun } from './reconcile.js';
+import { rerunPeriods } from './reconcile.js';
 import { clearSupplierScheme, getSupplierHistory, setSupplierScheme } from './supplierStats.js';
 
 // changeSupplierScheme(orgId, gstin, scheme) -> { supplier, reruns }
@@ -43,13 +43,6 @@ export async function changeSupplierScheme(orgId, gstin, scheme) {
 }
 
 async function rerunEveryPeriod(orgId) {
-  const [runs] = await pool.query(
-    'SELECT tax_period FROM runs WHERE org_id = ? ORDER BY tax_period',
-    [orgId]
-  );
-  const reruns = [];
-  for (const { tax_period: taxPeriod } of runs) {
-    reruns.push({ taxPeriod, ...(await rerunPeriodIfRun(orgId, taxPeriod)) });
-  }
-  return reruns;
+  const [runs] = await pool.query('SELECT tax_period FROM runs WHERE org_id = ?', [orgId]);
+  return rerunPeriods(orgId, runs.map((run) => run.tax_period));
 }

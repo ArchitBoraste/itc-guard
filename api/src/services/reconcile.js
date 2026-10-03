@@ -75,6 +75,9 @@ export async function loadExpected(orgId, taxPeriod) {
   return rows.map(toExpectedShape);
 }
 
+// A record missing from the latest download of its source is no longer on the
+// portal (absent_since, set by syncDiff): it stays in the table for the change
+// feed and leaves reconciliation, so a re-upload replaces rather than adds.
 export async function loadPortal(orgId, taxPeriod) {
   const [rows] = await pool.query(
     `SELECT id, source, section, supplier_gstin, supplier_name, doc_type, supply_type,
@@ -86,7 +89,7 @@ export async function loadPortal(orgId, taxPeriod) {
             itc_reduction_blocked, original_invoice_no, original_invoice_date,
             port_code, source_form, content_hash, identity_key
        FROM portal_records
-      WHERE org_id = ? AND tax_period IN (?)
+      WHERE org_id = ? AND tax_period IN (?) AND absent_since IS NULL
       ORDER BY id`,
     [orgId, periodWindow(taxPeriod)]
   );
@@ -482,6 +485,16 @@ export async function rerunPeriodIfRun(orgId, taxPeriod) {
   }
 }
 
+// rerunPeriodIfRun for several periods, oldest first: a period's supplier risk
+// reads the periods before it. -> [{ taxPeriod, ran, ... }]
+export async function rerunPeriods(orgId, periods = []) {
+  const reruns = [];
+  for (const taxPeriod of [...new Set(periods)].sort()) {
+    reruns.push({ taxPeriod, ...(await rerunPeriodIfRun(orgId, taxPeriod)) });
+  }
+  return reruns;
+}
+
 // Every period this org holds data for, and whether that data is enough to run.
 //
 // The Reconcile button asks this instead of counting what the page just uploaded.
@@ -495,7 +508,8 @@ export async function listPeriodInventory(orgId) {
   );
   const [portal] = await pool.query(
     `SELECT tax_period, source, COUNT(*) AS n
-       FROM portal_records WHERE org_id = ? GROUP BY tax_period, source`,
+       FROM portal_records WHERE org_id = ? AND absent_since IS NULL
+      GROUP BY tax_period, source`,
     [orgId]
   );
   const [runs] = await pool.query('SELECT id, tax_period FROM runs WHERE org_id = ?', [orgId]);
@@ -606,13 +620,13 @@ async function runOpenDecisions(orgId, runId) {
 
 // Is this run still current?
 //
-// Two questions, because they fail differently:
+// Questions that fail differently:
 //   * staleResults — a row whose portal record changed under the stored verdict.
 //     Exact, per row, and it is what disables the action buttons.
-//   * changesSinceRun — anything the diff recorded after the run started,
-//     INCLUDING records that are new since and therefore appear in no result at
-//     all. A record nobody has seen is deemed accepted at GSTR-3B, so "nothing on
-//     screen is stale" is not the same as "the run is current".
+//   * unseenRecords — records that arrived after the run and appear in no result
+//     at all. A record nobody has seen is deemed accepted at GSTR-3B, so "nothing
+//     on screen is stale" is not the same as "the run is current".
+//   * withdrawnResults / inputsChangedAt — the run's inputs were replaced since.
 async function runStaleness(orgId, run) {
   const [staleRows] = await pool.query(
     `SELECT
@@ -642,7 +656,8 @@ async function runStaleness(orgId, run) {
     [orgId, run.tax_period]
   );
   const [livePortal] = await pool.query(
-    'SELECT COUNT(*) AS n FROM portal_records WHERE org_id = ? AND tax_period = ?',
+    `SELECT COUNT(*) AS n FROM portal_records
+      WHERE org_id = ? AND tax_period = ? AND absent_since IS NULL`,
     [orgId, run.tax_period]
   );
 
@@ -661,17 +676,24 @@ async function runStaleness(orgId, run) {
   // apart from staleResults so the UI can say "re-run to verify" rather than
   // claiming records changed when it does not know that.
   const unverifiedResults = Number(staleRows[0].unverifiable ?? 0);
+  // Rows about a record the latest download no longer carries. Rebuilding takes
+  // the record out of the run (loadPortal), so these are a reason to re-run.
+  const withdrawnResults = Number(staleRows[0].withdrawn ?? 0);
+  // Set by every commit to this period (ingest.markRunsStale) and cleared by the
+  // next run. Counts cannot see a replaced register whose row count did not move.
+  const inputsChangedAt = parseJsonColumn(run.summary)?.inputsChangedAt ?? null;
   return {
     staleResults,
     unverifiedResults,
-    // Reported, but NOT a reason to re-run: rebuilding will not bring a withdrawn
-    // record back. Those rows carry their own note and are un-actionable.
-    withdrawnResults: Number(staleRows[0].withdrawn ?? 0),
+    withdrawnResults,
     unseenRecords,
+    inputsChangedAt,
     // Runs written before the per-period counts existed report on stale results
     // alone rather than claiming a certainty they do not have.
     inputCountsKnown: Boolean(atRun),
-    isStale: staleResults > 0 || unverifiedResults > 0 || unseenRecords > 0
+    isStale:
+      staleResults > 0 || unverifiedResults > 0 || unseenRecords > 0 ||
+      withdrawnResults > 0 || Boolean(inputsChangedAt)
   };
 }
 

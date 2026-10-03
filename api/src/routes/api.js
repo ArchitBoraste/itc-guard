@@ -5,6 +5,7 @@ import {
   UPLOAD_KINDS,
   commitUpload,
   createUpload,
+  deleteUpload,
   getUpload,
   listUploads,
   previewUpload
@@ -19,7 +20,7 @@ import {
   listPeriodInventory,
   listResults,
   listRuns,
-  rerunPeriodIfRun
+  rerunPeriods
 } from '../services/reconcile.js';
 import { listChangesForRun } from '../services/syncDiff.js';
 import { preventiveAlerts } from '../services/preventive.js';
@@ -223,10 +224,20 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     });
     // New data makes the period's existing run wrong the instant it lands: the
     // stored verdicts were computed against the old figures, while every read
-    // joins the portal rows live. Rebuild it here rather than leaving a run that
-    // renders new numbers under an old answer.
-    const rerun = await rerunPeriodIfRun(req.orgId, result.taxPeriod);
-    res.json({ ...result, rerun });
+    // joins the portal rows live. Rebuild every period the file touched rather
+    // than leaving a run that renders new numbers under an old answer.
+    const reruns = await rerunPeriods(req.orgId, result.periods);
+    // `rerun` is the file's own period, as before; `reruns` is every period.
+    const rerun = reruns.find((entry) => entry.taxPeriod === result.taxPeriod) ?? null;
+    res.json({ ...result, rerun, reruns });
+  }));
+
+  // Removes an upload and every row it still owns: for the latest file of a kind
+  // and period, that kind's data for the period. The periods it touched are
+  // rebuilt; a period left with nothing to reconcile loses its run.
+  router.delete('/uploads/:id', wrap(async (req, res) => {
+    const deleted = await deleteUpload(req.orgId, Number(req.params.id));
+    res.json({ ...deleted, reruns: await rerunPeriods(req.orgId, deleted.periods) });
   }));
 
   // What the org already holds, per period. The Reconcile button needs this: a

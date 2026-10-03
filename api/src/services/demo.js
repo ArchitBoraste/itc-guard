@@ -101,6 +101,46 @@ export async function ensureOrg(orgId) {
   );
 }
 
+// Loading the sample into a period replaces what the org holds for it, because a
+// commit replaces its period. Harmless while the period still IS the sample;
+// destructive once anything has changed since: a file the visitor uploaded, or a
+// portal record amended after the sample was loaded — which is what the scripted
+// April story is. Re-loading April used to undo the story silently (audit P23).
+// So the reload is refused, with the reason, instead.
+async function assertSampleReloadSafe(orgId, taxPeriod) {
+  const samples = SOURCES.map((source) => source.filename);
+  const [[own]] = await pool.query(
+    `SELECT (SELECT COUNT(*) FROM expected_invoices ei JOIN uploads u ON u.id = ei.upload_id
+              WHERE ei.org_id = ? AND ei.tax_period = ? AND u.original_filename NOT IN (?)) +
+            (SELECT COUNT(*) FROM portal_records pr JOIN uploads u ON u.id = pr.upload_id
+              WHERE pr.org_id = ? AND pr.tax_period = ? AND u.original_filename NOT IN (?)) AS n`,
+    [orgId, taxPeriod, samples, orgId, taxPeriod, samples]
+  );
+  const [[changed]] = await pool.query(
+    `SELECT COUNT(DISTINCT rc.portal_record_id) AS n
+       FROM record_changes rc JOIN portal_records pr ON pr.id = rc.portal_record_id
+      WHERE rc.org_id = ? AND pr.tax_period = ?`,
+    [orgId, taxPeriod]
+  );
+  const ownRows = Number(own.n);
+  const changedRecords = Number(changed.n);
+  if (!ownRows && !changedRecords) return;
+
+  const reasons = [
+    ownRows ? `${ownRows} row${ownRows === 1 ? '' : 's'} from files you uploaded` : null,
+    changedRecords
+      ? `${changedRecords} portal record${changedRecords === 1 ? '' : 's'} changed since the ` +
+        'sample was loaded (the demo story is one such change)'
+      : null
+  ].filter(Boolean);
+  throw new ServiceError(
+    `${taxPeriod} is already loaded and holds ${reasons.join(' and ')}. Loading the sample ` +
+      'again would overwrite that, so it was not loaded. Use "Reset my data" to start over.',
+    409,
+    'sample_reload_refused'
+  );
+}
+
 // The demo trader knows which of their suppliers file quarterly, the way a real
 // trader does, and has told the app — so the sample opens with those schemes
 // "set by you" rather than "assumed". The portal data cannot show it: a QRMP
@@ -145,6 +185,7 @@ export async function seedDemoPeriod(orgId, { taxPeriod = DEMO_PERIOD, asOfDate 
   }
 
   await ensureOrg(orgId);
+  await assertSampleReloadSafe(orgId, taxPeriod);
 
   const uploads = [];
   for (const source of SOURCES) {

@@ -218,6 +218,7 @@ export async function rebuildSupplierPeriods(orgId, taxPeriod, { runId = null } 
                 ) AS dedupe_rank
            FROM portal_records
           WHERE org_id = ? AND tax_period = ? AND supplier_gstin IS NOT NULL
+            AND absent_since IS NULL
        ) deduped
       WHERE dedupe_rank = 1
       GROUP BY supplier_gstin`,

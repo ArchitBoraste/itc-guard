@@ -146,16 +146,40 @@ export async function planPortalDiff(connection, { orgId, source, taxPeriod, rec
     }
   }
 
+  const gone = [];
   for (const [identityKey, previous] of baseline) {
     if (incoming.has(identityKey)) continue;
     // Already known to be gone. Reporting it again on every upload would make the
     // feed grow without anything new having happened.
     if (previous.absent_since) continue;
     disappeared.push(previous.id);
-    changes.push(describeChange('DISAPPEARED', previous, null));
+    gone.push(previous);
+  }
+
+  // A withdrawn record leaves reconciliation, and its result with it, on the next
+  // rebuild. The decision the trader had made about it is written into the change
+  // now, while it can still be read, so the feed can keep saying whose decision
+  // the withdrawal cost.
+  const decisions = await decisionsOn(connection, orgId, disappeared);
+  for (const previous of gone) {
+    const change = describeChange('DISAPPEARED', previous, null);
+    change.oldValues.decision = decisions.get(previous.id) ?? null;
+    changes.push(change);
   }
 
   return { changes, reappeared, disappeared };
+}
+
+// portal record id -> the IMS decision (A/R/P) recorded on its current result.
+async function decisionsOn(connection, orgId, portalRecordIds) {
+  if (!portalRecordIds.length) return new Map();
+  const [rows] = await connection.query(
+    `SELECT portal_record_id, confirmed_action FROM match_results
+      WHERE org_id = ? AND portal_record_id IN (?)
+        AND confirmed_action IN ('ACCEPT', 'REJECT', 'PENDING')`,
+    [orgId, portalRecordIds]
+  );
+  return new Map(rows.map((row) => [row.portal_record_id, row.confirmed_action]));
 }
 
 // old/new snapshots plus the per-field diff. `record` is null for DISAPPEARED:
@@ -377,12 +401,15 @@ function toChangeView(row) {
   //   * the run rebuild already dropped it — carryForward() saw the content_hash
   //     move and flagged CONFIRMATION_RESET.
   //   * the record was DELETED from the portal while still carrying a decision.
-  //     Nothing about the record changed, so carryForward has nothing to compare
-  //     and the confirmation survives — attached to a record that is no longer
-  //     there. Reported here rather than fixed here: making the matcher treat an
-  //     absent record differently moves rupee totals, which is not this change.
+  //     The rebuild takes the record out of the run (loadPortal), result and all,
+  //     so the decision is read from the change itself, written when the
+  //     withdrawal was detected (planPortalDiff) — or from the result, on a run
+  //     not rebuilt since.
+  const oldValues = parseJson(row.old_values);
+  const decisionWithdrawn = changeType === 'DISAPPEARED' ? oldValues?.decision ?? null : null;
+  const confirmedAction = row.confirmed_action ?? decisionWithdrawn;
   const invalidatedDecision =
-    confirmationReset || (changeType === 'DISAPPEARED' && Boolean(row.confirmed_action));
+    confirmationReset || (changeType === 'DISAPPEARED' && Boolean(confirmedAction));
 
   return {
     id: row.id,
@@ -423,19 +450,19 @@ function toChangeView(row) {
     // Paise, signed new - old. Null when the change did not touch money.
     deltaTaxableValue: row.delta_taxable_value === null ? null : Number(row.delta_taxable_value),
     deltaTotalTax: row.delta_total_tax === null ? null : Number(row.delta_total_tax),
-    oldValues: parseJson(row.old_values),
+    oldValues,
     newValues: parseJson(row.new_values),
     review: {
       resultId: row.result_id ?? null,
       bucket: row.bucket ?? null,
       recommendedAction: row.recommended_action ?? null,
-      confirmedAction: row.confirmed_action ?? null,
+      confirmedAction,
       confirmedAt: row.confirmed_at ?? null,
       signedItc: row.signed_itc === null || row.signed_itc === undefined
         ? null
         : Number(row.signed_itc),
       // Did a human ever decide anything here? Drives loud vs quiet in the UI.
-      reviewed: Boolean(row.confirmed_action) || confirmationReset,
+      reviewed: Boolean(confirmedAction) || confirmationReset,
       confirmationReset,
       invalidatedDecision
     }

@@ -144,8 +144,16 @@ function parseUpload(upload, buffer, columnMap) {
 
 // --- commit ----------------------------------------------------------------
 
-// Upserts on identity_key, so re-uploading the same source for the same period
-// updates rows instead of inserting duplicates. Returns what changed.
+// A commit REPLACES what the org held for its period and source, in one
+// transaction (audit P30):
+//   * purchase register: rows of the file's period that the new file does not
+//     carry are deleted. Upserting on identity_key keeps the ids of unchanged rows,
+//     so the decisions made on them survive the rebuild.
+//   * IMS / 2B: a record missing from the new download is marked absent
+//     (syncDiff), and an absent record no longer takes part in reconciliation
+//     (loadPortal). It is kept for the change feed.
+// Every period the file touched has its run marked out of date until rebuilt.
+// Returns what changed, and those periods.
 export async function commitUpload(orgId, id, { columnMap = null } = {}) {
   const upload = await getUpload(orgId, id, { withBytes: true });
   const buffer = upload.raw_bytes;
@@ -154,10 +162,11 @@ export async function commitUpload(orgId, id, { columnMap = null } = {}) {
   const parsed = parseUpload(upload, buffer, columnMap);
 
   const outcome = await withTransaction(async (connection) => {
-    if (upload.kind === 'PURCHASE_REGISTER') {
-      return commitExpected(connection, orgId, upload, parsed);
-    }
-    return commitPortal(connection, orgId, upload, parsed);
+    const committed = upload.kind === 'PURCHASE_REGISTER'
+      ? await commitExpected(connection, orgId, upload, parsed)
+      : await commitPortal(connection, orgId, upload, parsed);
+    await markRunsStale(connection, orgId, committed.periods);
+    return committed;
   });
 
   await pool.query(
@@ -242,8 +251,64 @@ async function commitExpected(connection, orgId, upload, parsed) {
   // invoices this upload touched rather than trying to diff them.
   await replaceExpectedRateLines(connection, orgId, invoices);
 
-  const after = await countRows(connection, 'expected_invoices', orgId);
-  return { parsed: invoices.length, inserted: after - before, updated: invoices.length - (after - before) };
+  const afterUpsert = await countRows(connection, 'expected_invoices', orgId);
+  const filePeriod = upload.tax_period ?? parsed.taxPeriod ?? dominantPeriod(invoices);
+  const replaced = await replacePeriodRegister(connection, orgId, filePeriod, invoices);
+
+  return {
+    parsed: invoices.length,
+    inserted: afterUpsert - before,
+    updated: invoices.length - (afterUpsert - before),
+    replaced,
+    periods: periodsOf(invoices, filePeriod)
+  };
+}
+
+// The register for one period is whatever the latest file says it is. Rows the
+// new file does not carry are deleted, with their rate lines and results
+// (ON DELETE CASCADE). Bounded to the file's own period: a CSV that also carries
+// a stray row from another month adds that row there and deletes nothing.
+async function replacePeriodRegister(connection, orgId, taxPeriod, invoices) {
+  if (!taxPeriod) return 0;
+  const keep = invoices.filter((invoice) => invoice.taxPeriod === taxPeriod).map((i) => i.identityKey);
+  const [result] = keep.length
+    ? await connection.query(
+        `DELETE FROM expected_invoices
+          WHERE org_id = ? AND tax_period = ? AND identity_key NOT IN (?)`,
+        [orgId, taxPeriod, keep]
+      )
+    : await connection.query(
+        'DELETE FROM expected_invoices WHERE org_id = ? AND tax_period = ?',
+        [orgId, taxPeriod]
+      );
+  return result.affectedRows;
+}
+
+// The period most of a file's rows fall in, for a file that declares none.
+export function dominantPeriod(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    if (row.taxPeriod) counts.set(row.taxPeriod, (counts.get(row.taxPeriod) ?? 0) + 1);
+  }
+  // Most rows first; a tie goes to the later period.
+  return [...counts].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
+}
+
+const periodsOf = (rows, ...extra) =>
+  [...new Set([...rows.map((row) => row.taxPeriod), ...extra].filter(Boolean))].sort();
+
+// A run computed before this commit no longer describes its period's data.
+// Recorded on the run itself, so it holds whatever the commit changed — a
+// replaced register can leave every count exactly as it was. createRun()
+// rewrites the summary, which clears it. See reconcile.runStaleness().
+export async function markRunsStale(connection, orgId, periods) {
+  if (!periods.length) return;
+  await connection.query(
+    `UPDATE runs
+        SET summary = JSON_SET(COALESCE(summary, JSON_OBJECT()), '$.inputsChangedAt', ?)
+      WHERE org_id = ? AND tax_period IN (?)`,
+    [new Date().toISOString(), orgId, periods]
+  );
 }
 
 async function replaceExpectedRateLines(connection, orgId, invoices) {
@@ -402,7 +467,10 @@ async function commitPortal(connection, orgId, upload, parsed) {
     parsed: records.length,
     inserted: after - before,
     updated: records.length - (after - before),
-    changes: changeCount
+    changes: changeCount,
+    // Records the new download no longer carries: absent from here on.
+    replaced: plan.disappeared.length,
+    periods: periodsOf(records, parsed.taxPeriod ?? upload.tax_period)
   };
 }
 
@@ -453,6 +521,87 @@ async function countRows(connection, table, orgId) {
     [orgId]
   );
   return Number(rows[0].n);
+}
+
+// --- delete ----------------------------------------------------------------
+
+// Removes an upload and every row it still owns, in one transaction. Because a
+// commit replaces its period's rows, the latest file of a kind owns that kind's
+// data for its period, so deleting it removes that data; a superseded file owns
+// only what nothing replaced since. Rows go with their rate lines, results and
+// change-feed entries (ON DELETE CASCADE), and so do the changes this upload
+// detected. A period left with nothing to reconcile loses its run and supplier
+// figures; any other period it touched is marked out of date for the caller to
+// rebuild.
+export async function deleteUpload(orgId, id) {
+  const upload = await getUpload(orgId, id);
+  return withTransaction(async (connection) => {
+    const periods = await periodsOwnedBy(connection, orgId, id, upload.tax_period);
+
+    await connection.query(
+      'DELETE FROM record_changes WHERE org_id = ? AND detected_from_upload_id = ?',
+      [orgId, id]
+    );
+    const [books] = await connection.query(
+      'DELETE FROM expected_invoices WHERE org_id = ? AND upload_id = ?',
+      [orgId, id]
+    );
+    const [portal] = await connection.query(
+      'DELETE FROM portal_records WHERE org_id = ? AND upload_id = ?',
+      [orgId, id]
+    );
+    await connection.query(
+      `UPDATE runs SET pr_upload_id = NULLIF(pr_upload_id, ?),
+                       ims_upload_id = NULLIF(ims_upload_id, ?),
+                       gstr2b_upload_id = NULLIF(gstr2b_upload_id, ?)
+        WHERE org_id = ?`,
+      [id, id, id, orgId]
+    );
+    await connection.query('DELETE FROM uploads WHERE org_id = ? AND id = ?', [orgId, id]);
+
+    const emptied = await dropEmptyPeriods(connection, orgId, periods);
+    await markRunsStale(connection, orgId, periods);
+    return {
+      uploadId: id,
+      kind: upload.kind,
+      removed: { registerRows: books.affectedRows, portalRecords: portal.affectedRows },
+      periods,
+      emptiedPeriods: emptied
+    };
+  });
+}
+
+async function periodsOwnedBy(connection, orgId, uploadId, declared) {
+  const [rows] = await connection.query(
+    `SELECT tax_period FROM expected_invoices WHERE org_id = ? AND upload_id = ?
+     UNION
+     SELECT tax_period FROM portal_records WHERE org_id = ? AND upload_id = ?`,
+    [orgId, uploadId, orgId, uploadId]
+  );
+  return [...new Set([...rows.map((row) => row.tax_period), declared].filter(Boolean))].sort();
+}
+
+// A period with no books and no portal record left has nothing a run could say.
+async function dropEmptyPeriods(connection, orgId, periods) {
+  const emptied = [];
+  for (const taxPeriod of periods) {
+    const [[left]] = await connection.query(
+      `SELECT (SELECT COUNT(*) FROM expected_invoices WHERE org_id = ? AND tax_period = ?) +
+              (SELECT COUNT(*) FROM portal_records
+                WHERE org_id = ? AND tax_period = ? AND absent_since IS NULL) AS n`,
+      [orgId, taxPeriod, orgId, taxPeriod]
+    );
+    if (Number(left.n) > 0) continue;
+    for (const sql of [
+      'DELETE FROM runs WHERE org_id = ? AND tax_period = ?',
+      'DELETE FROM supplier_periods WHERE org_id = ? AND tax_period = ?',
+      'DELETE FROM supplier_risk WHERE org_id = ? AND as_of_period = ?'
+    ]) {
+      await connection.query(sql, [orgId, taxPeriod]);
+    }
+    emptied.push(taxPeriod);
+  }
+  return emptied;
 }
 
 export async function listUploads(orgId, { limit = 50 } = {}) {
