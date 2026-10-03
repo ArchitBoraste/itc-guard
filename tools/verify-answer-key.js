@@ -22,9 +22,10 @@
 //            accepted amount only (an accepted invoice claims min(books, portal), an
 //            accepted credit note reverses max(books, portal)) and open decisions
 //            fall by the mismatches decided
-//   left out Still fixable as of the 16th: the documents it leaves out because they
+//   fixable  Still fixable as of the 16th: the documents it leaves out because they
 //            never enter IMS (count, suppliers, rupees as the screen shows them),
-//            and the documents it lists (count, suppliers, exposure)
+//            and the documents it lists (count, suppliers, exposure); and on every
+//            date the key covers, how many suppliers are past their own cut-off
 //
 // Exits non-zero if anything fails.
 import { readFileSync } from 'node:fs';
@@ -205,8 +206,24 @@ function checkRecommendations(mismatches, resultFor) {
   return { pass: failures.length === 0, agree: mismatches.length - failures.length, total: mismatches.length, failures };
 }
 
-// Still fixable on the run's own date. Neither half depends on the supplier's
-// filing scheme, so the key's true-scheme figures apply as they are.
+// How many listed suppliers are past their own cut-off on each date the key
+// covers (the 5th, 11th, 12th, 13th, 14th, 16th). This is the one Still fixable
+// figure the filing scheme moves: a QRMP supplier is inside its window on the
+// 12th and 13th. The key's true-scheme figure is the target.
+async function checkCutOffs(period, key) {
+  const diffs = [];
+  for (const { trueScheme: expected } of Object.values(key.stillFixable)) {
+    const alerts = await preventiveAlerts(ORG_ID, { taxPeriod: period, asOfDate: expected.asOf });
+    const past = alerts.suppliers.filter((supplier) => supplier.preCutOff === false).length;
+    if (past !== expected.pastCutOff) {
+      diffs.push(`past cut-off on ${expected.asOf}: ${past} suppliers vs key ${expected.pastCutOff}`);
+    }
+  }
+  return diffs;
+}
+
+// Still fixable on the run's own date: what it leaves out and what it lists.
+// Neither depends on the supplier's filing scheme.
 async function checkStillFixable(period, key) {
   const expected = Object.values(key.stillFixable).find((entry) => entry.trueScheme.asOf === key.runAsOf).trueScheme;
   const alerts = await preventiveAlerts(ORG_ID, { taxPeriod: period, asOfDate: key.runAsOf });
@@ -229,7 +246,8 @@ async function checkStillFixable(period, key) {
     ...(leftOut.itc === expected.leftOut.itc ? [] : [`left out ${rupees(leftOut.itc)} vs key ${rupees(expected.leftOut.itc)}`]),
     ...(listed.docs === expected.docCount ? [] : [`listed docs ${listed.docs} vs key ${expected.docCount}`]),
     ...(listed.suppliers === expected.supplierCount ? [] : [`listed suppliers ${listed.suppliers} vs key ${expected.supplierCount}`]),
-    ...(listed.exposure === expected.exposure ? [] : [`listed exposure ${rupees(listed.exposure)} vs key ${rupees(expected.exposure)}`])
+    ...(listed.exposure === expected.exposure ? [] : [`listed exposure ${rupees(listed.exposure)} vs key ${rupees(expected.exposure)}`]),
+    ...(await checkCutOffs(period, key))
   ];
   return { pass: diffs.length === 0, app: leftOut.docs, key: expected.leftOut.docs, diffs };
 }
@@ -337,7 +355,7 @@ const cell = (text, width) => String(text).padEnd(width);
 function printReport(reports) {
   const columns = [
     ['period', 9], ['docs', 16], ['totals', 8], ['identity', 10], ['VM recs', 14],
-    ['open app/key', 18], ['decided totals', 16], ['decided open', 16], ['left out app/key', 18]
+    ['open app/key', 18], ['decided totals', 16], ['decided open', 16], ['fixable left out', 18]
   ];
   console.log(columns.map(([name, width]) => cell(name, width)).join(''));
   console.log('-'.repeat(columns.reduce((n, [, w]) => n + w, 0)));

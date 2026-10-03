@@ -56,6 +56,14 @@ export function daysToGstr3b(asOfDate, taxPeriod) {
   return daysBetween(asOfDate, gstr3bDueDate(taxPeriod));
 }
 
+// The scheme whose cut-off applies to one supplier's document: theirs when it is
+// known (schemeFor: gstin -> scheme or null), the caller's default otherwise.
+// Shared by the engine's recommendation and the run totals, so the two cannot
+// judge the same document against different dates.
+export function supplierSchemeFor(gstin, { schemeFor = null, filingScheme = FILING_SCHEMES.MONTHLY } = {}) {
+  return (gstin && schemeFor?.(gstin)) || filingScheme;
+}
+
 // Which half of the month the trader is in. Drives which mode the UI opens in.
 export function filingWindow(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.MONTHLY) {
   const asOf = dateToIso(asOfDate);
@@ -85,9 +93,12 @@ export function filingWindow(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.
 //     11th, points to QRMP — weaker, because a habitually late monthly filer
 //     looks identical.
 //
-// Defaults to MONTHLY with low confidence rather than guessing, because the
-// consequence of the wrong scheme is a cut-off date two days out, and calling a
-// monthly filer QRMP would tell the trader they have more time than they do.
+// Defaults to MONTHLY with LOW confidence — shown as "assumed" — rather than
+// guessing, because the consequence of the wrong scheme is a cut-off date two
+// days out, and calling a monthly filer QRMP would tell the trader they have more
+// time than they do. Filing by the 11th is NOT evidence of a monthly scheme: a
+// QRMP supplier using IFF who files early looks identical (audit P9), so only the
+// trader can settle it (supplier filing_scheme_source = USER).
 export function inferFilingScheme(history = [], options = {}) {
   const minObservations = options.minObservations ?? 3;
   const observations = history
@@ -139,8 +150,10 @@ export function inferFilingScheme(history = [], options = {}) {
 
   return {
     scheme: FILING_SCHEMES.MONTHLY,
-    confidence: filedDays.length >= minObservations ? 'MEDIUM' : 'LOW',
-    reason: 'filings appear monthly and reach the 11th cut-off',
+    confidence: 'LOW',
+    reason:
+      'assumed monthly: a quarterly (QRMP) supplier who uses IFF and files by the 11th ' +
+      'looks the same',
     evidence: { observations: observations.length, filedDays }
   };
 }

@@ -66,7 +66,8 @@ export const TEST_ORGS = Object.freeze({
   noActionIsNotADecision: 17,
   periodStaleness: 18,
   droppedDecision: 19,
-  preventivePairing: 20
+  preventivePairing: 20,
+  supplierScheme: 21
 });
 
 export async function ensureOrg(orgId, gstin) {

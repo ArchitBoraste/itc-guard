@@ -31,6 +31,7 @@ import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
 import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
 import { rebuildSupplierStats, supplierRiskMap } from '../services/supplierRisk.js';
+import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
@@ -397,6 +398,19 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
 
   router.get('/suppliers/:gstin', wrap(async (req, res) => {
     res.json({ supplier: await getSupplierHistory(req.orgId, String(req.params.gstin).toUpperCase()) });
+  }));
+
+  // The trader settles a supplier's filing scheme: { scheme: 'MONTHLY' | 'QRMP' },
+  // or { scheme: null } to hand it back to inference. Every reconciled period is
+  // re-run against the new cut-off before this answers.
+  router.put('/suppliers/:gstin/filing-scheme', wrap(async (req, res) => {
+    if (!req.body || !('scheme' in req.body)) {
+      throw new ServiceError('scheme is required: MONTHLY, QRMP, or null to infer it');
+    }
+    const scheme = req.body.scheme === null ? null : String(req.body.scheme).toUpperCase();
+    res.json(
+      await changeSupplierScheme(req.orgId, String(req.params.gstin).toUpperCase(), scheme)
+    );
   }));
 
   return router;

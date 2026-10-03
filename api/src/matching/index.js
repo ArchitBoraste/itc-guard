@@ -13,7 +13,7 @@
 import { assignOneToOne } from './assign.js';
 import { blockingCoverage, candidatePairs } from './block.js';
 import { BUCKETS, FLAGS, classify, pairFlags } from './buckets.js';
-import { FILING_SCHEMES } from './cutoff.js';
+import { FILING_SCHEMES, supplierSchemeFor } from './cutoff.js';
 import { normalizeGstin } from './normalize.js';
 import { recommendAction } from './recommend.js';
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS, scorePair } from './score.js';
@@ -111,8 +111,12 @@ export function mergePortalRecords(portal) {
 //   weights, thresholds, blocking, tolerancePaise,   // engine tuning
 //   materialityTolerancePaise,                       // mismatch accepted as immaterial
 //   asOfDate, taxPeriod, filingScheme,               // calendar context
+//   schemeFor,                                       // gstin -> that supplier's scheme
 //   merge = true                                     // pre-merge IMS + 2B
 // }
+//
+// filingScheme is the default; schemeFor, when given, decides each supplier's own
+// cut-off. A QRMP supplier's saved record is still a free fix on the 12th.
 export function reconcile(expected = [], portal = [], options = {}) {
   const weights = { ...DEFAULT_WEIGHTS, ...(options.weights ?? {}) };
   const thresholds = { ...DEFAULT_THRESHOLDS, ...(options.thresholds ?? {}) };
@@ -120,6 +124,7 @@ export function reconcile(expected = [], portal = [], options = {}) {
     asOfDate: options.asOfDate ?? null,
     taxPeriod: options.taxPeriod ?? null,
     filingScheme: options.filingScheme ?? FILING_SCHEMES.MONTHLY,
+    schemeFor: options.schemeFor ?? null,
     // Passed through so recommendAction() measures a difference with the same
     // tolerance classify() used to decide the bucket.
     tolerancePaise: options.tolerancePaise,
@@ -209,7 +214,11 @@ function buildResult({
     deltaTotalTax: expected && portal ? portal.totalTax - expected.totalTax : null
   };
 
-  const recommendation = recommendAction(result, context);
+  const gstin = expected?.supplierGstin ?? portal?.supplierGstin ?? null;
+  const recommendation = recommendAction(result, {
+    ...context,
+    filingScheme: supplierSchemeFor(gstin, context)
+  });
   // The calendar verdict the recommendation was built on, kept as a flag so it
   // survives to the UI. It is the difference between "chase them, the fix is
   // free" and "chase them, but the credit now lands next period", and only the

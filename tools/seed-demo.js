@@ -13,9 +13,11 @@ import { fileURLToPath } from 'node:url';
 
 import { pool, closePool } from '../api/src/db/pool.js';
 import { commitUpload, createUpload } from '../api/src/services/ingest.js';
+import { presetDemoSupplierSchemes } from '../api/src/services/demo.js';
 import { createRun } from '../api/src/services/reconcile.js';
 import { rebuildSupplierStats } from '../api/src/services/supplierRisk.js';
 import { buildRunImsActions } from '../api/src/services/imsActions.js';
+import { syncSuppliers } from '../api/src/services/supplierStats.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = join(REPO_ROOT, 'fixtures');
@@ -103,6 +105,10 @@ async function seedPeriod(taxPeriod) {
   const [year, month] = taxPeriod.split('-').map(Number);
   const nextMonth = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
   const asOfDate = `${nextMonth}-16`;
+
+  // The same QRMP schemes the in-app seeder pre-sets (services/demo.js).
+  await syncSuppliers(ORG_ID);
+  await presetDemoSupplierSchemes(ORG_ID);
 
   const run = await createRun({
     orgId: ORG_ID,

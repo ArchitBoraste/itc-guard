@@ -492,6 +492,28 @@ describe('reconcile', () => {
       expect(onThe12th('QRMP')).not.toContain('CUTOFF_PASSED');
     });
 
+    // The run's scheme is the trader's; each supplier's own decides their cut-off.
+    // A QRMP supplier's saved mismatch on the 12th is still a free fix, whatever
+    // the run's default says.
+    it("judges each document against its own supplier's scheme", () => {
+      const onThe12th = (schemeFor) =>
+        reconcile([books()], [saved()], {
+          taxPeriod: '2026-02',
+          asOfDate: '2026-03-12',
+          filingScheme: 'MONTHLY',
+          schemeFor
+        })[0];
+
+      const quarterly = onThe12th((gstin) => (gstin === books().supplierGstin ? 'QRMP' : null));
+      expect(quarterly.recommendedAction).toBe('CHASE_SUPPLIER');
+      expect(quarterly.flags).not.toContain('CUTOFF_PASSED');
+
+      // An unknown supplier falls back to the run's default.
+      const unknown = onThe12th(() => null);
+      expect(unknown.recommendedAction).toBe('ACCEPT');
+      expect(unknown.flags).toContain('CUTOFF_PASSED');
+    });
+
     it('stays off entirely when there is no calendar context to judge from', () => {
       const [result] = reconcile([books()], [saved()], { taxPeriod: '2026-02' });
       expect(result.flags).not.toContain('CUTOFF_PASSED');

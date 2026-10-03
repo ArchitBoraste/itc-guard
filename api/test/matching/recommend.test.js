@@ -84,13 +84,18 @@ describe('inferFilingScheme', () => {
     expect(inferred.confidence).toBe('MEDIUM');
   });
 
-  it('stays monthly for a supplier who reaches the 11th', () => {
+  it('assumes monthly for a supplier who reaches the 11th, and says it is an assumption', () => {
+    // Filing by the 11th is not evidence of a monthly scheme: a QRMP supplier
+    // using IFF who files early looks exactly the same (audit P9). Low confidence
+    // is what makes the screens say "assumed".
     const inferred = inferFilingScheme([
       { taxPeriod: '2026-01', filedOn: '2026-02-08' },
       { taxPeriod: '2026-02', filedOn: '2026-03-10' },
       { taxPeriod: '2026-03', filedOn: '2026-04-06' }
     ]);
     expect(inferred.scheme).toBe(FILING_SCHEMES.MONTHLY);
+    expect(inferred.confidence).toBe('LOW');
+    expect(inferred.reason).toMatch(/^assumed monthly/);
   });
 
   it('does not mistake a habitually late monthly filer for QRMP', () => {

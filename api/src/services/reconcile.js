@@ -205,11 +205,15 @@ export async function createRun({
     ...engineOptions
   };
 
+  // Each supplier's own scheme decides their cut-off; the run's is the default.
+  const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
+
   const allResults = matchReconcile(expected, portal, {
     ...tuning,
     taxPeriod,
     asOfDate,
-    filingScheme
+    filingScheme,
+    schemeFor
   });
 
   // The ±1 month window exists so a books row can match a portal record the
@@ -222,7 +226,6 @@ export async function createRun({
     (result) => result.expected || result.portal?.taxPeriod === taxPeriod
   );
 
-  const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
   const inputCounts = runInputCounts(expected, portal, taxPeriod);
 
   return withTransaction(async (connection) => {

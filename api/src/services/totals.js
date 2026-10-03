@@ -4,7 +4,7 @@
 // Pure functions: no db, no fs. Kept in services/ rather than matching/ because
 // the CLAIMABLE decision reads confirmed_action, which is a persistence concept.
 import { BUCKETS } from '../matching/buckets.js';
-import { FILING_SCHEMES, isBeforeCutoff } from '../matching/cutoff.js';
+import { isBeforeCutoff, supplierSchemeFor } from '../matching/cutoff.js';
 import { currentImsAction } from './decisions.js';
 
 // Which run total a result feeds.
@@ -107,11 +107,11 @@ export function totalBucketFor(result, context = {}) {
 // The cut-off that matters is the SUPPLIER's: a QRMP supplier has until the 13th
 // while a monthly filer had until the 11th.
 function isPreCutOff(result, context) {
-  const { asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.MONTHLY, schemeFor } = context;
+  const { asOfDate, taxPeriod } = context;
   if (!asOfDate) return true; // no calendar context: nothing is provably late yet
 
   const gstin = result.expected?.supplierGstin ?? result.portal?.supplierGstin ?? null;
-  const scheme = (gstin && schemeFor?.(gstin)) || filingScheme;
+  const scheme = supplierSchemeFor(gstin, context);
   const period = taxPeriod ?? result.expected?.taxPeriod ?? result.portal?.taxPeriod;
   if (!period) return true;
 

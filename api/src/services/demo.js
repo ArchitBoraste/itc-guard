@@ -10,8 +10,10 @@ import { join } from 'node:path';
 import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { ServiceError, commitUpload, createUpload } from './ingest.js';
+import { FILING_SCHEMES } from '../matching/cutoff.js';
 import { createRun } from './reconcile.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
+import { setSupplierScheme, syncSuppliers } from './supplierStats.js';
 
 // The fixture generator's own trader. Matches tools/seed-demo.js, because the two
 // have to seed the same org or the IMS action JSON comes out under a different
@@ -99,6 +101,30 @@ export async function ensureOrg(orgId) {
   );
 }
 
+// The demo trader knows which of their suppliers file quarterly, the way a real
+// trader does, and has told the app — so the sample opens with those schemes
+// "set by you" rather than "assumed". The portal data cannot show it: a QRMP
+// supplier using IFF who files early looks monthly (audit P9).
+//
+// The ONLY reader of fixtures/suppliers.json, which is the generator's record of
+// each supplier's true scheme. Inference and everything else work from the
+// portal data. Only QRMP suppliers are pre-set, and never over a scheme the
+// visitor chose themselves. No file, nothing to pre-set: schemes stay assumed.
+export async function presetDemoSupplierSchemes(orgId) {
+  const path = join(config.fixturesDir ?? '', 'suppliers.json');
+  if (!config.fixturesDir || !existsSync(path)) return { preset: 0 };
+
+  const { suppliers = [] } = JSON.parse(readFileSync(path, 'utf8'));
+  let preset = 0;
+  for (const supplier of suppliers.filter((entry) => entry.scheme === 'QUARTERLY')) {
+    const changed = await setSupplierScheme(orgId, supplier.gstin, FILING_SCHEMES.QRMP, {
+      onlyIfInferred: true
+    });
+    if (changed) preset += 1;
+  }
+  return { preset };
+}
+
 // seedDemoPeriod(orgId, { taxPeriod, asOfDate }) -> { taxPeriod, uploads, runId }
 //
 // asOfDate defaults to the 16th of the following month: after 2B generates on the
@@ -141,6 +167,10 @@ export async function seedDemoPeriod(orgId, { taxPeriod = DEMO_PERIOD, asOfDate 
   const next = month === 12
     ? `${year + 1}-01`
     : `${year}-${String(month + 1).padStart(2, '0')}`;
+
+  // Before the run, so its recommendations and totals use the right cut-offs.
+  await syncSuppliers(orgId);
+  await presetDemoSupplierSchemes(orgId);
 
   const run = await createRun({
     orgId,

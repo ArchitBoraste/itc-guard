@@ -99,12 +99,13 @@ export async function inferSupplierSchemes(orgId) {
   }
   if (!inferred.length) return { inferred: 0, quarterly: 0 };
 
+  // A scheme the trader set is theirs: inference never overwrites it.
   await withTransaction(async (connection) => {
     for (const entry of inferred) {
       await connection.query(
         `UPDATE suppliers
             SET filing_scheme = ?, filing_scheme_confidence = ?, filing_scheme_reason = ?
-          WHERE org_id = ? AND gstin = ?`,
+          WHERE org_id = ? AND gstin = ? AND filing_scheme_source = 'INFERRED'`,
         [entry.scheme, entry.confidence, entry.reason.slice(0, 255), orgId, entry.gstin]
       );
     }
@@ -114,6 +115,42 @@ export async function inferSupplierSchemes(orgId) {
     inferred: inferred.length,
     quarterly: inferred.filter((entry) => entry.scheme === FILING_SCHEMES.QRMP).length
   };
+}
+
+export const USER_SCHEME_REASON = 'set by you';
+
+// The trader settles a supplier's scheme. Stored as USER, so inference leaves it
+// alone from here on. `onlyIfInferred` lets the demo seeder pre-set a scheme
+// without overriding one the visitor already chose. Returns whether a row changed.
+//
+// This writes the scheme and nothing else. Every figure measured against it is
+// rebuilt by the caller — see services/supplierScheme.js.
+export async function setSupplierScheme(orgId, gstin, scheme, { onlyIfInferred = false } = {}) {
+  if (!Object.values(FILING_SCHEMES).includes(scheme)) {
+    throw new ServiceError(`scheme must be one of ${Object.values(FILING_SCHEMES).join(', ')}`);
+  }
+  const [result] = await pool.query(
+    `UPDATE suppliers
+        SET filing_scheme = ?, filing_scheme_confidence = 'HIGH', filing_scheme_reason = ?,
+            filing_scheme_source = 'USER'
+      WHERE org_id = ? AND gstin = ?${onlyIfInferred ? " AND filing_scheme_source = 'INFERRED'" : ''}`,
+    [scheme, USER_SCHEME_REASON, orgId, gstin]
+  );
+  return result.affectedRows > 0;
+}
+
+// Hands the scheme back to inference. Reset to the no-history answer first, so a
+// supplier with no filing dates for inference to read does not keep the trader's
+// scheme under an INFERRED label; the next inference pass decides the rest.
+export async function clearSupplierScheme(orgId, gstin) {
+  const fallback = inferFilingScheme([]);
+  await pool.query(
+    `UPDATE suppliers
+        SET filing_scheme = ?, filing_scheme_confidence = ?, filing_scheme_reason = ?,
+            filing_scheme_source = 'INFERRED'
+      WHERE org_id = ? AND gstin = ?`,
+    [fallback.scheme, fallback.confidence, fallback.reason, orgId, gstin]
+  );
 }
 
 // --- per-period stats ------------------------------------------------------
@@ -300,7 +337,7 @@ export async function rebuildSupplierPeriods(orgId, taxPeriod, { runId = null } 
 export async function listSuppliers(orgId, { limit = 200 } = {}) {
   const [rows] = await pool.query(
     `SELECT s.id, s.gstin, s.trade_name, s.legal_name, s.state_code, s.filing_scheme,
-            s.filing_scheme_confidence, s.filing_scheme_reason,
+            s.filing_scheme_confidence, s.filing_scheme_reason, s.filing_scheme_source,
             s.first_seen_period, s.last_seen_period, s.contact_phone,
             COUNT(sp.id) AS periods_observed,
             SUM(sp.filed_late) AS late_count,
@@ -334,6 +371,7 @@ export async function listSuppliers(orgId, { limit = 200 } = {}) {
     filingScheme: row.filing_scheme,
     filingSchemeConfidence: row.filing_scheme_confidence,
     filingSchemeReason: row.filing_scheme_reason,
+    filingSchemeSource: row.filing_scheme_source,
     firstSeenPeriod: row.first_seen_period,
     lastSeenPeriod: row.last_seen_period,
     contactPhone: row.contact_phone,
@@ -369,7 +407,7 @@ function parseTrend(series) {
 export async function getSupplierHistory(orgId, gstinValue) {
   const [suppliers] = await pool.query(
     `SELECT id, gstin, trade_name, legal_name, state_code, filing_scheme,
-            filing_scheme_confidence, filing_scheme_reason, contact_phone
+            filing_scheme_confidence, filing_scheme_reason, filing_scheme_source, contact_phone
        FROM suppliers WHERE org_id = ? AND gstin = ?`,
     [orgId, gstinValue]
   );
@@ -395,6 +433,7 @@ export async function getSupplierHistory(orgId, gstinValue) {
     filingScheme: supplier.filing_scheme,
     filingSchemeConfidence: supplier.filing_scheme_confidence,
     filingSchemeReason: supplier.filing_scheme_reason,
+    filingSchemeSource: supplier.filing_scheme_source,
     contactPhone: supplier.contact_phone,
     periods: periods.map((row) => ({
       taxPeriod: row.tax_period,
