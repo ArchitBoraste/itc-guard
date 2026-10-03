@@ -23,11 +23,11 @@ export async function changeSupplierScheme(orgId, gstin, scheme) {
       `scheme must be one of ${Object.values(FILING_SCHEMES).join(', ')}, or null to infer it`
     );
   }
-  // 404 for a supplier this org has never seen.
-  await getSupplierHistory(orgId, gstin);
+  // 404 for a supplier this org has never seen; a GSTIN variant is its supplier.
+  const { gstin: supplierGstin } = await getSupplierHistory(orgId, gstin);
 
-  if (scheme === null) await clearSupplierScheme(orgId, gstin);
-  else await setSupplierScheme(orgId, gstin, scheme);
+  if (scheme === null) await clearSupplierScheme(orgId, supplierGstin);
+  else await setSupplierScheme(orgId, supplierGstin, scheme);
 
   const reruns = await rerunEveryPeriod(orgId);
   const failed = reruns.filter((rerun) => !rerun.ran);
@@ -39,7 +39,7 @@ export async function changeSupplierScheme(orgId, gstin, scheme) {
       'rerun_failed'
     );
   }
-  return { supplier: await getSupplierHistory(orgId, gstin), reruns };
+  return { supplier: await getSupplierHistory(orgId, supplierGstin), reruns };
 }
 
 async function rerunEveryPeriod(orgId) {

@@ -31,7 +31,7 @@ import { resetSession, tenancyStats } from '../services/demoTenancy.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
 import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
-import { rebuildSupplierStats, supplierRiskMap } from '../services/supplierRisk.js';
+import { rebuildSupplierStats, supplierRiskMap, supplierView } from '../services/supplierRisk.js';
 import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
@@ -399,12 +399,16 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   // --- suppliers -----------------------------------------------------------
 
   router.get('/suppliers', wrap(async (req, res) => {
-    const asOfPeriod = req.query.taxPeriod ? String(req.query.taxPeriod) : null;
+    const requested = req.query.taxPeriod ? String(req.query.taxPeriod) : null;
+    // One as-of period and one window for every figure on a row (audit P17).
+    const { asOfPeriod, window } = await supplierView(req.orgId, requested);
     const [suppliers, risk] = await Promise.all([
-      listSuppliers(req.orgId, { limit: Number(req.query.limit ?? 200) }),
+      listSuppliers(req.orgId, { limit: Number(req.query.limit ?? 200), window }),
       supplierRiskMap(req.orgId, asOfPeriod)
     ]);
     res.json({
+      asOfPeriod,
+      window,
       suppliers: suppliers.map((supplier) => ({ ...supplier, risk: risk.get(supplier.gstin) ?? null })),
       // Named so the UI can say which scorer produced the bands it is showing.
       model: modelProvenance()

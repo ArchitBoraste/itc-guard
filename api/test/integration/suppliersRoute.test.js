@@ -215,7 +215,6 @@ describe('GET /api/suppliers', () => {
 
   it('returns a band and topFactors for a supplier with several observed periods', () => {
     const steady = supplier('STEADY');
-    expect(steady.stats.periodsObserved).toBe(PERIODS.length);
 
     // The thing that was broken: risk was null for every supplier.
     expect(steady.risk).not.toBeNull();
@@ -223,7 +222,11 @@ describe('GET /api/suppliers', () => {
 
     // The window runs THROUGH the as-of period, so it covers 2026-04..2026-06 —
     // three of the four seeded periods, the fourth being later than the as-of.
+    // The row's own figures use the same window (audit P17): they used to sum
+    // all four periods beside a band scored on three.
     expect(steady.risk.periodsObserved).toBe(3);
+    expect(steady.stats.periodsObserved).toBe(3);
+    expect(body.window.slice(-3)).toEqual(['2026-04', '2026-05', '2026-06']);
     expect(steady.risk.source).toBe('MODEL');
     expect(steady.risk.topFactors.length).toBeGreaterThan(0);
     for (const factor of steady.risk.topFactors) {

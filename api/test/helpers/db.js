@@ -69,7 +69,8 @@ export const TEST_ORGS = Object.freeze({
   preventivePairing: 20,
   supplierScheme: 21,
   registerReupload: 22,
-  sampleReload: 23
+  sampleReload: 23,
+  supplierFacts: 24
 });
 
 export async function ensureOrg(orgId, gstin) {
@@ -104,6 +105,7 @@ export async function resetOrg(orgId) {
     'DELETE FROM record_changes WHERE org_id = ?',
     'DELETE FROM supplier_periods WHERE org_id = ?',
     'DELETE FROM supplier_risk WHERE org_id = ?',
+    'DELETE FROM supplier_gstin_aliases WHERE org_id = ?',
     'DELETE FROM suppliers WHERE org_id = ?',
     'DELETE FROM expected_rate_lines WHERE org_id = ?',
     'DELETE FROM expected_invoices WHERE org_id = ?',

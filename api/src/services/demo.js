@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { ServiceError, commitUpload, createUpload } from './ingest.js';
 import { FILING_SCHEMES } from '../matching/cutoff.js';
+import { gstinCheckDigit } from '../matching/normalize.js';
 import { createRun } from './reconcile.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
 import { setSupplierScheme, syncSuppliers } from './supplierStats.js';
@@ -36,21 +37,6 @@ export const DEMO_PERIOD = '2026-04';
 //
 // Org 1 keeps the canonical fixture GSTIN so the presenter's own demo, every
 // screenshot and the README all still say 27AABCS1429F1Z8.
-const GSTIN_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-// GSTIN check digit: weights alternate 1,2 across the first 14 characters; each
-// product contributes its quotient and remainder mod 36.
-function gstinCheckDigit(first14) {
-  let sum = 0;
-  for (let i = 0; i < 14; i += 1) {
-    const value = GSTIN_ALPHABET.indexOf(first14[i]);
-    if (value < 0) throw new Error(`invalid GSTIN character '${first14[i]}'`);
-    const product = value * (i % 2 === 0 ? 1 : 2);
-    sum += Math.floor(product / 36) + (product % 36);
-  }
-  return GSTIN_ALPHABET[(36 - (sum % 36)) % 36];
-}
-
 export function traderGstinFor(orgId) {
   if (Number(orgId) === 1) return TRADER.gstin;
   // 27 AABCS <dddd> F 1 Z <check> — indices 7..10 are the PAN serial digits.

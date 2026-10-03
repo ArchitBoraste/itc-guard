@@ -13,7 +13,7 @@ import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { FILING_SCHEMES } from '../matching/cutoff.js';
 import { HISTORY_PERIODS, historyPeriodsThrough, scoreSupplierRisk } from './preventive.js';
-import { rebuildSupplierPeriods } from './supplierStats.js';
+import { rebuildSupplierPeriods, refreshSupplierMaster } from './supplierStats.js';
 import { ServiceError } from './ingest.js';
 
 // THE post-run rebuild. Both halves, in order, in one call.
@@ -29,10 +29,52 @@ import { ServiceError } from './ingest.js';
 //
 // Anything that completes a reconciliation for a period calls THIS. A caller that
 // remembers one rebuild and forgets the other is the failure this removes.
+//
+// Every period is rebuilt, not just this one (audit P17: after loading February
+// last, July still read "5 months of history" with 6 loaded). A new month moves
+// every later period's scoring window, and can change the scheme inferred for a
+// supplier and so the days late of every period. Oldest first, so each period's
+// risk reads an already-rebuilt history.
 export async function rebuildSupplierStats(orgId, taxPeriod, { runId = null } = {}) {
-  const periods = await rebuildSupplierPeriods(orgId, taxPeriod, { runId });
-  const risk = await rebuildSupplierRisk(orgId, taxPeriod);
-  return { periods, risk };
+  const periods = await statsPeriods(orgId, taxPeriod, runId);
+  await refreshSupplierMaster(orgId);
+  for (const period of periods) {
+    await rebuildSupplierPeriods(orgId, period.taxPeriod, { runId: period.runId, refreshMaster: false });
+  }
+  const risk = {};
+  for (const period of periods) risk[period.taxPeriod] = await rebuildSupplierRisk(orgId, period.taxPeriod);
+  return { periods: periods.map((period) => period.taxPeriod), risk };
+}
+
+// Every period with a run or with supplier figures, plus taxPeriod, each with its
+// run (whose verdicts give the mismatch counts), oldest first.
+async function statsPeriods(orgId, taxPeriod, runId) {
+  const [runs] = await pool.query('SELECT id, tax_period FROM runs WHERE org_id = ?', [orgId]);
+  const [recorded] = await pool.query(
+    'SELECT DISTINCT tax_period FROM supplier_periods WHERE org_id = ?',
+    [orgId]
+  );
+  const runOf = new Map(runs.map((run) => [run.tax_period, run.id]));
+  if (runId) runOf.set(taxPeriod, runId);
+  const all = new Set([...runOf.keys(), ...recorded.map((row) => row.tax_period), taxPeriod]);
+  return [...all].sort().map((period) => ({ taxPeriod: period, runId: runOf.get(period) ?? null }));
+}
+
+// The as-of period the Suppliers screen reads, and the one window every figure on
+// a row is summed over: the requested period (or the latest scored before it; the
+// latest of all when none is asked for), and the scoring window through it. The
+// risk band was scored on exactly that window, so the counts beside it agree.
+export async function supplierView(orgId, requestedPeriod = null) {
+  const [rows] = await pool.query(
+    `SELECT MAX(as_of_period) AS period FROM supplier_risk
+      WHERE org_id = ? AND (? IS NULL OR as_of_period <= ?)`,
+    [orgId, requestedPeriod, requestedPeriod]
+  );
+  const asOfPeriod = rows[0].period ?? null;
+  return {
+    asOfPeriod,
+    window: asOfPeriod ? historyPeriodsThrough(asOfPeriod, HISTORY_PERIODS) : null
+  };
 }
 
 // Every supplier the behaviour table knows about, each with whatever of their

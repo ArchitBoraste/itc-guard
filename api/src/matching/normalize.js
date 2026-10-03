@@ -43,6 +43,40 @@ export function normalizeGstin(value) {
   return normalized === '' ? null : normalized;
 }
 
+const GSTIN_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+// GSTIN check digit: weights alternate 1,2 across the first 14 characters; each
+// product contributes its quotient and remainder mod 36. Throws on a character
+// outside the alphabet.
+export function gstinCheckDigit(first14) {
+  let sum = 0;
+  for (let i = 0; i < 14; i += 1) {
+    const value = GSTIN_ALPHABET.indexOf(first14[i]);
+    if (value < 0) throw new Error(`invalid GSTIN character '${first14[i]}'`);
+    const product = value * (i % 2 === 0 ? 1 : 2);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return GSTIN_ALPHABET[(36 - (sum % 36)) % 36];
+}
+
+// Whether a GSTIN is well formed and its check digit holds. Any single-character
+// substitution breaks a valid check digit, so a typo of a real GSTIN fails here.
+export function isValidGstin(value) {
+  const gstin = normalizeGstin(value);
+  if (!gstin || !/^\d{2}[A-Z0-9]{13}$/.test(gstin)) return false;
+  return gstinCheckDigit(gstin.slice(0, 14)) === gstin[14];
+}
+
+// How many positions two GSTINs differ in; Infinity when the lengths differ.
+export function gstinDistance(a, b) {
+  const x = normalizeGstin(a);
+  const y = normalizeGstin(b);
+  if (!x || !y || x.length !== y.length) return Infinity;
+  let differ = 0;
+  for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) differ += 1;
+  return differ;
+}
+
 // First two characters of a GSTIN are the state code.
 export function gstinStateCode(value) {
   const normalized = normalizeGstin(value);
