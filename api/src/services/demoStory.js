@@ -33,6 +33,7 @@ import { pool } from '../db/pool.js';
 import { ServiceError, commitUpload, createUpload } from './ingest.js';
 import { confirmResult, getRun, rerunPeriodIfRun } from './reconcile.js';
 import { listChangesForRun } from './syncDiff.js';
+import { formatPaise } from '../matching/recommend.js';
 import { seedDemoPeriod } from './demo.js';
 
 // March gives the period switcher something to switch to, and gives the supplier
@@ -48,10 +49,9 @@ const STORY_FILES = Object.freeze(['purchase_register.xlsx', 'ims.json', 'gstr2b
 // mistyped base, which is what a real transposition looks like.
 const REDUCE_TAXABLE_BY_PAISE = 500000;
 
+// "-Rs. 5,577.37", from the integer paise's digits (formatPaise): no paise / 100.
 export function rupees(paise) {
-  const sign = paise < 0 ? '-' : '';
-  const abs = Math.abs(paise);
-  return `${sign}Rs. ${Math.floor(abs / 100).toLocaleString('en-IN')}.${String(abs % 100).padStart(2, '0')}`;
+  return `${paise < 0 ? '-' : ''}Rs. ${formatPaise(Math.abs(paise))}`;
 }
 
 const fixturePath = (period, name) => join(config.fixturesDir ?? '', period, name);

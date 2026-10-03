@@ -41,6 +41,16 @@ export function rupees(paise, { signed = false } = {}) {
   return signed && whole !== 0 ? `+${body}` : body;
 }
 
+// ₹1,234.56 — to the paisa, for a sentence quoting an exact difference. Rupees
+// and paise are split by integer arithmetic: the division is of a multiple of 100.
+export function rupeesExact(paise) {
+  const value = Math.trunc(Number(paise) || 0);
+  const abs = Math.abs(value);
+  const whole = (abs - (abs % 100)) / 100;
+  const body = `₹${groupIndian(whole)}.${String(abs % 100).padStart(2, '0')}`;
+  return value < 0 ? `−${body}` : body;
+}
+
 // Compact form for headline cards: ₹1.45 Cr / ₹12.4 L / ₹8,200.
 // Uses integer paise for the threshold tests, and only ever divides a value it is
 // about to render to one or two decimals — never a figure anything is added to.

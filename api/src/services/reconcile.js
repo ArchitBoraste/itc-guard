@@ -802,6 +802,11 @@ export async function getRunByPeriod(orgId, taxPeriod) {
 }
 
 export async function listResults(orgId, runId, { bucket = null, page = 1, pageSize = 50 } = {}) {
+  // Another org's run is not found, as GET /runs/:id says — not an empty page
+  // (audit P26).
+  const [runs] = await pool.query('SELECT id FROM runs WHERE org_id = ? AND id = ?', [orgId, runId]);
+  if (!runs.length) throw new ServiceError('run not found', 404, 'not_found');
+
   const limit = Math.min(Math.max(Number(pageSize) || 50, 1), 500);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
 

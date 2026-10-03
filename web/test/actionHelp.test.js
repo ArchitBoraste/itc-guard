@@ -65,3 +65,24 @@ describe('rowFlags', () => {
     expect(rowFlags(['CUTOFF_PASSED'])).toEqual([]);
   });
 });
+
+// Money in this sentence used to be paise / 100 run through toLocaleString — a
+// float, against the rule that a rupee figure never becomes one (audit P37). It is
+// now formatted from the integer paise, and reads exactly as before.
+describe('actionHelp — the amounts it quotes', () => {
+  const saved = (supplierName, deltaTotalTax) => ({
+    flags: [],
+    deltaTotalTax,
+    books: { supplierName },
+    portal: { source: 'IMS', supplierName }
+  });
+
+  it('quotes each difference to the paisa, with Indian grouping', () => {
+    const text = actionHelp('CHASE_SUPPLIER', [
+      saved('Anand Systems', -1008),
+      saved('Kiran Systems', 12345678)
+    ]);
+    expect(text).toContain('Anand Systems ₹10.08 below your books');
+    expect(text).toContain('Kiran Systems ₹1,23,456.78 above your books');
+  });
+});

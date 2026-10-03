@@ -3,6 +3,7 @@
 // The CODES stay intact everywhere they matter — data-testid attributes, filter
 // values, the IMS JSON — because they are the contract. Only the words a trader
 // reads are translated. Nobody running a hardware shop knows what NON_IMS means.
+import { rupeesExact } from './money.js';
 
 export const BUCKETS = [
   'VALUE_MISMATCH',
@@ -135,12 +136,9 @@ function portalActionClause(results) {
     .filter((result) => Number.isFinite(result.deltaTotalTax) && result.deltaTotalTax !== 0)
     .map((result) => {
       const name = result.books?.supplierName ?? result.portal?.supplierName ?? 'this supplier';
-      const rupees = Math.abs(result.deltaTotalTax) / 100;
-      const amount = rupees.toLocaleString('en-IN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-      return `${name} ₹${amount} ${result.deltaTotalTax < 0 ? 'below' : 'above'} your books`;
+      // From integer paise, never paise / 100 (audit P37).
+      const amount = rupeesExact(Math.abs(result.deltaTotalTax));
+      return `${name} ${amount} ${result.deltaTotalTax < 0 ? 'below' : 'above'} your books`;
     });
 
   const scope =

@@ -287,6 +287,13 @@ describe('two sessions cannot see each other', () => {
     // And her run, by id.
     const peek = await bob.call(`/api/runs/${aliceView.runId}`);
     expect(peek.status).toBe(404);
+
+    // And its results: a 404 like the run, not 200 with an empty list (audit
+    // P26). Nothing leaked either way; an answer that looks like "no rows" is
+    // simply the wrong one.
+    const peekResults = await bob.call(`/api/runs/${aliceView.runId}/results`);
+    expect(peekResults.status).toBe(404);
+    expect(peekResults.body.error).toBe('not_found');
   });
 });
 
