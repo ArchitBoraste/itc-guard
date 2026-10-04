@@ -112,6 +112,10 @@ nothing was received, then reject, because left alone it is deemed accepted.
 **Needs a decision: 4** (Mahavir, Balaji, National, Reliable).
 **Not filed yet:** Patel (nothing reported), Anand (saved, not filed), Krishna
 (quarterly, 2 days left).
+**Suppliers, Risk:** Reliable Traders **High**, "Invoice not in your books" (RT-760).
+Everyone else is **New · not enough history**: a band needs 3 months of filing
+history, and a month counts once its GSTR-2B is in, so on the 11th there is none
+yet. From 14 Sep, opening a New row lists what the supplier did in August.
 
 ### 14 Sep, GSTR-2B: `gstr2b_aug26.json`
 
@@ -246,6 +250,11 @@ Rs 900, PS-3401 Rs 3,240, AE/177 Rs 3,960, KE-112 Rs 2,160).
 12 Oct with their quarterly GSTR-1. National's NS-612 is still waiting: missed
 September's cut-off too, so the next chance is an amendment by 11 Nov for
 October's 2B.
+
+**Risk** is unchanged: two months is still under the 3 a band needs, so every
+supplier is New, except Reliable Traders, High for August's RT-760. Reliable has
+nothing in September, so September's Suppliers table does not list them; August's
+does.
 
 August, read again now, is exactly as it was reviewed on 14 Sep.
 

@@ -81,8 +81,52 @@ describe('the list', () => {
 
   it('opens a row to the reasons for its risk', async () => {
     await renderSuppliers();
-    await userEvent.click(screen.getByRole('button', { name: 'Show why Patel Systems is this risk' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Show risk details for Patel Systems' }));
     expect(screen.getByTestId('risk-reasons')).toHaveTextContent('Reported nothing at all in 1 of the last 1 month');
+  });
+});
+
+describe('risk', () => {
+  const riskCell = (name) => within(rowFor(name)).getAllByRole('cell').at(-2);
+
+  it('shows New instead of a band while a supplier has under three months of history', async () => {
+    await renderSuppliers();
+    expect(riskCell('Patel Systems')).toHaveTextContent('New · not enough history');
+    expect(riskCell('Orbit Distributors')).toHaveTextContent('New · not enough history');
+    expect(within(screen.getByTestId('suppliers-table')).queryByText(/^(Medium|Low)$/)).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show risk details for Patel Systems' }));
+    const panel = screen.getByTestId('risk-reasons');
+    expect(panel).toHaveTextContent('New · not enough history');
+    expect(panel).toHaveTextContent('A risk band needs 3 months of filing history; 1 month so far.');
+    // The facts are still listed.
+    expect(panel).toHaveTextContent('Reported nothing at all in 1 of the last 1 month');
+    expect(panel).not.toHaveTextContent('provisional');
+  });
+
+  it('shows a supplier with an invoice not in the books as High, first', async () => {
+    await renderSuppliers();
+    expect(riskCell('Reliable Traders')).toHaveTextContent('High');
+    expect(riskCell('Reliable Traders')).toHaveTextContent('Invoice not in your books');
+    const firstRow = within(screen.getByTestId('suppliers-table')).getAllByRole('row')[1];
+    expect(firstRow).toHaveTextContent('Reliable Traders');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show risk details for Reliable Traders' }));
+    const panel = screen.getByTestId('risk-reasons');
+    expect(panel).toHaveTextContent('Why high risk');
+    expect(panel).toHaveTextContent('Invoice RT-760 of 27 Aug 2026 (₹5,400 tax) is on the portal but not in your books');
+  });
+
+  it('reads the band from a payload without a standing', async () => {
+    const banded = {
+      ...aug14.suppliers,
+      suppliers: aug14.suppliers.suppliers.map((supplier) => {
+        const { standing, ...risk } = supplier.risk;
+        return { ...supplier, risk: { ...risk, band: 'MEDIUM', phantoms: [] } };
+      })
+    };
+    await renderSuppliers(banded);
+    expect(riskCell('Patel Systems')).toHaveTextContent('Medium');
   });
 });
 

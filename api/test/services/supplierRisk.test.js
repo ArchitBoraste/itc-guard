@@ -73,6 +73,33 @@ const SUPPLIERS = [
     name: 'Vanishing Works',
     months: HISTORY.length,
     filedOnDay: (index) => (index === 0 ? ON_TIME : null)
+  },
+  {
+    // Never in the books: one document on the portal in the as-of period, which
+    // the trader never bought. One month of history alone would read New.
+    key: 'PHANTOM',
+    gstin: '27BBBBB0006B1Z0',
+    name: 'Unknown Billers',
+    months: 0,
+    phantom: { taxPeriod: AS_OF_PERIOD, invoiceNo: 'UB/77' }
+  },
+  {
+    // Six clean months, and in March one document not in the books.
+    key: 'CLEAN_WITH_PHANTOM',
+    gstin: '27BBBBB0007B1Z9',
+    name: 'Mostly Steady',
+    months: HISTORY.length,
+    filedOnDay: () => ON_TIME,
+    phantom: { taxPeriod: '2026-03', invoiceNo: 'MS/900' }
+  },
+  {
+    // The same, but the supplier withdrew it: no longer on the portal.
+    key: 'WITHDRAWN_PHANTOM',
+    gstin: '27BBBBB0008B1Z8',
+    name: 'Second Thoughts',
+    months: HISTORY.length,
+    filedOnDay: () => ON_TIME,
+    phantom: { taxPeriod: '2026-03', invoiceNo: 'ST/901', withdrawn: true }
   }
 ];
 
@@ -93,58 +120,40 @@ async function seed() {
       // A supplier with a short history only exists in the most recent months.
       if (index < HISTORY.length - supplier.months) continue;
 
-      const invoiceNo = `${supplier.key}/${taxPeriod.replace('-', '')}`;
-      const row = {
-        supplierGstin: supplier.gstin,
-        supplierName: supplier.name,
-        docType: 'INVOICE',
-        supplyType: 'B2B',
-        invoiceNo,
-        invoiceNoNorm: normalizeInvoiceNo(invoiceNo),
-        invoiceDate: `${taxPeriod}-18`,
-        taxPeriod,
-        taxableValue: 1000000,
-        igst: 180000,
-        cgst: 0,
-        sgst: 0,
-        cess: 0,
-        totalTax: 180000,
-        invoiceValue: 1180000
-      };
+      const row = booksRow(supplier, taxPeriod);
       expected.push(row);
 
       const day = supplier.filedOnDay(index - (HISTORY.length - supplier.months));
       if (day === null) continue; // reported nothing at all that month
 
-      portal.push({
-        ...row,
-        source: 'GSTR2B',
-        section: 'b2b',
-        itcAvailable: 1,
-        supplierFiledOn: `${addMonth(taxPeriod)}-${String(day).padStart(2, '0')}`,
-        counterpartyFilingStatus: 'Y',
-        filingStatus: null,
-        imsAction: null,
-        contentHash: computeContentHash(row)
-      });
+      portal.push(portalRow(row, day));
     }
   });
 
-  assignExpectedIdentities(expected);
-  assignPortalIdentities(portal);
+  // Documents on the portal that are not in the books.
+  for (const supplier of SUPPLIERS.filter((entry) => entry.phantom)) {
+    const { taxPeriod, invoiceNo } = supplier.phantom;
+    portal.push(portalRow({
+      supplierGstin: supplier.gstin,
+      supplierName: supplier.name,
+      docType: 'INVOICE',
+      supplyType: 'B2B',
+      invoiceNo,
+      invoiceNoNorm: normalizeInvoiceNo(invoiceNo),
+      invoiceDate: `${taxPeriod}-20`,
+      taxPeriod,
+      taxableValue: 500000,
+      igst: 90000,
+      cgst: 0,
+      sgst: 0,
+      cess: 0,
+      totalTax: 90000,
+      invoiceValue: 590000
+    }, ON_TIME));
+  }
 
-  await pool.query(
-    `INSERT INTO expected_invoices
-       (org_id, supplier_gstin, supplier_name, doc_type, supply_type, invoice_no,
-        invoice_no_norm, invoice_date, tax_period, taxable_value, igst, cgst, sgst,
-        cess, total_tax, invoice_value, reverse_charge, identity_seq, identity_key)
-     VALUES ?`,
-    [expected.map((r) => [
-      ORG_ID, r.supplierGstin, r.supplierName, r.docType, r.supplyType, r.invoiceNo,
-      r.invoiceNoNorm, r.invoiceDate, r.taxPeriod, r.taxableValue, r.igst, r.cgst,
-      r.sgst, r.cess, r.totalTax, r.invoiceValue, 0, r.identitySeq, r.identityKey
-    ])]
-  );
+  assignPortalIdentities(portal);
+  await insertExpected(expected);
 
   await pool.query(
     `INSERT INTO portal_records
@@ -163,7 +172,86 @@ async function seed() {
     ])]
   );
 
+  await seedPhantomResults();
   for (const period of HISTORY) await rebuildSupplierPeriods(ORG_ID, period);
+}
+
+function booksRow(supplier, taxPeriod) {
+  const invoiceNo = `${supplier.key}/${taxPeriod.replace('-', '')}`;
+  return {
+    supplierGstin: supplier.gstin,
+    supplierName: supplier.name,
+    docType: 'INVOICE',
+    supplyType: 'B2B',
+    invoiceNo,
+    invoiceNoNorm: normalizeInvoiceNo(invoiceNo),
+    invoiceDate: `${taxPeriod}-18`,
+    taxPeriod,
+    taxableValue: 1000000,
+    igst: 180000,
+    cgst: 0,
+    sgst: 0,
+    cess: 0,
+    totalTax: 180000,
+    invoiceValue: 1180000
+  };
+}
+
+async function insertExpected(rows) {
+  assignExpectedIdentities(rows);
+  await pool.query(
+    `INSERT INTO expected_invoices
+       (org_id, supplier_gstin, supplier_name, doc_type, supply_type, invoice_no,
+        invoice_no_norm, invoice_date, tax_period, taxable_value, igst, cgst, sgst,
+        cess, total_tax, invoice_value, reverse_charge, identity_seq, identity_key)
+     VALUES ?`,
+    [rows.map((r) => [
+      ORG_ID, r.supplierGstin, r.supplierName, r.docType, r.supplyType, r.invoiceNo,
+      r.invoiceNoNorm, r.invoiceDate, r.taxPeriod, r.taxableValue, r.igst, r.cgst,
+      r.sgst, r.cess, r.totalTax, r.invoiceValue, 0, r.identitySeq, r.identityKey
+    ])]
+  );
+}
+
+function portalRow(row, filedOnDay) {
+  return {
+    ...row,
+    source: 'GSTR2B',
+    section: 'b2b',
+    itcAvailable: 1,
+    supplierFiledOn: `${addMonth(row.taxPeriod)}-${String(filedOnDay).padStart(2, '0')}`,
+    counterpartyFilingStatus: 'Y',
+    filingStatus: null,
+    imsAction: null,
+    contentHash: computeContentHash(row)
+  };
+}
+
+// A phantom is a run's verdict, so each one gets its period's run and a
+// MISSING_IN_BOOKS result, and a withdrawn one its absent_since.
+async function seedPhantomResults() {
+  const runs = new Map();
+  for (const supplier of SUPPLIERS.filter((entry) => entry.phantom)) {
+    const { taxPeriod, invoiceNo, withdrawn } = supplier.phantom;
+    if (!runs.has(taxPeriod)) {
+      const [run] = await pool.query(
+        "INSERT INTO runs (org_id, tax_period, status) VALUES (?, ?, 'COMPLETED')",
+        [ORG_ID, taxPeriod]
+      );
+      runs.set(taxPeriod, run.insertId);
+    }
+    const [[record]] = await pool.query(
+      'SELECT id FROM portal_records WHERE org_id = ? AND supplier_gstin = ? AND invoice_no = ?',
+      [ORG_ID, supplier.gstin, invoiceNo]
+    );
+    await pool.query(
+      "INSERT INTO match_results (org_id, run_id, portal_record_id, bucket) VALUES (?, ?, ?, 'MISSING_IN_BOOKS')",
+      [ORG_ID, runs.get(taxPeriod), record.id]
+    );
+    if (withdrawn) {
+      await pool.query('UPDATE portal_records SET absent_since = NOW() WHERE id = ?', [record.id]);
+    }
+  }
 }
 
 describe('supplier_risk', () => {
@@ -215,7 +303,56 @@ describe('supplier_risk', () => {
     expect(newcomer.periodsObserved).toBe(1);
     expect(newcomer.band).toBe('MEDIUM');
     expect(newcomer.guard).toBe('THIN_HISTORY');
-    expect(newcomer.reasons.join(' ')).toContain('provisional');
+  });
+
+  // --- what the screen shows ------------------------------------------------
+
+  it('shows a supplier with under three months as New, with its facts and no verdict', () => {
+    const newcomer = riskOf(stored, 'NEWCOMER');
+    expect(newcomer.standing).toBe('NEW');
+    expect(newcomer.standingReason).toBe('NEW');
+    const text = newcomer.reasons.join(' ');
+    expect(text).toContain('filed late in 1 of the last 1 month');
+    // The caveat qualifies a band, and there is none.
+    expect(text).not.toContain('provisional');
+  });
+
+  it('shows a supplier with three months or more by its band', () => {
+    expect(riskOf(stored, 'RELIABLE').standing).toBe('LOW');
+    expect(riskOf(stored, 'LATE').standing).toBe('HIGH');
+    expect(riskOf(stored, 'RELIABLE').standingReason).toBeNull();
+  });
+
+  it('shows a supplier with a document not in the books as HIGH, however new', () => {
+    const phantom = riskOf(stored, 'PHANTOM');
+    expect(phantom.periodsObserved).toBe(1);
+    expect(phantom.standing).toBe('HIGH');
+    expect(phantom.standingReason).toBe('NOT_IN_BOOKS');
+    expect(phantom.phantoms).toEqual([
+      { invoiceNo: 'UB/77', invoiceDate: `${AS_OF_PERIOD}-20`, docType: 'INVOICE', totalTax: 90000, taxPeriod: AS_OF_PERIOD }
+    ]);
+  });
+
+  it('shows it as HIGH however clean the rest of the record, from any month in the window', () => {
+    const steady = riskOf(stored, 'CLEAN_WITH_PHANTOM');
+    expect(steady.band).toBe('LOW');
+    expect(steady.standing).toBe('HIGH');
+    expect(steady.phantoms.map((entry) => [entry.invoiceNo, entry.taxPeriod])).toEqual([['MS/900', '2026-03']]);
+  });
+
+  it('forgets a document the supplier withdrew from the portal', () => {
+    const withdrawn = riskOf(stored, 'WITHDRAWN_PHANTOM');
+    expect(withdrawn.phantoms).toEqual([]);
+    expect(withdrawn.standing).toBe('LOW');
+  });
+
+  it('counts a document only in the windows that hold its month', async () => {
+    // As of February the March document is still in the future.
+    await rebuildSupplierRisk(ORG_ID, '2026-02');
+    const february = await supplierRiskMap(ORG_ID, '2026-02');
+    expect(february.get(byKey('CLEAN_WITH_PHANTOM').gstin).phantoms).toEqual([]);
+    expect(february.get(byKey('CLEAN_WITH_PHANTOM').gstin).standing).toBe('NEW');
+    await pool.query('DELETE FROM supplier_risk WHERE org_id = ? AND as_of_period = ?', [ORG_ID, '2026-02']);
   });
 
   it('falls back to the heuristic for a supplier the model has no term for', () => {
@@ -270,7 +407,8 @@ describe('supplier_risk', () => {
       for (const supplier of SUPPLIERS) {
         const risk = riskOf(stored, supplier.key);
         const factors = risk.topFactors ?? [];
-        if (!factors.length) continue;
+        // A New supplier's reasons are its facts, not the model's explanation.
+        if (!factors.length || risk.periodsObserved < 3) continue;
         const anyAdverse = factors.some((factor) => factor.adverse);
         if (anyAdverse) expect(factors[0].adverse).toBe(true);
         // The leading sentence is always the leading factor's own reading.
@@ -351,5 +489,26 @@ describe('supplier_risk', () => {
     // Reading as of April must not hand back July's answer.
     const april = await supplierRiskMap(ORG_ID, '2026-04');
     expect(april.get(byKey('LATE').gstin).asOfPeriod).toBe('2026-04');
+  });
+
+  it('leaves a month out of the history until its GSTR-2B is in', async () => {
+    // July is booked, nothing of theirs is on the portal yet, and there is no
+    // GSTR-2B for July at all: not a miss, only not known yet.
+    const july = '2026-07';
+    await insertExpected([booksRow(byKey('RELIABLE'), july)]);
+    try {
+      await rebuildSupplierPeriods(ORG_ID, july);
+      await rebuildSupplierRisk(ORG_ID, july);
+      const reliable = (await supplierRiskMap(ORG_ID, july)).get(byKey('RELIABLE').gstin);
+      // The window is February to July; July does not count yet.
+      expect(reliable.periodsObserved).toBe(5);
+      expect(reliable.missedCount).toBe(0);
+      expect(reliable.reasons.join(' ')).not.toContain('reported nothing');
+      expect(reliable.standing).toBe('LOW');
+    } finally {
+      await pool.query('DELETE FROM supplier_risk WHERE org_id = ? AND as_of_period = ?', [ORG_ID, july]);
+      await pool.query('DELETE FROM supplier_periods WHERE org_id = ? AND tax_period = ?', [ORG_ID, july]);
+      await pool.query('DELETE FROM expected_invoices WHERE org_id = ? AND tax_period = ?', [ORG_ID, july]);
+    }
   });
 });

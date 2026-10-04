@@ -16,7 +16,19 @@ const ISSUE_ORDER = [
   ['SAVED_NOT_FILED', (n) => `${plural(n, 'invoice')} not filed`]
 ];
 
-const RISK_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+// Too little history is not evidence of reliability, so New ranks above Low.
+const RISK_ORDER = { HIGH: 0, MEDIUM: 1, NEW: 2, LOW: 3 };
+
+// What the Risk column shows: the API's standing, or the band from a payload
+// that predates it.
+export const standingOf = (risk) => risk?.standing ?? risk?.band ?? null;
+
+// "Invoice not in your books" / "2 invoices not in your books", or null.
+export function notInBooksText(risk) {
+  const count = risk?.phantoms?.length ?? 0;
+  if (!count) return null;
+  return count === 1 ? 'Invoice not in your books' : `${count} invoices not in your books`;
+}
 
 // gstin (and each typo variant of it) -> the supplier's GSTIN
 function gstinIndex(suppliers) {
@@ -84,7 +96,7 @@ export function supplierRows(suppliers = [], results = null) {
     })
     .sort(
       (a, b) =>
-        (RISK_ORDER[a.supplier.risk?.band] ?? 3) - (RISK_ORDER[b.supplier.risk?.band] ?? 3) ||
+        (RISK_ORDER[standingOf(a.supplier.risk)] ?? 4) - (RISK_ORDER[standingOf(b.supplier.risk)] ?? 4) ||
         Number(b.hasIssue) - Number(a.hasIssue) ||
         Math.abs(b.itc) - Math.abs(a.itc) ||
         a.supplier.tradeName.localeCompare(b.supplier.tradeName)

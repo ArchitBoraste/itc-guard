@@ -48,7 +48,7 @@ components, not the data. Screen 5 (Corrections) was drawn for May; in the demo 
 | warn | text #8A3F05 · bg #FDF1E3 · solid #D9822B / #B4540A | needs decision, mismatch, Medium risk |
 | bad | text #A11E14 · bg #FDECEA · solid #B42318 | not in books, cut-off passed, Reject, High risk |
 | info | text #1D4F8C · bg #EAF2FB | "accept if same bill", before cut-off |
-| neutral-status | text #2D4A73 · bg #EAEFF6 · bar #7E93B3 | not filed / not on portal |
+| neutral-status | text #2D4A73 · bg #EAEFF6 · bar #7E93B3 | not filed / not on portal, New (not enough history) |
 
 Type scale: page title 24/600 · section title 15–17/600 · body 14/400 · secondary 13 · caption 12.
 Stat values 22–28/600. Spacing: page padding 32px 40px; card padding 18–22px; gaps 16–24px.
@@ -87,4 +87,6 @@ Chips: 12/500, padding 3px 8px, radius 4px. Buttons: radius 6–8px, height ≥ 
    what you asked for, status chip, found in, credit, Remind).
 6. **Suppliers**: search + "Only with issues"; table (supplier + GSTIN, contact or "Not in your
    purchase register" + Add contact, filing scheme with edit button + last filing, this period's
-   issue, tax, risk chip). Row expands to the risk reasons.
+   issue, tax, risk chip: High · Medium · Low, or "New · not enough history" under 3 months;
+   High whatever the history when an invoice of theirs is not in the books). Row expands to the
+   risk reasons, or for a New supplier the facts so far.

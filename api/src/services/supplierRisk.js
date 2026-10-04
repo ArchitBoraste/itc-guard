@@ -12,8 +12,16 @@
 import { pool } from '../db/pool.js';
 import { insertInChunks, withTransaction } from '../db/tx.js';
 import { FILING_SCHEMES } from '../matching/cutoff.js';
-import { HISTORY_PERIODS, historyPeriodsThrough, scoreSupplierRisk } from './preventive.js';
-import { rebuildSupplierPeriods, refreshSupplierMaster } from './supplierStats.js';
+import {
+  HISTORY_PERIODS,
+  MIN_PERIODS_FOR_HIGH,
+  STANDING,
+  historyPeriodsThrough,
+  riskReasons,
+  scoreSupplierRisk,
+  supplierStanding
+} from './preventive.js';
+import { phantomsBySupplier, rebuildSupplierPeriods, refreshSupplierMaster } from './supplierStats.js';
 import { ServiceError } from './ingest.js';
 
 // THE post-run rebuild. Both halves, in order, in one call.
@@ -94,8 +102,17 @@ export async function supplierView(orgId, requestedPeriod = null) {
 //
 // Only a supplier with no supplier_periods row at all is left unscored, which is
 // the one state where the app genuinely has nothing to say.
+//
+// A month is history once its GSTR-2B is in. Before that its outcome is not
+// known: on the 5th a supplier who has not reported yet has missed nothing, and
+// no invoice has "never reached" a 2B that does not exist yet.
 async function loadHistories(orgId, periods) {
-  const inWindow = new Set(periods);
+  const [settled] = await pool.query(
+    `SELECT DISTINCT tax_period FROM portal_records
+      WHERE org_id = ? AND source = 'GSTR2B' AND tax_period IN (?)`,
+    [orgId, periods]
+  );
+  const inWindow = new Set(settled.map((row) => row.tax_period));
 
   const [rows] = await pool.query(
     `SELECT s.id AS supplier_id, s.gstin, s.filing_scheme, sp.tax_period,
@@ -118,7 +135,8 @@ async function loadHistories(orgId, periods) {
         periods: []
       });
     }
-    // Seen, so they are scored. Only the periods inside the window feed the score.
+    // Seen, so they are scored. Only the settled periods inside the window feed
+    // the score.
     if (!inWindow.has(row.tax_period)) continue;
 
     histories.get(row.gstin).periods.push({
@@ -139,7 +157,10 @@ async function loadHistories(orgId, periods) {
 // rebuildSupplierRisk(orgId, asOfPeriod) -> { scored, bands, source }
 //
 // asOfPeriod is the completed period being recorded against. The score reads the
-// last six periods THROUGH it, inclusive.
+// last six periods THROUGH it, inclusive, those whose GSTR-2B is in (see
+// loadHistories). Phantoms count from any of them. risk_band keeps the scorer's verdict;
+// what the screen shows (supplierStanding: New, or High for a document not in the
+// books) is recorded beside it in `features`, and `bands` counts that.
 export async function rebuildSupplierRisk(orgId, asOfPeriod) {
   if (!/^\d{4}-\d{2}$/.test(String(asOfPeriod ?? ''))) {
     throw new ServiceError('asOfPeriod must be YYYY-MM');
@@ -153,18 +174,26 @@ export async function rebuildSupplierRisk(orgId, asOfPeriod) {
   const scoringWindow = historyPeriodsThrough(asOfPeriod, HISTORY_PERIODS);
   const histories = await loadHistories(orgId, scoringWindow);
   if (!histories.size) return { scored: 0, bands: {}, source: null };
+  const phantoms = await phantomsBySupplier(orgId, scoringWindow);
 
-  const bands = { LOW: 0, MEDIUM: 0, HIGH: 0 };
+  const bands = { LOW: 0, MEDIUM: 0, HIGH: 0, NEW: 0 };
   let source = null;
   const values = [];
 
   for (const entry of histories.values()) {
     const risk = scoreSupplierRisk(entry.periods, { scheme: entry.scheme });
-    bands[risk.band] = (bands[risk.band] ?? 0) + 1;
+    const notInBooks = phantoms.get(entry.gstin) ?? [];
+    const { standing, standingReason } = supplierStanding(risk, { phantoms: notInBooks });
+    bands[standing] = (bands[standing] ?? 0) + 1;
     source = risk.source;
 
     const features = risk.features ?? {};
     const observed = features.periodsObserved ?? 0;
+    // Too little history for a band: the facts in plain words, without the
+    // "provisional read" caveat a band would have carried.
+    const reasons = observed > 0 && observed < MIN_PERIODS_FOR_HIGH
+      ? riskReasons(features, { provisional: false })
+      : risk.reasons;
 
     values.push([
       orgId,
@@ -187,8 +216,11 @@ export async function rebuildSupplierRisk(orgId, asOfPeriod) {
         modelBand: risk.modelBand ?? null,
         heuristicScore: risk.heuristicScore ?? null,
         topFactors: risk.topFactors ?? null,
-        reasons: risk.reasons,
-        features
+        reasons,
+        features,
+        standing,
+        standingReason,
+        phantoms: notInBooks
       })
     ]);
   }
@@ -243,12 +275,20 @@ export async function supplierRiskMap(orgId, asOfPeriod = null) {
   const out = new Map();
   for (const [gstin, row] of latest) {
     const features = parseJson(row.features) ?? {};
+    const periodsObserved = Number(row.periods_observed ?? 0);
     out.set(gstin, {
       asOfPeriod: row.as_of_period,
+      // The scorer's verdict. `standing` is what the screen shows: this band, NEW
+      // under MIN_PERIODS_FOR_HIGH months, or HIGH for a document not in the books.
+      // A row stored before standing existed falls back on the history rule.
       band: row.risk_band,
+      standing:
+        features.standing ?? (periodsObserved < MIN_PERIODS_FOR_HIGH ? STANDING.NEW : row.risk_band),
+      standingReason: features.standingReason ?? null,
+      phantoms: features.phantoms ?? [],
       // risk_score is deliberately NOT surfaced to the UI as a number. It is here
       // for ordering and for anyone reading the table directly.
-      periodsObserved: Number(row.periods_observed ?? 0),
+      periodsObserved,
       lateCount: Number(row.late_count ?? 0),
       missedCount: Number(row.missed_count ?? 0),
       avgDaysLate: row.avg_days_late === null ? null : Number(row.avg_days_late),

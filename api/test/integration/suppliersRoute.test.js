@@ -269,6 +269,16 @@ describe('GET /api/suppliers', () => {
     expect(future.risk.reasons.join(' ')).toContain('no filing history yet');
   });
 
+  // Under three months the screen shows New instead of a band; three or more, the band.
+  it('says which suppliers are too new for a band', () => {
+    expect(supplier('COLD').risk.standing).toBe('NEW');
+    expect(supplier('FUTURE').risk.standing).toBe('NEW');
+    const steady = supplier('STEADY').risk;
+    expect(steady.periodsObserved).toBe(3);
+    expect(steady.standing).toBe(steady.band);
+    expect(steady.phantoms).toEqual([]);
+  });
+
   // The window includes the as-of period, so the counts a row shows and the
   // sentence beside it describe the same months. They used to differ silently.
   it('counts the as-of period itself, so the columns match the reasons', () => {

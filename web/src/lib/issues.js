@@ -172,8 +172,11 @@ export const NOT_FILED_STATUS = {
   SAVED_VALUE_MISMATCH: { label: 'Saved with a different amount', tone: 'warn' }
 };
 
+// Keyed by the supplier's standing (risk.standing): a band, or NEW under three
+// months of filing history, when there is not yet a pattern to band.
 export const RISK_CHIP = {
   HIGH: { label: 'High', tone: 'bad-solid' },
   MEDIUM: { label: 'Medium', tone: 'warn' },
-  LOW: { label: 'Low', tone: 'ok' }
+  LOW: { label: 'Low', tone: 'ok' },
+  NEW: { label: 'New · not enough history', tone: 'neutral' }
 };

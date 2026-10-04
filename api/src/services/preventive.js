@@ -524,10 +524,37 @@ export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHL
   };
 }
 
+// What the Suppliers screen shows for a supplier: a band, or NEW when there is
+// not yet one to give.
+//
+// A band is a claim about a filing PATTERN. Under MIN_PERIODS_FOR_HIGH months
+// there is none to speak of, and a provisional Medium or Low still reads as a
+// verdict, so the screen says New and lists the facts instead. One fact outranks
+// history either way: a document of theirs on the portal that is not in the books
+// (a phantom). That is not a prediction but something they did, and left alone
+// it is deemed accepted, so it is HIGH however long or short the record.
+export const STANDING = Object.freeze({ ...RISK_BANDS, NEW: 'NEW' });
+
+export const STANDING_REASON = Object.freeze({ NOT_IN_BOOKS: 'NOT_IN_BOOKS', NEW: 'NEW' });
+
+// supplierStanding(risk, { phantoms }) -> { standing, standingReason }
+// risk is scoreSupplierRisk's answer; phantoms the supplier's documents not in
+// the books over the same window.
+export function supplierStanding(risk, { phantoms = [] } = {}) {
+  if (phantoms.length) return { standing: STANDING.HIGH, standingReason: STANDING_REASON.NOT_IN_BOOKS };
+  if ((risk.features?.periodsObserved ?? 0) < MIN_PERIODS_FOR_HIGH) {
+    return { standing: STANDING.NEW, standingReason: STANDING_REASON.NEW };
+  }
+  return { standing: risk.band, standingReason: null };
+}
+
 // Plain words, in the order that would matter on a phone call. Never a bare
 // score — a sentence the trader can disagree with is worth more than a number
 // they can only accept.
-export function riskReasons(features) {
+//
+// provisional: false leaves out the "provisional read" caveat, for a supplier the
+// screen shows as New rather than with a band the caveat would qualify.
+export function riskReasons(features, { provisional = true } = {}) {
   const observed = features.periodsObserved;
   const window = `the last ${plural(observed, 'month')}`;
   const deadline = ordinal(features.cutOffDay);
@@ -567,7 +594,7 @@ export function riskReasons(features) {
 
   // Said last, and only when it applies: the reader has to know the sample is
   // thin before acting on anything above.
-  if (observed < MIN_PERIODS_FOR_HIGH) {
+  if (provisional && observed < MIN_PERIODS_FOR_HIGH) {
     reasons.push(
       `only ${plural(observed, 'month')} of history so far, so this is a provisional read`
     );

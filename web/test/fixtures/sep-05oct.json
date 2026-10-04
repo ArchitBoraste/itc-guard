@@ -3058,7 +3058,7 @@
      "phone": "+91 00000 00009",
      "email": "supplier9@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3084,31 +3084,35 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
-     "missedCount": 2,
+     "missedCount": 1,
      "avgDaysLate": null,
      "source": "HEURISTIC",
      "guard": null,
      "reasons": [
-      "reported nothing at all in 2 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "reported nothing at all in 1 of the last 1 month"
      ],
+     "topFactors": null,
      "features": {
       "cutOffDay": 13,
       "documents": 0,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 2,
+      "failedCount": 1,
       "maxDaysLate": null,
-      "missedCount": 2,
+      "missedCount": 1,
       "meanDaysLate": null,
       "mismatchRate": 0,
-      "notIn2bCount": 2,
-      "periodsObserved": 2
+      "notIn2bCount": 1,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "33AAGFB1455H1ZT",
@@ -3128,7 +3132,7 @@
      "phone": "+91 00000 00006",
      "email": "supplier6@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3154,31 +3158,69 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
-     "missedCount": 1,
+     "missedCount": 0,
      "avgDaysLate": -2,
-     "source": "HEURISTIC",
+     "source": "MODEL",
      "guard": null,
      "reasons": [
-      "reported nothing at all in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": -2,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "RAISES",
+       "contribution": 1.0944286082662302,
+       "standardised": 1.0102103434400072
+      },
+      {
+       "mean": 3,
+       "value": 1,
+       "adverse": false,
+       "feature": "periods_observed",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "only 1 month of history so far",
+       "direction": "RAISES",
+       "contribution": 0.6887120974860182,
+       "standardised": -1.414213562373095
+      }
      ],
      "features": {
       "cutOffDay": 11,
       "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -2,
-      "missedCount": 1,
+      "missedCount": 0,
       "meanDaysLate": -2,
       "mismatchRate": 0,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "27AKLPG6614M1ZS",
@@ -3198,7 +3240,7 @@
      "phone": "+91 00000 00002",
      "email": "supplier2@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3224,31 +3266,69 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
-     "missedCount": 1,
+     "missedCount": 0,
      "avgDaysLate": -2,
-     "source": "HEURISTIC",
+     "source": "MODEL",
      "guard": null,
      "reasons": [
-      "reported nothing at all in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": -2,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "RAISES",
+       "contribution": 1.0944286082662302,
+       "standardised": 1.0102103434400072
+      },
+      {
+       "mean": 3,
+       "value": 1,
+       "adverse": false,
+       "feature": "periods_observed",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "only 1 month of history so far",
+       "direction": "RAISES",
+       "contribution": 0.6887120974860182,
+       "standardised": -1.414213562373095
+      }
      ],
      "features": {
       "cutOffDay": 11,
       "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -2,
-      "missedCount": 1,
+      "missedCount": 0,
       "meanDaysLate": -2,
       "mismatchRate": 0,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "24AAECP8836L1ZY",
@@ -3268,7 +3348,7 @@
      "phone": "+91 00000 00007",
      "email": "supplier7@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3294,32 +3374,35 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 1,
      "avgDaysLate": null,
      "source": "HEURISTIC",
      "guard": null,
      "reasons": [
-      "reported nothing at all in 1 of the last 2 months",
-      "reported but never reached your GSTR-2B in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "reported nothing at all in 1 of the last 1 month"
      ],
+     "topFactors": null,
      "features": {
       "cutOffDay": 11,
-      "documents": 1,
+      "documents": 0,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 2,
+      "failedCount": 1,
       "maxDaysLate": null,
       "missedCount": 1,
       "meanDaysLate": null,
       "mismatchRate": 0,
-      "notIn2bCount": 2,
-      "periodsObserved": 2
+      "notIn2bCount": 1,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "07AADCU6071J1Z3",
@@ -3339,7 +3422,7 @@
      "phone": "+91 00000 00010",
      "email": "supplier10@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3364,32 +3447,70 @@
     },
     "risk": {
      "asOfPeriod": "2026-09",
-     "band": "MEDIUM",
-     "periodsObserved": 2,
+     "band": "LOW",
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
-     "missedCount": 1,
+     "missedCount": 0,
      "avgDaysLate": -5,
-     "source": "HEURISTIC",
+     "source": "MODEL",
      "guard": null,
      "reasons": [
-      "reported nothing at all in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": -5,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "LOWERS",
+       "contribution": -0.8313463644691315,
+       "standardised": -0.7673727550839614
+      },
+      {
+       "mean": 3,
+       "value": 1,
+       "adverse": false,
+       "feature": "periods_observed",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "only 1 month of history so far",
+       "direction": "RAISES",
+       "contribution": 0.6887120974860182,
+       "standardised": -1.414213562373095
+      }
      ],
      "features": {
       "cutOffDay": 11,
       "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -5,
-      "missedCount": 1,
+      "missedCount": 0,
       "meanDaysLate": -5,
       "mismatchRate": 0,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "27ADQPA4410C1Z3",
@@ -3409,7 +3530,7 @@
      "phone": "+91 00000 00008",
      "email": "supplier8@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:38",
+     "updatedAt": "2026-10-04 09:44:34",
      "whatsapp": null
     },
     "stats": {
@@ -3435,31 +3556,35 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
      "avgDaysLate": null,
      "source": "HEURISTIC",
      "guard": null,
      "reasons": [
-      "reported but never reached your GSTR-2B in 2 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "reported but never reached your GSTR-2B in 1 of the last 1 month"
      ],
+     "topFactors": null,
      "features": {
       "cutOffDay": 11,
-      "documents": 2,
+      "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 2,
+      "failedCount": 1,
       "maxDaysLate": null,
       "missedCount": 0,
       "meanDaysLate": null,
       "mismatchRate": 0,
-      "notIn2bCount": 2,
-      "periodsObserved": 2
+      "notIn2bCount": 1,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "27AAHFC3348Q1ZX",
@@ -3479,7 +3604,7 @@
      "phone": "+91 00000 00011",
      "email": "supplier11@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3505,31 +3630,58 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
      "avgDaysLate": -1,
-     "source": "HEURISTIC",
-     "guard": null,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
      "reasons": [
-      "reported but never reached your GSTR-2B in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": -1,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "RAISES",
+       "contribution": 1.7363535991780172,
+       "standardised": 1.6027380429479965
+      }
      ],
      "features": {
       "cutOffDay": 11,
-      "documents": 2,
+      "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -1,
       "missedCount": 0,
       "meanDaysLate": -1,
       "mismatchRate": 0,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "29AACCL3907B1ZT",
@@ -3549,7 +3701,7 @@
      "phone": "+91 00000 00003",
      "email": "supplier3@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3575,31 +3727,58 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
      "avgDaysLate": -1,
-     "source": "HEURISTIC",
-     "guard": null,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
      "reasons": [
-      "reported but never reached your GSTR-2B in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": -1,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "RAISES",
+       "contribution": 1.7363535991780172,
+       "standardised": 1.6027380429479965
+      }
      ],
      "features": {
       "cutOffDay": 11,
-      "documents": 2,
+      "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -1,
       "missedCount": 0,
       "meanDaysLate": -1,
       "mismatchRate": 0,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "24AAKFM5120D1ZR",
@@ -3619,7 +3798,7 @@
      "phone": "+91 00000 00004",
      "email": "supplier4@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3645,32 +3824,58 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
      "avgDaysLate": -6,
-     "source": "HEURISTIC",
-     "guard": null,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
      "reasons": [
-      "reported but never reached your GSTR-2B in 1 of the last 2 months",
-      "amounts differed from your books on 1 of 2 documents",
-      "only 2 months of history so far, so this is a provisional read"
+      "amounts differed from your books on 1 of 1 document"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 1,
+       "adverse": true,
+       "feature": "mismatch_rate",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "amounts differed from your books on 1 of 1 document",
+       "direction": "RAISES",
+       "contribution": 17.623470145477263,
+       "standardised": 9.780773915590746
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": -6,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "LOWERS",
+       "contribution": -1.4732713553809187,
+       "standardised": -1.3599004545919509
+      }
      ],
      "features": {
       "cutOffDay": 11,
-      "documents": 2,
+      "documents": 1,
       "lateCount": 0,
       "mismatches": 1,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -6,
       "missedCount": 0,
       "meanDaysLate": -6,
-      "mismatchRate": 0.5,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "mismatchRate": 1,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "27AABCN7782E1Z9",
@@ -3690,7 +3895,7 @@
      "phone": "+91 00000 00005",
      "email": "supplier5@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3716,32 +3921,58 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
-     "periodsObserved": 2,
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
      "avgDaysLate": 0,
-     "source": "HEURISTIC",
-     "guard": null,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
      "reasons": [
-      "reported but never reached your GSTR-2B in 1 of the last 2 months",
-      "amounts differed from your books on 2 of 2 documents",
-      "only 2 months of history so far, so this is a provisional read"
+      "amounts differed from your books on 1 of 1 document"
+     ],
+     "topFactors": [
+      {
+       "mean": 0.092292505,
+       "value": 1,
+       "adverse": true,
+       "feature": "mismatch_rate",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "amounts differed from your books on 1 of 1 document",
+       "direction": "RAISES",
+       "contribution": 17.623470145477263,
+       "standardised": 9.780773915590746
+      },
+      {
+       "mean": -3.704916655000001,
+       "value": 0,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "never missed their 11th in the last 1 month, but files on the deadline itself — most file about 4 days early, so there is no room if anything slips",
+       "direction": "RAISES",
+       "contribution": 2.3782785900898045,
+       "standardised": 2.195265742455986
+      }
      ],
      "features": {
       "cutOffDay": 11,
-      "documents": 2,
+      "documents": 1,
       "lateCount": 0,
-      "mismatches": 2,
-      "failedCount": 1,
+      "mismatches": 1,
+      "failedCount": 0,
       "maxDaysLate": 0,
       "missedCount": 0,
       "meanDaysLate": 0,
       "mismatchRate": 1,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "27AAFFO2231R1ZX",
@@ -3761,7 +3992,7 @@
      "phone": "+91 00000 00001",
      "email": "supplier1@example.com",
      "source": "REGISTER",
-     "updatedAt": "2026-10-04 08:02:40",
+     "updatedAt": "2026-10-04 09:44:36",
      "whatsapp": null
     },
     "stats": {
@@ -3786,32 +4017,70 @@
     },
     "risk": {
      "asOfPeriod": "2026-09",
-     "band": "MEDIUM",
-     "periodsObserved": 2,
+     "band": "LOW",
+     "standing": "NEW",
+     "standingReason": "NEW",
+     "phantoms": [],
+     "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
      "avgDaysLate": -7,
-     "source": "HEURISTIC",
+     "source": "MODEL",
      "guard": null,
      "reasons": [
-      "reported but never reached your GSTR-2B in 1 of the last 2 months",
-      "only 2 months of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": -3.704916655000001,
+       "value": -7,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "filed on time in all of the last 1 month, by their 11th",
+       "direction": "LOWERS",
+       "contribution": -2.115196346292706,
+       "standardised": -1.9524281540999404
+      },
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      },
+      {
+       "mean": 3,
+       "value": 1,
+       "adverse": false,
+       "feature": "periods_observed",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "only 1 month of history so far",
+       "direction": "RAISES",
+       "contribution": 0.6887120974860182,
+       "standardised": -1.414213562373095
+      }
      ],
      "features": {
       "cutOffDay": 11,
-      "documents": 2,
+      "documents": 1,
       "lateCount": 0,
       "mismatches": 0,
-      "failedCount": 1,
+      "failedCount": 0,
       "maxDaysLate": -7,
       "missedCount": 0,
       "meanDaysLate": -7,
       "mismatchRate": 0,
-      "notIn2bCount": 1,
-      "periodsObserved": 2
+      "notIn2bCount": 0,
+      "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    },
    {
     "gstin": "27AAJFR9162G1ZT",
@@ -3846,6 +4115,17 @@
     "risk": {
      "asOfPeriod": "2026-09",
      "band": "MEDIUM",
+     "standing": "HIGH",
+     "standingReason": "NOT_IN_BOOKS",
+     "phantoms": [
+      {
+       "docType": "INVOICE",
+       "totalTax": 540000,
+       "invoiceNo": "RT-760",
+       "taxPeriod": "2026-08",
+       "invoiceDate": "2026-08-27"
+      }
+     ],
      "periodsObserved": 1,
      "lateCount": 0,
      "missedCount": 0,
@@ -3853,9 +4133,31 @@
      "source": "MODEL",
      "guard": "THIN_HISTORY",
      "reasons": [
-      "never missed their 11th in the last 1 month, but files on the deadline itself — most file about 4 days early, so there is no room if anything slips",
-      "amounts matched your books on all 1 document",
-      "only 1 month of history so far, so this is a provisional read"
+      "filed on time in all of the last 1 month, by their 11th"
+     ],
+     "topFactors": [
+      {
+       "mean": -3.704916655000001,
+       "value": 0,
+       "adverse": false,
+       "feature": "mean_days_late",
+       "relative": "ABOVE_AVERAGE",
+       "sentence": "never missed their 11th in the last 1 month, but files on the deadline itself — most file about 4 days early, so there is no room if anything slips",
+       "direction": "RAISES",
+       "contribution": 2.3782785900898045,
+       "standardised": 2.195265742455986
+      },
+      {
+       "mean": 0.092292505,
+       "value": 0,
+       "adverse": false,
+       "feature": "mismatch_rate",
+       "relative": "BELOW_AVERAGE",
+       "sentence": "amounts matched your books on all 1 document",
+       "direction": "LOWERS",
+       "contribution": -1.7918924493609154,
+       "standardised": -0.9944746853814714
+      }
      ],
      "features": {
       "cutOffDay": 11,
@@ -3870,10 +4172,56 @@
       "notIn2bCount": 0,
       "periodsObserved": 1
      },
-     "computedAt": "2026-10-04 08:02:40"
-    }
+     "computedAt": "2026-10-04 09:44:37"
+    },
+    "lastFiledOn": null
    }
-  ]
+  ],
+  "model": {
+   "source": "MODEL",
+   "synthetic": true,
+   "path": "D:\\Sem 5 (CSE)\\Omnikon_hackathon\\itc-guard\\ml\\model.json",
+   "features": [
+    "mean_days_late",
+    "max_days_late",
+    "mismatch_rate",
+    "periods_observed"
+   ],
+   "droppedFeatures": {
+    "filed_ratio_6m": {
+     "reason": "identical (1) on every row - no signal to learn from",
+     "constantValue": 1
+    },
+    "amendment_rate": {
+     "reason": "identical (0) on every row - no signal to learn from",
+     "constantValue": 0
+    },
+    "gstr3b_filed_ratio": {
+     "reason": "no value in any row - not present in the ingested data",
+     "constantValue": null
+    }
+   },
+   "rows": 200,
+   "positives": 43,
+   "suppliers": 40,
+   "labelPeriods": [
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07"
+   ],
+   "holdoutPeriod": "2026-07",
+   "metrics": {
+    "cvRocAuc": 0.8975,
+    "cvRocAucHeuristic": 0.7951,
+    "holdoutRocAuc": 0.9351,
+    "holdoutRocAucHeuristic": 0.9004,
+    "cvAveragePrecision": 0.6803,
+    "cvAveragePrecisionHeuristic": 0.4635
+   },
+   "beatsHeuristic": true
+  }
  },
  "clock": {
   "clock": {

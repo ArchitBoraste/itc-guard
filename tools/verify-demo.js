@@ -10,7 +10,7 @@
 //   portal    every document is on the portal side, or not, with the saved/filed
 //             status and the tax the timeline (tools/demo-timeline.js) says
 //   story     the counts and totals the demo brief promises (STORY below),
-//             Corrections included
+//             Corrections and the Suppliers screen's risk included
 //
 // Nothing is set by hand: the register says Krishna files quarterly. The one
 // decision taken is the one the script takes on 14 Sep, accepting Mahavir's
@@ -27,6 +27,7 @@ import {
   PERIODS,
   PERIOD_KEYS,
   REGISTER,
+  SUPPLIERS,
   imsFileName,
   imsSnapshot,
   registerFileName,
@@ -61,7 +62,8 @@ const STORY = {
       { supplier: 'patel', status: 'NOT_REPORTED' },
       { supplier: 'anand', status: 'SAVED_NOT_FILED' },
       { supplier: 'krishna', status: 'NOT_REPORTED', daysToCutOff: 2 }
-    ])
+    ]),
+    riskStandings({ high: { reliable: ['RT-760'] } })
   ],
   'aug:2026-09-14': [twoBTotals({ books: 4266000, exact: 1890000, open: 1440000, notFiled: 936000 })],
   'sep:2026-10-05': [
@@ -86,7 +88,9 @@ const STORY = {
   'sep:2026-10-14': [
     noAugustPhantoms(),
     corrections({ arrived: ['AE/177', 'KE-112', 'MS-878', 'PS-3401'], waiting: ['NS-612'] }),
-    septemberTotals({ own: 3708000, exact: 3168000, deferred: 180000, carriedInClaimable: 1026000 })
+    septemberTotals({ own: 3708000, exact: 3168000, deferred: 180000, carriedInClaimable: 1026000 }),
+    // Two months in, and August's phantom still inside the scoring window.
+    riskStandings({ high: { reliable: ['RT-760'] } })
   ]
 };
 
@@ -125,6 +129,36 @@ function notFiledYet(expected) {
         .map((entry) => `${entry.tradeName} ${entry.invoices.map((i) => i.status).join('+')} ${entry.daysToCutOff}d left`)
         .join('; ');
       return { pass, actual: actual || 'nobody listed' };
+    }
+  };
+}
+
+// The Suppliers screen's Risk column. With under three months of filing history
+// every supplier is New, except one with a document on the portal that is not in
+// the books, which is High whatever its history. `high` names those suppliers and
+// their documents not in the books.
+function riskStandings({ high }) {
+  const named = Object.entries(high).map(([key, documents]) => `${supplierOf(key).name} (${documents.join(', ')})`);
+  return {
+    name: `risk: ${named.join(', ')} High, not in your books; the other ${SUPPLIERS.length - named.length} New`,
+    check: ({ suppliers }) => {
+      const listed = new Map(suppliers.suppliers.map((entry) => [entry.gstin, entry.risk]));
+      const wrong = SUPPLIERS.filter((supplier) => {
+        const risk = listed.get(supplier.gstin);
+        const documents = high[supplier.key];
+        if (!documents) return risk?.standing !== 'NEW';
+        return risk?.standing !== 'HIGH' || risk.standingReason !== 'NOT_IN_BOOKS' ||
+          risk.phantoms.map((doc) => doc.invoiceNo).join() !== documents.join();
+      });
+      const describe = (supplier) => {
+        const risk = listed.get(supplier.gstin);
+        const documents = risk?.phantoms?.map((doc) => doc.invoiceNo).join(', ');
+        return `${supplier.name} ${risk?.standing ?? 'not listed'}${documents ? ` (${documents})` : ''}`;
+      };
+      return {
+        pass: wrong.length === 0,
+        actual: wrong.length ? wrong.map(describe).join('; ') : SUPPLIERS.map(describe).join('; ')
+      };
     }
   };
 }
@@ -342,7 +376,8 @@ async function snapshotOf(client, taxPeriod) {
   const { results } = await client.must(client.send(`/api/runs/${run.id}/results?pageSize=500`), 'read results');
   const { alerts } = await client.must(client.send(`/api/alerts?taxPeriod=${taxPeriod}`), 'read alerts');
   const { corrections } = await client.must(client.send(`/api/corrections?taxPeriod=${taxPeriod}`), 'read corrections');
-  return { run, results, alerts, corrections };
+  const suppliers = await client.must(client.send(`/api/suppliers?taxPeriod=${taxPeriod}`), 'read suppliers');
+  return { run, results, alerts, corrections, suppliers };
 }
 
 function printRows({ run, results, corrections: list }) {

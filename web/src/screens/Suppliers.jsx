@@ -6,9 +6,10 @@ import { EmptyState } from '../components/EmptyState.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { ErrorBox, InlineError, Loading } from '../components/States.jsx';
+import { formatDate } from '../lib/calendar.js';
 import { RISK_CHIP, schemeLabel } from '../lib/issues.js';
 import { rupees } from '../lib/money.js';
-import { matchesSearch, supplierRows } from '../lib/suppliers.js';
+import { matchesSearch, notInBooksText, standingOf, supplierRows } from '../lib/suppliers.js';
 
 function ContactForm({ supplier, onSaved, onCancel }) {
   const id = useId();
@@ -119,13 +120,34 @@ function SchemeForm({ supplier, onSaved, onCancel }) {
   );
 }
 
+const DOC_LABEL = { CREDIT_NOTE: 'Credit note', DEBIT_NOTE: 'Debit note' };
+
+// Why the supplier has its band, or for a New one, what they have done so far.
+// Documents of theirs not in the books come first: they are why it is High.
 function RiskReasons({ supplier }) {
-  const reasons = supplier.risk?.reasons ?? [];
+  const { risk } = supplier;
+  const standing = standingOf(risk);
+  const reasons = risk?.reasons ?? [];
+  const phantoms = risk?.phantoms ?? [];
+  const months = risk?.periodsObserved ?? 0;
   return (
     <div className="detail-panel" data-testid="risk-reasons">
-      <div className="strong-line">Why {RISK_CHIP[supplier.risk?.band]?.label.toLowerCase() ?? 'no'} risk</div>
-      {reasons.length ? (
+      <div className="strong-line">
+        {standing === 'NEW' ? RISK_CHIP.NEW.label : `Why ${RISK_CHIP[standing]?.label.toLowerCase() ?? 'no'} risk`}
+      </div>
+      {standing === 'NEW' ? (
+        <p className="small muted">
+          A risk band needs 3 months of filing history; {months ? `${months} month${months === 1 ? '' : 's'}` : 'none'} so far.
+        </p>
+      ) : null}
+      {phantoms.length || reasons.length ? (
         <ul className="reasons">
+          {phantoms.map((doc) => (
+            <li key={`${doc.taxPeriod}-${doc.invoiceNo}`}>
+              {DOC_LABEL[doc.docType] ?? 'Invoice'} {doc.invoiceNo} of {formatDate(doc.invoiceDate)} ({rupees(doc.totalTax)} tax)
+              is on the portal but not in your books
+            </li>
+          ))}
           {reasons.map((reason) => (
             <li key={reason}>{reason.charAt(0).toUpperCase() + reason.slice(1)}</li>
           ))}
@@ -313,8 +335,15 @@ export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, re
                 header: 'Risk',
                 nowrap: true,
                 render: (row) => {
-                  const chip = RISK_CHIP[row.supplier.risk?.band];
-                  return chip ? <Chip tone={chip.tone}>{chip.label}</Chip> : <span className="muted">—</span>;
+                  const chip = RISK_CHIP[standingOf(row.supplier.risk)];
+                  if (!chip) return <span className="muted">—</span>;
+                  const notInBooks = notInBooksText(row.supplier.risk);
+                  return (
+                    <>
+                      <Chip tone={chip.tone}>{chip.label}</Chip>
+                      {notInBooks ? <div className="cell-sub bad-text">{notInBooks}</div> : null}
+                    </>
+                  );
                 }
               },
               {
@@ -326,7 +355,7 @@ export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, re
                     type="button"
                     className="icon-button"
                     aria-expanded={isOpen(row, 'risk')}
-                    aria-label={`${isOpen(row, 'risk') ? 'Hide' : 'Show'} why ${row.supplier.tradeName} is this risk`}
+                    aria-label={`${isOpen(row, 'risk') ? 'Hide' : 'Show'} risk details for ${row.supplier.tradeName}`}
                     onClick={() => toggle(row, 'risk')}
                   >
                     <Icon name={isOpen(row, 'risk') ? 'chevronUp' : 'chevronDown'} size={14} strokeWidth={2} />

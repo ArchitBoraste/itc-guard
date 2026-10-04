@@ -538,6 +538,38 @@ export async function filedOnByGstin(orgId, taxPeriod) {
   return new Map(rows.map((row) => [row.gstin, row.filed_on]));
 }
 
+// gstin -> [{ invoiceNo, invoiceDate, docType, totalTax, taxPeriod }]: the documents
+// of theirs on the portal that are not in the books (MISSING_IN_BOOKS), in each
+// period's run across `periods`. A record the supplier has since withdrawn is no
+// longer on the portal and does not count.
+export async function phantomsBySupplier(orgId, periods) {
+  const byGstin = new Map();
+  if (!periods?.length) return byGstin;
+  const [rows] = await pool.query(
+    `SELECT ${SUPPLIER_OF_RECORD} AS gstin, ru.tax_period, pr.invoice_no, pr.invoice_date,
+            pr.doc_type, pr.total_tax
+       FROM match_results mr
+       JOIN runs ru ON ru.id = mr.run_id AND ru.org_id = mr.org_id
+       JOIN portal_records pr ON pr.id = mr.portal_record_id
+       ${ALIAS_JOIN}
+      WHERE mr.org_id = ? AND ru.tax_period IN (?) AND mr.bucket = 'MISSING_IN_BOOKS'
+        AND pr.absent_since IS NULL
+      ORDER BY ru.tax_period, pr.invoice_date, pr.invoice_no`,
+    [orgId, periods]
+  );
+  for (const row of rows) {
+    if (!byGstin.has(row.gstin)) byGstin.set(row.gstin, []);
+    byGstin.get(row.gstin).push({
+      invoiceNo: row.invoice_no,
+      invoiceDate: row.invoice_date,
+      docType: row.doc_type,
+      totalTax: Number(row.total_tax),
+      taxPeriod: row.tax_period
+    });
+  }
+  return byGstin;
+}
+
 export async function listSuppliers(orgId, { limit = 200, window = null } = {}) {
   const inWindow = window?.length ? 'AND sp.tax_period IN (?)' : '';
   const [rows] = await pool.query(
