@@ -48,6 +48,17 @@ describe('the list', () => {
     expect(rowFor('Crystal Enterprises')).toHaveTextContent('−₹900');
   });
 
+  it('says when a supplier filed, once GSTR-2B gives the date', async () => {
+    const dated = {
+      ...aug14.suppliers,
+      suppliers: aug14.suppliers.suppliers.map((supplier) =>
+        supplier.tradeName === 'Orbit Distributors' ? { ...supplier, lastFiledOn: '2026-09-04' } : supplier
+      )
+    };
+    await renderSuppliers(dated);
+    expect(rowFor('Orbit Distributors')).toHaveTextContent('Filed 4 Sep');
+  });
+
   it('never mentions the GSTIN checksum', async () => {
     const failing = {
       ...aug14.suppliers,

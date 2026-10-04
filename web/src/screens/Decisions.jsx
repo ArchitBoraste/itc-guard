@@ -71,6 +71,7 @@ function Details({ result }) {
       </div>
       {result.message ? (
         <MessagePanel
+          headingLevel={2}
           contact={result.supplierContact}
           message={result.message}
           noContactText={books ? 'No contact on file' : 'No contact on file: not in your purchase register'}

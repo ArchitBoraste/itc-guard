@@ -44,10 +44,10 @@ function summarise(rows) {
   return { text: rows.length ? 'No issues' : 'Nothing this period', hasIssue: false };
 }
 
-function lastFiling(rows) {
+function lastFiling(rows, filedOn) {
   const filed = rows.filter((result) => result.portal?.filingStatus === 'FILED');
   if (filed.length) {
-    const date = filed.map((result) => result.portal.supplierFiledOn).filter(Boolean).sort().at(-1);
+    const date = [filedOn, ...filed.map((result) => result.portal.supplierFiledOn)].filter(Boolean).sort().at(-1);
     return { text: date ? `Filed ${formatDay(date)}` : 'Filed', tone: null };
   }
   if (rows.some((result) => result.portal?.filingStatus === 'SAVED')) return { text: 'Saved, not filed', tone: 'warn' };
@@ -78,7 +78,7 @@ export function supplierRows(suppliers = [], results = null) {
         issue: issue.text,
         hasIssue: issue.hasIssue,
         itc: rows.reduce((total, result) => total + result.signedItc, 0),
-        filing: lastFiling(rows),
+        filing: lastFiling(rows, supplier.lastFiledOn),
         inRegister: rows.some((result) => result.books) || (supplier.stats?.expectedTotalTax ?? 0) > 0
       };
     })

@@ -1442,6 +1442,12 @@ button {
 
 /* --- suppliers ------------------------------------------------------------ */
 
+.search::placeholder,
+.input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
 .search {
   width: 260px;
   max-width: 100%;
@@ -1912,4 +1918,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.cell-sub.warn-text {
+  color: var(--warn-text);
 }
