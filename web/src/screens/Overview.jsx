@@ -1,13 +1,12 @@
-import { useState } from 'react';
-import { api } from '../api.js';
 import { Chip } from '../components/Chip.jsx';
 import { DataTable } from '../components/DataTable.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
+import { FromChip } from '../components/FromChip.jsx';
+import { NoRun } from '../components/NoRun.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { ImsDownloadButton } from '../components/ImsDownload.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { StatTile } from '../components/StatTile.jsx';
-import { InlineError } from '../components/States.jsx';
 import { deadlineOf, formatDay, formatPeriod, monthOf } from '../lib/calendar.js';
 import { issueOf } from '../lib/issues.js';
 import { rupees } from '../lib/money.js';
@@ -23,55 +22,6 @@ import {
 import { isImsActionable } from '../lib/decisionTabs.js';
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
-
-// "From August" for an earlier period's document arriving in this one.
-export function FromChip({ taxPeriod }) {
-  return <Chip tone="info">From {monthOf(taxPeriod)}</Chip>;
-}
-
-// What a period needs, for screens that cannot show anything without a run.
-export function NoRun({ period, inventory, navigate, refresh }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const canRun = Boolean(inventory?.hasBooks && inventory?.hasPortal);
-
-  const reconcile = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.createRun(period);
-      await refresh();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="card">
-      <EmptyState
-        title={period ? `${formatPeriod(period)} is not reconciled yet` : 'Nothing uploaded yet'}
-        action={
-          canRun ? (
-            <button type="button" className="btn btn-primary" onClick={reconcile} disabled={busy}>
-              {busy ? 'Reconciling…' : `Reconcile ${formatPeriod(period)}`}
-            </button>
-          ) : (
-            <button type="button" className="btn btn-primary" onClick={() => navigate('upload')}>
-              Upload files
-            </button>
-          )
-        }
-      >
-        {canRun
-          ? 'Your books and the portal files are in. Reconcile to see what matches.'
-          : 'Upload your purchase register and the latest IMS download to start.'}
-        <InlineError error={error} />
-      </EmptyState>
-    </section>
-  );
-}
 
 function taxCell(result, issue) {
   if (issue.key === 'HIGHER' || issue.key === 'LOWER') {

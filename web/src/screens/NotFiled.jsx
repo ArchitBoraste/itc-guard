@@ -121,8 +121,22 @@ export function NotFiledScreen({ period, dataVersion }) {
       </>
     );
   }
-  if (error) return (<>{header}<ErrorBox error={error} title="Cannot load this list" /></>);
-  if (!alerts) return (<>{header}<Loading rows={5} /></>);
+  if (error) {
+    return (
+      <>
+        {header}
+        <ErrorBox error={error} title="Cannot load this list" />
+      </>
+    );
+  }
+  if (!alerts) {
+    return (
+      <>
+        {header}
+        <Loading rows={5} />
+      </>
+    );
+  }
 
   const rows = alerts.suppliers.flatMap((supplier) => supplier.invoices.map((invoice) => ({ supplier, invoice })));
   const key = ({ invoice }) => `${invoice.supplierGstin}:${invoice.invoiceNo}:${invoice.invoiceDate}`;

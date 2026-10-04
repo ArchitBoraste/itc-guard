@@ -179,8 +179,22 @@ export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, re
     </PageHeader>
   );
 
-  if (error) return (<>{header(null)}<ErrorBox error={error} title="Cannot load suppliers" /></>);
-  if (!body) return (<>{header(null)}<Loading rows={6} /></>);
+  if (error) {
+    return (
+      <>
+        {header(null)}
+        <ErrorBox error={error} title="Cannot load suppliers" />
+      </>
+    );
+  }
+  if (!body) {
+    return (
+      <>
+        {header(null)}
+        <Loading rows={6} />
+      </>
+    );
+  }
 
   const all = supplierRows(body.suppliers, results);
   const rows = all.filter((row) => matchesSearch(row, search) && (!onlyIssues || row.hasIssue));

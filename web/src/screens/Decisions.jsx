@@ -3,6 +3,8 @@ import { api } from '../api.js';
 import { Chip } from '../components/Chip.jsx';
 import { DataTable } from '../components/DataTable.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
+import { FromChip } from '../components/FromChip.jsx';
+import { NoRun } from '../components/NoRun.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { ImsDownloadButton } from '../components/ImsDownload.jsx';
 import { MessagePanel } from '../components/MessagePanel.jsx';
@@ -21,7 +23,6 @@ import {
 } from '../lib/decisionTabs.js';
 import { DOC_TYPE_LABEL, issueOf, recommendationOf, whyLine } from '../lib/issues.js';
 import { rupees } from '../lib/money.js';
-import { FromChip, NoRun } from './Overview.jsx';
 
 const DECISION_LABEL = { ACCEPT: 'Accept', REJECT: 'Reject', PENDING: 'Pending' };
 const signed = (side) => (side?.docType === 'CREDIT_NOTE' ? -side.totalTax : side?.totalTax);
@@ -88,7 +89,6 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
   // deciding the last open record shows "All caught up" rather than jumping.
   const [chosen, setChosen] = useState(null);
   const tab = chosen ?? defaultTab(counts);
-  const setTab = setChosen;
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState({});
   const [errors, setErrors] = useState({});
@@ -147,7 +147,7 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
     if (!step) return;
     event.preventDefault();
     const next = TABS[(index + step + TABS.length) % TABS.length];
-    setTab(next.key);
+    setChosen(next.key);
     tabRefs.current[next.key]?.focus();
   };
 
@@ -305,7 +305,7 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
               aria-controls="decision-panel"
               tabIndex={selected ? 0 : -1}
               className="tab"
-              onClick={() => setTab(entry.key)}
+              onClick={() => setChosen(entry.key)}
               onKeyDown={(event) => onTabKey(event, index)}
               data-testid={`tab-${entry.key}`}
             >
