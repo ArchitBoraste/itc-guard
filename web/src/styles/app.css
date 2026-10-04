@@ -111,6 +111,8 @@ button {
 .shell {
   display: flex;
   min-height: 100vh;
+  /* The rail's colour runs the full height of a long page. */
+  background: linear-gradient(to right, var(--sidebar-bg) var(--sidebar-width), var(--bg-app) var(--sidebar-width));
 }
 
 .main {
@@ -1638,6 +1640,7 @@ button {
 @media (max-width: 900px) {
   .shell {
     flex-direction: column;
+    background: var(--bg-app);
   }
 
   .sidebar {
@@ -1862,4 +1865,51 @@ button {
 
 .cell-sub.bad-text {
   color: var(--bad-text);
+}
+
+/* --- suppliers' inline panels -------------------------------------------- */
+
+.detail-panel {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-button);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 760px;
+}
+
+.detail-panel .select {
+  align-self: flex-start;
+  font-weight: 400;
+}
+
+.contact-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-button.is-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--primary);
+}
+
+.icon-button.is-quiet:hover {
+  background: var(--primary-soft);
+}
+
+.search-field {
+  display: block;
+}
+
+.card-pad > .card-title + * {
+  margin-top: 12px;
+}
+
+.help-month {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
