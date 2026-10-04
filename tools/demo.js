@@ -3,7 +3,9 @@
 //   npm run demo
 //
 // Brings up compose, waits for the database to actually be ready (not merely
-// started), applies migrations, rebuilds the demo state, and prints the URL.
+// started), applies migrations, rebuilds org 1's demo state when the app runs as
+// one trader (DEMO_TENANCY=off; per visitor there is nothing to rebuild), and
+// prints the URL.
 //
 // It does NOT open a browser. On a projector an app stealing focus and opening a
 // window on the wrong screen is a worse failure than a URL you type.
@@ -301,8 +303,29 @@ async function ensureFixtures() {
   }
 }
 
-async function buildDemoState() {
+// Whether the api container gives each browser its own workspace (DEMO_TENANCY,
+// on by default in docker-compose.yml). Asked of compose itself, so .env and the
+// shell resolve exactly as the container sees them.
+function perVisitorWorkspaces() {
+  const result = capture('docker', ['compose', 'config', '--format', 'json']);
+  if (!result.ok) return true;
+  try {
+    const tenancy = JSON.parse(result.stdout).services?.api?.environment?.DEMO_TENANCY ?? 'off';
+    return String(tenancy).toLowerCase() === 'on';
+  } catch {
+    return true;
+  }
+}
+
+async function buildDemoState(perVisitor) {
   heading('Building the demo state');
+
+  if (perVisitor) {
+    // Org 1 is nobody's workspace in this mode, so rebuilding it would show nothing.
+    detail('per-visitor workspaces are on: each browser starts with an empty workspace');
+    detail('nothing to rebuild; the files to upload are in fixtures/demo/');
+    return;
+  }
 
   if (!existsSync(join(REPO_ROOT, 'api', 'node_modules'))) await installHostDeps();
   await ensureFixtures();
@@ -384,7 +407,8 @@ async function main() {
   await composeUp();
   await waitForDb();
   await migrate();
-  await buildDemoState();
+  const perVisitor = perVisitorWorkspaces();
+  await buildDemoState(perVisitor);
   await waitForServers();
 
   console.log(`\n${RULE}`);
@@ -396,7 +420,12 @@ async function main() {
   console.log('');
   console.log(`  API health   ${API_HEALTH}`);
   console.log('  Stop it      docker compose down');
-  console.log('  Rebuild just the demo state, nothing restarted:  npm run demo:reset');
+  if (perVisitor) {
+    console.log('  Empty again  Clear all data on the Upload screen, or a new private window');
+    console.log('  Demo files   fixtures/demo/, or "Download demo files" on the Upload screen');
+  } else {
+    console.log('  Rebuild just the demo state, nothing restarted:  npm run demo:reset');
+  }
   console.log(RULE);
 }
 

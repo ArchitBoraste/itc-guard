@@ -22,3 +22,8 @@ if (!process.env.ITC_QUIET_ENV) {
       `[test env] database ${describeConnection()}`
   );
 }
+
+// Suites run single-trader unless they turn tenancy on themselves, as the tenancy
+// suite does. A DEMO_TENANCY=on from the environment (docker compose's default for
+// local dev) must not change what every other suite exercises.
+process.env.DEMO_TENANCY = 'off';

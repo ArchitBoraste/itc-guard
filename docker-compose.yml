@@ -38,12 +38,14 @@ services:
       DB_NAME: ${DB_NAME:-itc_guard}
       PORT: 3000
       NODE_ENV: ${NODE_ENV:-development}
-      # Per-visitor demo data. Off locally — a dev run stays on org 1, which is
-      # what npm run demo:reset seeds and what every screenshot is of. The public
-      # judging deployment sets DEMO_TENANCY=on in its own .env, and must also set
-      # DEMO_SESSION_SECRET or sessions die on every restart.
-      DEMO_TENANCY: ${DEMO_TENANCY:-off}
-      DEMO_SESSION_SECRET: ${DEMO_SESSION_SECRET:-}
+      # Per-visitor workspaces, exactly as the deployed site runs: each browser
+      # gets its own empty workspace through a cookie, and "Clear all data"
+      # empties it. DEMO_TENANCY=off in .env goes back to one stubbed trader on
+      # org 1 (what npm run demo:reset seeds).
+      DEMO_TENANCY: ${DEMO_TENANCY:-on}
+      # Signs the session cookie, so a workspace survives an api restart. This
+      # default is for a local run only: docker-compose.prod.yml requires its own.
+      DEMO_SESSION_SECRET: ${DEMO_SESSION_SECRET:-local-dev-only-not-a-secret}
       DEMO_COOKIE_SECURE: ${DEMO_COOKIE_SECURE:-false}
       DEMO_SESSION_DAYS: ${DEMO_SESSION_DAYS:-180}
       DEMO_MAX_ORGS: ${DEMO_MAX_ORGS:-40}

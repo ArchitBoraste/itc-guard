@@ -20,6 +20,7 @@ import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/tx.js';
 import { traderGstinFor } from './demo.js';
 import { wipeOrgData } from './demoStory.js';
+import { ServiceError } from './ingest.js';
 
 export const APP_ORG_ID = 1;
 
@@ -184,12 +185,29 @@ export async function touchSession(orgId) {
 // Every upload, run, decision and supplier detail goes, and the date follows
 // today again. The cookie, the org id and the trader GSTIN stay, so nothing else
 // changes for the visitor and nobody else's workspace is touched.
-export async function clearWorkspace(orgId) {
+//
+// perVisitor false is the single-trader mode (DEMO_TENANCY off): the caller is
+// the one stubbed trader, and it is their data that goes. A visitor's workspace
+// is never cleared that way, whatever the request says.
+export async function clearWorkspace(orgId, { perVisitor = true } = {}) {
   const row = await getDemoOrg(orgId);
-  assertDemoOrg(row, 'clearWorkspace');
+  if (perVisitor) {
+    assertDemoOrg(row, 'clearWorkspace');
+  } else if (!row) {
+    throw new ServiceError('workspace not found', 404, 'not_found');
+  } else if (row.demo_state) {
+    throw new ServiceError(
+      'this deployment has one trader, and this is a visitor workspace: it is not cleared from here',
+      409,
+      'conflict'
+    );
+  }
   await wipeOrgData(orgId);
   await pool.query(
-    'UPDATE organizations SET as_of_date = NULL, demo_error = NULL, last_seen_at = NOW() WHERE id = ?',
+    `UPDATE organizations
+        SET as_of_date = NULL, demo_error = NULL,
+            last_seen_at = IF(demo_state IS NULL, last_seen_at, NOW())
+      WHERE id = ?`,
     [orgId]
   );
   return { orgId: Number(orgId) };

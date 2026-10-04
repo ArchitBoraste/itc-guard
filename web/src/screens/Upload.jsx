@@ -755,19 +755,17 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
               )
             ) : null}
           </div>
-          {perVisitor ? (
-            <button
-              type="button"
-              className="btn btn-danger align-start"
-              onClick={() => {
-                setClearError(null);
-                setClearing(true);
-              }}
-              data-testid="clear-all"
-            >
-              Clear all data
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="btn btn-danger align-start"
+            onClick={() => {
+              setClearError(null);
+              setClearing(true);
+            }}
+            data-testid="clear-all"
+          >
+            Clear all data
+          </button>
         </aside>
       </div>
 
@@ -797,7 +795,10 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
         onConfirm={clearAll}
         onCancel={() => setClearing(false)}
       >
-        <p>Every upload, decision and contact in this workspace is deleted, and the date follows today again.</p>
+        <p>
+          Every upload, run, decision and contact {perVisitor ? 'in this workspace' : 'for this trader'} is deleted, and
+          the date follows today again.
+        </p>
         <InlineError error={clearError} />
       </ConfirmDialog>
     </>

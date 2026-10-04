@@ -113,7 +113,8 @@ npm run demo
 ```
 
 That brings up the three containers, waits for MySQL to actually be ready, applies
-migrations, and rebuilds a known demo state. It prints a URL — **http://localhost:5173**
+migrations, and, when the app runs as one trader (`DEMO_TENANCY=off`), rebuilds a known
+demo state; per visitor, every browser starts empty. It prints a URL — **http://localhost:5173**
 — and deliberately does not open a browser.
 
 It is safe to run twice, and safe to run thirty seconds before presenting: every step is
@@ -374,6 +375,24 @@ docker compose exec api npm run migrate
 - Web → http://localhost:5173
 - MySQL → `localhost:3307` (see the port note below)
 
+### One workspace per browser (local = live)
+
+`docker-compose.yml` runs the API exactly as the deployed site does
+(`DEMO_TENANCY=on`): the first visit from a browser gets its own **empty** workspace,
+kept by a signed cookie for 180 days, and **Clear all data** on the Upload screen empties
+it again. A second browser, or a private window, is a second workspace. Compose signs
+the cookie with a local-only secret, so a workspace survives an API restart.
+
+- `DEMO_TENANCY=off` in `.env` goes back to one stubbed trader (org 1), which is what
+  `npm run demo:reset` and `npm run seed:demo` write. **Clear all data** then clears that
+  trader's uploads, runs, decisions, contacts and clock.
+- API on the host (`npm run dev` in `api/`): the same two settings come from `.env`;
+  set `DEMO_SESSION_SECRET` to any string there, or every restart starts a new workspace.
+- The test suites pin `DEMO_TENANCY=off` themselves; the tenancy suite turns it on.
+- On Windows, edits made on the host may not reach the API container's file watcher. If
+  the API seems to run old code, rebuild and restart it:
+  `docker compose up -d --build api`.
+
 ### MySQL port
 
 Host port 3306 is assumed taken by a native MySQL install, so compose maps the container's
@@ -411,7 +430,7 @@ The Vite dev server proxies `/api/*` to the API, so the front end calls `/api/he
 | root | `npm run gen:demo` | regenerate the live demo's files in `fixtures/demo/` ([script](docs/demo/DEMO-SCRIPT.md)) |
 | root | `npm run verify:demo` | replay the demo story in a fresh workspace and check every step |
 | root | `npm run seed:demo` | load a fixture period end to end for org 1 |
-| root | `npm run demo:reset` | wipe org 1 and rebuild the presentable demo state |
+| root | `npm run demo:reset` | wipe org 1 and rebuild the presentable demo state (seen with `DEMO_TENANCY=off`) |
 | root | `npm run sweep:weights` | grid-search matching weights vs ground truth |
 | root | `npm run ml:export` | seed org 10 from fixtures, export `ml/training-data.csv` |
 | root | `python ml/train.py` | fit the risk model, print metrics, write `ml/model.json` |
@@ -545,8 +564,9 @@ Set `ITC_QUIET_ENV=1` to silence the per-run banner.
 
 ### Test data isolation
 
-`stubAuth` serves every API request as **org 1**, and `npm run seed:demo` writes
-there. So org 1 is the running application's data, and no suite may touch it.
+With `DEMO_TENANCY=off`, `stubAuth` serves every API request as **org 1**, and
+`npm run seed:demo` writes there. So org 1 is the running application's data, and no
+suite may touch it.
 
 Each DB-backed suite owns an id from `TEST_ORGS` in `api/test/helpers/db.js`:
 
@@ -634,7 +654,7 @@ Stub auth: every request is org 1. No login yet.
 | `GET` | `/api/session` | the visitor's workspace; creates an empty one on a per-visitor deployment |
 | `GET` | `/api/workspace/clock` | `?taxPeriod=` -> the workspace's as-of date, and that period's deadlines with days left |
 | `PUT` | `/api/workspace/clock` | `{ asOfDate \| null }` -> sets the date (null: today) and re-evaluates every run |
-| `POST` | `/api/workspace/clear` | Clear all data: the caller's workspace back to empty (per-visitor deployments) |
+| `POST` | `/api/workspace/clear` | Clear all data: the caller's workspace back to empty (a visitor's own; with `DEMO_TENANCY=off`, the one trader's) |
 | `DELETE` | `/api/uploads/:id` | removes an upload and the rows it owns, rebuilds the runs |
 | `POST` | `/api/runs` | `{ taxPeriod, mode }` -> run + summary, as of the workspace date |
 | `GET` | `/api/runs` | every reconciled period, newest first |
@@ -688,7 +708,7 @@ file says why on its card. An unrecognised register opens the column mapper, pre
 from the trader's own column titles (guesses are labelled as such), with the optional
 contact and filing-frequency columns. Reconcile once; after that every upload rebuilds
 the period and the button reads "See results". Upload history with Remove, the demo
-files, and **Clear all data**.
+files, and **Clear all data** under Accepted formats, behind a confirm dialog.
 
 **Overview** — Credit in your books, Ready to claim, Needs your decision and Not filed by
 suppliers, which add up to the books total, with a bar showing the split. "Before 20 Sep"

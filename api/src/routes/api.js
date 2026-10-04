@@ -92,8 +92,8 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
         isNew: Boolean(req.sessionIsNew),
         error: req.sessionError ?? null,
         // Whether this deployment gives each visitor their own workspace at all.
-        // The UI hides "Clear all data" when it does not: on a single-org dev run
-        // the button would wipe the developer's own data.
+        // The UI words "Clear all data" by it: a visitor's workspace, or the one
+        // trader's data on a single-trader run.
         perVisitor: config.demo.enabled
       },
       pool: config.demo.enabled ? await tenancyStats() : null
@@ -101,17 +101,11 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   }));
 
   // "Clear all data": the CALLER's workspace back to empty, the date back to
-  // following today, and nothing else touched.
+  // following today, and nothing else touched. Per visitor that is their own
+  // workspace; on a single-trader run (DEMO_TENANCY off) it is that trader's
+  // uploads, runs, decisions, contacts and clock.
   router.post('/workspace/clear', wrap(async (req, res) => {
-    if (!config.demo.enabled) {
-      throw new ServiceError(
-        'this deployment has one shared workspace, so it is not cleared from here: use ' +
-          '"npm run demo:reset"',
-        409,
-        'conflict'
-      );
-    }
-    const cleared = await clearWorkspace(req.orgId);
+    const cleared = await clearWorkspace(req.orgId, { perVisitor: config.demo.enabled });
     res.json({ cleared, clock: await readWorkspaceClock(req.orgId) });
   }));
 

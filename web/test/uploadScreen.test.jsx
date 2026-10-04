@@ -238,13 +238,26 @@ describe('Clear all data', () => {
     const { refresh } = renderUpload();
     await userEvent.click(screen.getByTestId('clear-all'));
     const dialog = screen.getByRole('dialog', { name: 'Clear all data?' });
+    expect(dialog).toHaveTextContent('Every upload, run, decision and contact in this workspace is deleted');
+    expect(api.clearWorkspace).not.toHaveBeenCalled();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Clear all data' }));
     await waitFor(() => expect(api.clearWorkspace).toHaveBeenCalled());
     expect(refresh).toHaveBeenCalled();
   });
 
-  it('is not offered on a shared workspace', () => {
+  it('sits under Accepted formats', () => {
+    renderUpload();
+    const formats = screen.getByRole('heading', { name: 'Accepted formats' }).closest('aside');
+    expect(within(formats).getByTestId('clear-all')).toBeInTheDocument();
+  });
+
+  it('is offered with one trader too, and clears that trader', async () => {
+    api.clearWorkspace.mockResolvedValue({});
     renderUpload({ perVisitor: false });
-    expect(screen.queryByTestId('clear-all')).toBeNull();
+    await userEvent.click(screen.getByTestId('clear-all'));
+    const dialog = screen.getByRole('dialog', { name: 'Clear all data?' });
+    expect(dialog).toHaveTextContent('Every upload, run, decision and contact for this trader is deleted');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(api.clearWorkspace).not.toHaveBeenCalled();
   });
 });
