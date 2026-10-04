@@ -67,6 +67,12 @@ export const config = {
     return demoConfig();
   },
 
+  // Supplier email, read lazily for the same reason as demo. Every value comes from
+  // the environment and none is ever logged.
+  get mail() {
+    return mailConfig();
+  },
+
   // Recommendation tuning, read lazily for the same reason as demo.
   get matching() {
     return {
@@ -90,6 +96,27 @@ function paiseSetting(name, fallback) {
     throw new Error(`${name} must be a whole number of paise, 0 or more (got "${raw}")`);
   }
   return value;
+}
+
+const env = (name) => (process.env[name] ?? '').trim();
+
+// Google's fast, low-cost stable model at the time of writing; GEMINI_MODEL overrides.
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+
+function mailConfig() {
+  const port = Number(env('SMTP_PORT') || 465);
+  const smtp = { host: env('SMTP_HOST'), port, secure: port === 465, user: env('SMTP_USER'), pass: env('SMTP_PASS') };
+  return {
+    // Not configured -> the Email button stays a mailto link and no poller runs.
+    enabled: Boolean(smtp.host && smtp.user && smtp.pass),
+    smtp,
+    imap: { host: env('IMAP_HOST'), port: 993, user: smtp.user, pass: smtp.pass },
+    // Lower-cased addresses the app may send to. Empty sends to nobody.
+    allowlist: env('EMAIL_ALLOWLIST').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean),
+    dailyLimit: Number(env('EMAIL_DAILY_LIMIT') || 30),
+    pollSeconds: Number(env('IMAP_POLL_SECONDS') || 30),
+    gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL }
+  };
 }
 
 function demoConfig() {

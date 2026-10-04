@@ -53,6 +53,18 @@ services:
       DEMO_RETAIN_DAYS: ${DEMO_RETAIN_DAYS:-30}
       # Blank means the engine default. See .env.example.
       MATERIALITY_TOLERANCE_PAISE: ${MATERIALITY_TOLERANCE_PAISE:-}
+      # Supplier email (services/supplierEmail.js, services/mailInbox.js). Blank
+      # SMTP_* leaves the Email button a mailto link and starts no IMAP poller.
+      # Values come from the env file only and are never logged.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      IMAP_HOST: ${IMAP_HOST:-}
+      EMAIL_ALLOWLIST: ${EMAIL_ALLOWLIST:-}
+      # Reply checking; blank key = replies shown unchecked.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
     ports:
       - "3000:3000"
     volumes:

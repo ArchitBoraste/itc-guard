@@ -107,3 +107,13 @@ export function deadlineChip(calendar) {
   if (due.daysLeft >= 0) return { tone: 'warn', text: `GSTR-3B due ${formatDate(due.date)} · ${left(due.daysLeft)}` };
   return { tone: 'bad', text: `GSTR-3B was due ${formatDate(due.date)}` };
 }
+
+// An ISO instant as the trader reads it, in India: "5 Oct 2026, 00:42".
+export function formatSentTime(iso) {
+  if (!iso) return '—';
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return String(iso);
+  const zone = { timeZone: 'Asia/Kolkata' };
+  const time = when.toLocaleTimeString('en-GB', { ...zone, hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${formatDate(when.toLocaleDateString('en-CA', zone))}, ${time}`;
+}

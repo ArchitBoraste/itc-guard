@@ -79,7 +79,10 @@ export const TEST_ORGS = Object.freeze({
   workspaceGstin: 30,
   registerSchemes: 31,
   supplierMessages: 32,
-  clearWorkspace: 33
+  clearWorkspace: 33,
+  contactsFollowRegister: 34,
+  supplierEmail: 35,
+  mailInbox: 36
 });
 
 export async function ensureOrg(orgId, gstin) {
@@ -109,6 +112,8 @@ function assertNotAppOrg(orgId, fnName) {
 export async function resetOrg(orgId) {
   assertNotAppOrg(orgId, 'resetOrg');
   const statements = [
+    'DELETE FROM message_replies WHERE org_id = ?',
+    'DELETE FROM message_threads WHERE org_id = ?',
     'DELETE FROM match_results WHERE org_id = ?',
     'DELETE FROM runs WHERE org_id = ?',
     'DELETE FROM record_changes WHERE org_id = ?',
@@ -128,7 +133,7 @@ export async function resetOrg(orgId) {
   // hand it to the next run of the suite.
   await pool.query('UPDATE organizations SET as_of_date = NULL WHERE id = ?', [orgId]);
   // ...nor the trader GSTIN its files made it adopt.
-  await pool.query('UPDATE organizations SET workspace_gstin = NULL WHERE id = ?', [orgId]);
+  await pool.query('UPDATE organizations SET workspace_gstin = NULL, trader_phone = NULL WHERE id = ?', [orgId]);
 }
 
 export const COUNTED_TABLES = [

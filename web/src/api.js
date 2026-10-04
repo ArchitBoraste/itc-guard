@@ -150,5 +150,14 @@ export const api = {
   setFilingScheme: (gstin, scheme) =>
     json('PUT', `/api/suppliers/${encodeURIComponent(gstin)}/filing-scheme`, { scheme }),
   setContact: (gstin, contact) =>
-    json('PUT', `/api/suppliers/${encodeURIComponent(gstin)}/contact`, contact)
+    json('PUT', `/api/suppliers/${encodeURIComponent(gstin)}/contact`, contact),
+
+  // --- supplier email --------------------------------------------------------
+  // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday }, threads }
+  listMessages: () => request('/api/messages'),
+  // { count, version, latest }: what the bells poll.
+  unreadMessages: () => request('/api/messages/unread'),
+  // { supplierGstin, documentRefs, subject, body, taxPeriod, context } -> thread
+  sendMessage: (message) => json('POST', '/api/messages', message).then((body) => body.thread),
+  markSupplierRead: (supplierGstin) => json('POST', '/api/messages/read', { supplierGstin })
 };

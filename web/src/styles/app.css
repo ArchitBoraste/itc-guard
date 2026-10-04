@@ -1946,3 +1946,216 @@ button {
 .cell-sub.warn-text {
   color: var(--warn-text);
 }
+
+/* --- supplier email: compose, threads, replies, bells ----------------------- */
+
+.compose-dialog {
+  max-width: 620px;
+}
+
+.compose-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.compose-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.compose-body {
+  min-height: 180px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.email-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.email-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.email-sent {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.email-sent .muted {
+  font-weight: 400;
+}
+
+.reply-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-card);
+  min-width: 0;
+}
+
+.reply-card.is-unread {
+  border-color: var(--warn-strong);
+}
+
+.reply-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.reply-summary {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.reply-promised {
+  font-size: 13px;
+  color: var(--ok-text);
+  font-weight: 600;
+}
+
+.reply-flag {
+  font-size: 13px;
+  color: var(--bad-text);
+  font-weight: 600;
+}
+
+.reply-text {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.promised-line {
+  font-size: 12px;
+  color: var(--ok-text);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.bell-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.bell-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.bell-button:hover {
+  color: var(--text-body);
+}
+
+.bell-button.has-unread {
+  color: var(--text-body);
+}
+
+.bell-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bad-solid);
+  border: 1.5px solid var(--bg-card);
+}
+
+.bell-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--bad-solid);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.bell-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(380px, calc(100vw - 32px));
+  max-height: 420px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(15, 27, 45, 0.18);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  white-space: normal;
+}
+
+.bell-popover.align-right {
+  left: auto;
+  right: 0;
+}
+
+.bell-popover-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bell-item {
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+}
+
+.supplier-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

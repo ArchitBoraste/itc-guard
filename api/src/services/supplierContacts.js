@@ -120,7 +120,7 @@ function cleanField(body, field) {
 
 // The supplier a GSTIN names in this org: itself when the books or the portal carry
 // it, the supplier it belongs to when it is a recorded typo, else 404.
-async function knownSupplierGstin(orgId, gstin) {
+export async function knownSupplierGstin(orgId, gstin) {
   const [rows] = await pool.query(
     `SELECT COALESCE(
        (SELECT gstin FROM supplier_gstin_aliases WHERE org_id = ? AND alias_gstin = ?),

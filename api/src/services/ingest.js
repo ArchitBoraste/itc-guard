@@ -15,7 +15,7 @@ import { saveRegisterContacts } from './supplierContacts.js';
 import { applyDeclaredSchemes } from './supplierStats.js';
 import { planPortalDiff, writePortalDiff } from './syncDiff.js';
 import { displayDate, displayPeriod, workspaceAsOf } from './workspaceClock.js';
-import { adoptFileGstin, assertFileGstin, fileTraderGstin } from './workspaceGstin.js';
+import { adoptFileGstin, adoptTraderPhone, assertFileGstin, fileTraderGstin } from './workspaceGstin.js';
 
 export const UPLOAD_KINDS = Object.freeze(['PURCHASE_REGISTER', 'IMS', 'GSTR2B']);
 
@@ -363,6 +363,7 @@ async function commitExpected(connection, orgId, upload, parsed) {
   // invoices this upload touched rather than trying to diff them.
   await replaceExpectedRateLines(connection, orgId, invoices);
   const contacts = await saveRegisterContacts(connection, orgId, upload.id, invoices);
+  await adoptTraderPhone(connection, orgId, parsed.metadata?.recipientPhone);
 
   const afterUpsert = await countRows(connection, 'expected_invoices', orgId);
   const filePeriod = upload.tax_period ?? parsed.taxPeriod;

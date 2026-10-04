@@ -100,6 +100,8 @@ export function storyFixturesReady() {
 // org 1.
 export async function wipeOrgData(orgId) {
   const statements = [
+    'DELETE FROM message_replies WHERE org_id = ?',
+    'DELETE FROM message_threads WHERE org_id = ?',
     'DELETE FROM match_results WHERE org_id = ?',
     'DELETE FROM runs WHERE org_id = ?',
     'DELETE FROM record_changes WHERE org_id = ?',
@@ -114,7 +116,7 @@ export async function wipeOrgData(orgId) {
     'DELETE FROM portal_records WHERE org_id = ?',
     'DELETE FROM uploads WHERE org_id = ?',
     // An empty workspace adopts its trader GSTIN afresh (services/workspaceGstin.js).
-    'UPDATE organizations SET workspace_gstin = NULL WHERE id = ?'
+    'UPDATE organizations SET workspace_gstin = NULL, trader_phone = NULL WHERE id = ?'
   ];
   for (const sql of statements) await pool.query(sql, [orgId]);
 }

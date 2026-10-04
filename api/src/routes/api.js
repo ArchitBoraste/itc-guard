@@ -37,6 +37,13 @@ import { filedOnByGstin, getSupplierHistory, listSuppliers } from '../services/s
 import { rebuildSupplierStats, supplierRiskMap, supplierView } from '../services/supplierRisk.js';
 import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { setSupplierContact } from '../services/supplierContacts.js';
+import {
+  listThreads,
+  mailStatus,
+  markSupplierRead,
+  sendSupplierEmail,
+  unreadSummary
+} from '../services/supplierEmail.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
@@ -498,6 +505,31 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   // who is on the portal but not in the register. A typo GSTIN sets its supplier's.
   router.put('/suppliers/:gstin/contact', wrap(async (req, res) => {
     res.json(await setSupplierContact(req.orgId, String(req.params.gstin).toUpperCase(), req.body ?? {}));
+  }));
+
+  // --- supplier email (services/supplierEmail.js) -----------------------------
+
+  // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday }, threads }:
+  // every thread in the workspace with its replies.
+  router.get('/messages', wrap(async (req, res) => {
+    const [mail, threads] = await Promise.all([mailStatus(req.orgId), listThreads(req.orgId)]);
+    res.json({ mail, threads });
+  }));
+
+  // { count, version, latest }: what the bells poll.
+  router.get('/messages/unread', wrap(async (req, res) => {
+    res.json(await unreadSummary(req.orgId));
+  }));
+
+  // Sends one email to the supplier's current contact and stores the thread:
+  // { supplierGstin, documentRefs[], subject, body, taxPeriod?, context? }.
+  router.post('/messages', wrap(async (req, res) => {
+    res.status(201).json({ thread: await sendSupplierEmail(req.orgId, req.body ?? {}) });
+  }));
+
+  // Marks every reply from one supplier read: { supplierGstin }.
+  router.post('/messages/read', wrap(async (req, res) => {
+    res.json(await markSupplierRead(req.orgId, String(req.body?.supplierGstin ?? '').toUpperCase()));
   }));
 
   return router;

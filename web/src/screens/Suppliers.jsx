@@ -5,6 +5,7 @@ import { DataTable } from '../components/DataTable.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
+import { SupplierBell, scrollToSelector } from '../components/SupplierBell.jsx';
 import { ErrorBox, InlineError, Loading } from '../components/States.jsx';
 import { formatDate } from '../lib/calendar.js';
 import { RISK_CHIP, schemeLabel } from '../lib/issues.js';
@@ -159,13 +160,18 @@ function RiskReasons({ supplier }) {
   );
 }
 
-export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, refresh }) {
+export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, refresh, focus = null }) {
   const [body, setBody] = useState(null);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [onlyIssues, setOnlyIssues] = useState(false);
   const [open, setOpen] = useState(null); // { gstin, panel: 'risk' | 'contact' | 'scheme' }
   const [reload, setReload] = useState(0);
+
+  // A reply picked in the top bar: bring its supplier's row into view.
+  useEffect(() => {
+    if (focus && body) scrollToSelector(`[data-supplier-gstin="${focus.gstin}"]`);
+  }, [focus?.nonce, body]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -246,6 +252,7 @@ export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, re
             minWidth={1040}
             rows={rows}
             rowKey={(row) => row.supplier.gstin}
+            rowProps={(row) => ({ 'data-supplier-gstin': row.supplier.gstin })}
             isExpanded={(row) => isOpen(row)}
             renderDetail={(row) =>
               open.panel === 'contact' ? (
@@ -262,7 +269,10 @@ export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, re
                 header: 'Supplier',
                 render: ({ supplier }) => (
                   <>
-                    <div className="cell-main">{supplier.tradeName}</div>
+                    <div className="supplier-cell-head">
+                      <div className="cell-main">{supplier.tradeName}</div>
+                      <SupplierBell gstin={supplier.gstin} name={supplier.tradeName} />
+                    </div>
                     <div className="cell-gstin">{supplier.gstin}</div>
                   </>
                 )

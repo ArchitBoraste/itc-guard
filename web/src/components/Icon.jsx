@@ -66,7 +66,8 @@ const PATHS = {
       <path d="M12 10v5M12 18h.01" />
     </>
   ),
-  download: <path d="M12 4v11M7 10l5 5 5-5M4 19h16" />
+  download: <path d="M12 4v11M7 10l5 5 5-5M4 19h16" />,
+  bell: <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0" />
 };
 
 export function Icon({ name, size = 18, strokeWidth = 1.8, className }) {

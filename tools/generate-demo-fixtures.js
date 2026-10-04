@@ -13,6 +13,9 @@
 //                                                        date, each cumulative
 //   fixtures/demo/<mon>/gstr2b_<mon>26.json              filed records only
 //   fixtures/demo/contacts.example.json                  the shape of contacts.local.json
+//                                                        (suppliers, and an optional
+//                                                        "trader" with the phone the
+//                                                        messages are signed with)
 //
 // The committed registers carry placeholder contacts. When the gitignored
 // fixtures/demo/contacts.local.json exists, a second copy of every file with the
@@ -119,12 +122,16 @@ function registerRow(doc, contact) {
   ];
 }
 
-function writeRegister(path, periodKey, contactOf) {
+function writeRegister(path, periodKey, contactOf, traderPhone = null) {
   const period = PERIODS[periodKey];
   // v2.4 layout: recipient + financial year on row 1, trade name + tax period on
-  // row 2, two blank rows, the header on row 5 and documents from row 6.
+  // row 2, two blank rows, the header on row 5 and documents from row 6. The
+  // trader's own phone, when there is one, rides on row 1 after the year.
   const aoa = [
-    ['GSTIN of recipient* :', TRADER.gstin, null, 'Financial year* :', period.financialYear],
+    [
+      'GSTIN of recipient* :', TRADER.gstin, null, 'Financial year* :', period.financialYear,
+      ...(traderPhone ? [null, 'Contact phone :', traderPhone] : [])
+    ],
     ['Trade/Legal name:', TRADER.name, null, 'Tax period* :', period.monthName],
     [],
     [],
@@ -294,13 +301,15 @@ function contactsExample() {
       'Reliable Traders is not in the register; set its contact in the app.',
     suppliers: Object.fromEntries(
       REGISTER_SUPPLIERS.map((supplier) => [supplier.name, { contactPerson: '', phone: '', email: '' }])
-    )
+    ),
+    trader: { phone: '' }
   };
 }
 
-// contacts.local.json -> supplier key -> { person, phone, email }. Names are
-// matched exactly, so a typo is an error rather than a supplier silently left on
-// the placeholder.
+// contacts.local.json -> { suppliers: supplier key -> { person, phone, email },
+// traderPhone }. Names are matched exactly, so a typo is an error rather than a
+// supplier silently left on the placeholder. An entry left all blank is not filled
+// in, and that supplier keeps the placeholder.
 function readLocalContacts(path) {
   const parsed = JSON.parse(readFileSync(path, 'utf8'));
   const byName = new Map(REGISTER_SUPPLIERS.map((supplier) => [supplier.name, supplier]));
@@ -313,13 +322,14 @@ function readLocalContacts(path) {
           `Expected one of: ${[...byName.keys()].join(', ')}`
       );
     }
-    contacts.set(supplier.key, {
+    const contact = {
       person: entry.contactPerson?.trim() || null,
       phone: entry.phone?.trim() || null,
       email: entry.email?.trim() || null
-    });
+    };
+    if (contact.person || contact.phone || contact.email) contacts.set(supplier.key, contact);
   }
-  return contacts;
+  return { suppliers: contacts, traderPhone: parsed.trader?.phone?.trim() || null };
 }
 
 // --- self-check through the app's adapters -------------------------------------------
@@ -335,11 +345,12 @@ const expectedContact = (contact) => (contact.person || contact.phone || contact
 
 const keyed = (rows) => [...rows].sort((x, y) => x.key.localeCompare(y.key));
 
-function checkRegister(path, periodKey, contactOf) {
+function checkRegister(path, periodKey, contactOf, traderPhone = null) {
   const parsed = purchaseRegister.parseWithMetadata(readFileSync(path));
   assertEqual(parsed.format, purchaseRegister.FORMAT_TEMPLATE_V24, `${path}: format`);
   assertEqual(parsed.taxPeriod, PERIODS[periodKey].taxPeriod, `${path}: tax period`);
   assertEqual(parsed.metadata.recipientGstin, TRADER.gstin, `${path}: recipient`);
+  assertEqual(parsed.metadata.recipientPhone, traderPhone, `${path}: trader phone`);
   assertEqual(purchaseRegister.recipientGstin(readFileSync(path)), TRADER.gstin, `${path}: trader GSTIN`);
   const read = parsed.invoices.map((invoice) => ({
     key: `${invoice.supplierGstin}|${invoice.invoiceNo}`,
@@ -413,10 +424,10 @@ const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, 
 // Reads every file of a written set back through the adapters and compares it with
 // the timeline. Throws on the first difference. The test suite runs this over the
 // committed set, so an edit to the timeline cannot ship without regenerating.
-export function checkSet(root = DEMO_DIR, contactOf = placeholderContact) {
+export function checkSet(root = DEMO_DIR, contactOf = placeholderContact, traderPhone = null) {
   for (const periodKey of PERIOD_KEYS) {
     const dir = join(root, periodKey);
-    checkRegister(join(dir, registerFileName(periodKey)), periodKey, contactOf);
+    checkRegister(join(dir, registerFileName(periodKey)), periodKey, contactOf, traderPhone);
     for (const date of PERIODS[periodKey].snapshots) {
       checkIms(join(dir, imsFileName(periodKey, date)), periodKey, date);
     }
@@ -424,7 +435,7 @@ export function checkSet(root = DEMO_DIR, contactOf = placeholderContact) {
   }
 }
 
-function writeSet(root, contactOf) {
+function writeSet(root, contactOf, traderPhone = null) {
   const written = [];
   for (const periodKey of PERIOD_KEYS) {
     const dir = join(root, periodKey);
@@ -432,7 +443,7 @@ function writeSet(root, contactOf) {
     mkdirSync(dir, { recursive: true });
 
     const registerPath = join(dir, registerFileName(periodKey));
-    writeRegister(registerPath, periodKey, contactOf);
+    writeRegister(registerPath, periodKey, contactOf, traderPhone);
     written.push(registerPath);
 
     for (const date of PERIODS[periodKey].snapshots) {
@@ -445,7 +456,7 @@ function writeSet(root, contactOf) {
     writeJson(twoBPath, twoBStatement(periodKey));
     written.push(twoBPath);
   }
-  checkSet(root, contactOf);
+  checkSet(root, contactOf, traderPhone);
   return written;
 }
 
@@ -465,12 +476,14 @@ function main() {
     console.log('no fixtures/demo/contacts.local.json: skipped fixtures/demo-local/');
     return;
   }
-  const real = readLocalContacts(LOCAL_CONTACTS);
-  const blank = { person: null, phone: null, email: null };
+  const { suppliers: real, traderPhone } = readLocalContacts(LOCAL_CONTACTS);
   // The portal files are the same as the committed ones; writing the whole set
   // again keeps one folder to upload from on the day.
-  const local = writeSet(LOCAL_DIR, (supplier) => real.get(supplier.key) ?? blank);
-  console.log(`wrote ${local.length} files to fixtures/demo-local/ with ${real.size} real contact(s) (gitignored)`);
+  const local = writeSet(LOCAL_DIR, (supplier) => real.get(supplier.key) ?? placeholderContact(supplier), traderPhone);
+  console.log(
+    `wrote ${local.length} files to fixtures/demo-local/ with ${real.size} real contact(s)` +
+      `${traderPhone ? ' and the trader phone' : ''} (gitignored)`
+  );
 }
 
 // Only when run directly, so the test suite can import checkSet().

@@ -27,3 +27,9 @@ if (!process.env.ITC_QUIET_ENV) {
 // suite does. A DEMO_TENANCY=on from the environment (docker compose's default for
 // local dev) must not change what every other suite exercises.
 process.env.DEMO_TENANCY = 'off';
+
+// Nor may a developer's mail settings: no suite sends a real email, polls a real
+// mailbox or calls Gemini. The email suites configure a fake transport themselves.
+for (const name of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'IMAP_HOST', 'EMAIL_ALLOWLIST', 'GEMINI_API_KEY', 'GEMINI_MODEL']) {
+  delete process.env[name];
+}

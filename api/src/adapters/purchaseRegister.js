@@ -609,7 +609,10 @@ const METADATA_LABELS = new Map(
     'gstin of recipient': 'recipientGstin',
     'trade/legal name': 'recipientName',
     'financial year': 'financialYear',
-    'tax period': 'taxPeriodName'
+    'tax period': 'taxPeriodName',
+    // Not in the GSTN template: the trader's own number, which the demo files
+    // carry so supplier messages can be signed with it.
+    'contact phone': 'recipientPhone'
   })
 );
 
@@ -619,7 +622,8 @@ function readMetadata(metadataRows) {
     recipientGstin: null,
     recipientName: null,
     financialYear: null,
-    taxPeriodName: null
+    taxPeriodName: null,
+    recipientPhone: null
   };
   for (const row of metadataRows) {
     (row ?? []).forEach((cellValue, index) => {

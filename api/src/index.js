@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { ping, closePool } from './db/pool.js';
 import { startDemoTenancy } from './services/demoTenancy.js';
+import { startMailPoller } from './services/mailInbox.js';
 
 const app = createApp({ pingDb: ping });
 
@@ -9,6 +10,9 @@ const app = createApp({ pingDb: ping });
 // rather than in app.js so importing the app in a test never starts a timer.
 // No-op unless DEMO_TENANCY=on.
 const stopDemoTenancy = startDemoTenancy();
+
+// Supplier replies from the trader's mailbox. No-op unless SMTP and IMAP are set.
+const stopMailPoller = startMailPoller();
 
 const server = app.listen(config.port, () => {
   console.log(`itc-guard api listening on :${config.port} (${config.env})`);
@@ -18,6 +22,7 @@ const server = app.listen(config.port, () => {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     stopDemoTenancy();
+    stopMailPoller();
     server.close(async () => {
       await closePool();
       process.exit(0);

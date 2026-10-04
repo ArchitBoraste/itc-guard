@@ -5,6 +5,8 @@ import { DataTable } from '../components/DataTable.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { MessagePanel } from '../components/MessagePanel.jsx';
+import { PromisedLine, SupplierBell, scrollToSelector } from '../components/SupplierBell.jsx';
+import { docKey } from '../components/MailProvider.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { StatTile } from '../components/StatTile.jsx';
 import { ErrorBox, Loading } from '../components/States.jsx';
@@ -91,10 +93,22 @@ function CutoffCard({ state, stats }) {
   );
 }
 
-export function NotFiledScreen({ period, dataVersion }) {
+const rowKeyOf = ({ invoice }) => `${invoice.supplierGstin}:${invoice.invoiceNo}:${invoice.invoiceDate}`;
+
+export function NotFiledScreen({ period, dataVersion, focus = null }) {
   const [alerts, setAlerts] = useState(null);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
+
+  // A reply picked in the top bar: select its document, which shows the thread.
+  useEffect(() => {
+    if (!focus || !alerts) return;
+    const supplier = alerts.suppliers.find((entry) => entry.gstin === focus.gstin);
+    const invoice = supplier?.invoices.find((entry) => !focus.invoiceNo || docKey(entry.invoiceNo) === docKey(focus.invoiceNo));
+    if (!invoice) return;
+    setSelected(rowKeyOf({ invoice }));
+    scrollToSelector('[data-testid="message-panel"]');
+  }, [focus?.nonce, alerts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!period) return undefined;
@@ -139,7 +153,7 @@ export function NotFiledScreen({ period, dataVersion }) {
   }
 
   const rows = alerts.suppliers.flatMap((supplier) => supplier.invoices.map((invoice) => ({ supplier, invoice })));
-  const key = ({ invoice }) => `${invoice.supplierGstin}:${invoice.invoiceNo}:${invoice.invoiceDate}`;
+  const key = rowKeyOf;
   const current = rows.find((row) => key(row) === selected) ?? rows[0] ?? null;
 
   if (!rows.length) {
@@ -179,7 +193,10 @@ export function NotFiledScreen({ period, dataVersion }) {
               header: 'Supplier',
               render: ({ supplier }) => (
                 <>
-                  <div className="cell-main">{supplier.tradeName}</div>
+                  <div className="supplier-cell-head">
+                    <div className="cell-main">{supplier.tradeName}</div>
+                    <SupplierBell gstin={supplier.gstin} name={supplier.tradeName} />
+                  </div>
                   <div className="cell-gstin">{supplier.gstin}</div>
                   <div className="cell-sub">{schemeLabel(supplier)}</div>
                 </>
@@ -217,9 +234,14 @@ export function NotFiledScreen({ period, dataVersion }) {
               key: 'portal',
               header: 'On the portal',
               nowrap: true,
-              render: ({ invoice }) => {
+              render: ({ supplier, invoice }) => {
                 const status = NOT_FILED_STATUS[invoice.status] ?? NOT_FILED_STATUS.NOT_REPORTED;
-                return <Chip tone={status.tone}>{status.label}</Chip>;
+                return (
+                  <>
+                    <Chip tone={status.tone}>{status.label}</Chip>
+                    <PromisedLine gstin={supplier.gstin} invoiceNo={invoice.invoiceNo} />
+                  </>
+                );
               }
             },
             {
@@ -279,6 +301,10 @@ export function NotFiledScreen({ period, dataVersion }) {
           title={`Message to ${current.supplier.tradeName}`}
           contact={current.supplier.contact}
           message={current.invoice.message}
+          supplierGstin={current.supplier.gstin}
+          documentRefs={[current.invoice.invoiceNo]}
+          taxPeriod={period}
+          context="notfiled"
         />
       ) : null}
     </>
