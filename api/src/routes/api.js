@@ -33,7 +33,7 @@ import { demoSession } from '../http/session.js';
 import { clearWorkspace, tenancyStats } from '../services/demoTenancy.js';
 import { describeColumns } from '../adapters/purchaseRegister.js';
 import { pool } from '../db/pool.js';
-import { getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
+import { filedOnByGstin, getSupplierHistory, listSuppliers } from '../services/supplierStats.js';
 import { rebuildSupplierStats, supplierRiskMap, supplierView } from '../services/supplierRisk.js';
 import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { setSupplierContact } from '../services/supplierContacts.js';
@@ -463,14 +463,20 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     const requested = req.query.taxPeriod ? String(req.query.taxPeriod) : null;
     // One as-of period and one window for every figure on a row (audit P17).
     const { asOfPeriod, window } = await supplierView(req.orgId, requested);
-    const [suppliers, risk] = await Promise.all([
+    const [suppliers, risk, filedOn] = await Promise.all([
       listSuppliers(req.orgId, { limit: Number(req.query.limit ?? 200), window }),
-      supplierRiskMap(req.orgId, asOfPeriod)
+      supplierRiskMap(req.orgId, asOfPeriod),
+      asOfPeriod ? filedOnByGstin(req.orgId, asOfPeriod) : new Map()
     ]);
     res.json({
       asOfPeriod,
       window,
-      suppliers: suppliers.map((supplier) => ({ ...supplier, risk: risk.get(supplier.gstin) ?? null })),
+      // lastFiledOn: when they last filed a record for asOfPeriod, from GSTR-2B.
+      suppliers: suppliers.map((supplier) => ({
+        ...supplier,
+        risk: risk.get(supplier.gstin) ?? null,
+        lastFiledOn: filedOn.get(supplier.gstin) ?? null
+      })),
       // Named so the UI can say which scorer produced the bands it is showing.
       model: modelProvenance()
     });

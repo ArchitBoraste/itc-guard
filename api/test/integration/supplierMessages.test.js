@@ -6,6 +6,7 @@
 //     the supplier's own cut-off; a clean match carries none.
 //   * The alerts' digest is signed with the workspace's own GSTIN.
 //   * GET /api/periods describes each source the way the Upload cards do.
+//   * GET /api/suppliers says when each supplier last filed for the period.
 //   * GET /api/demo/files lists and serves the demo's sample files.
 //
 // Owns org 32.
@@ -14,7 +15,7 @@ import { closePool } from '../../src/db/pool.js';
 import { ensureOrg } from '../../src/services/demo.js';
 import { MESSAGE_KINDS as K } from '../../src/services/supplierMessages.js';
 import { TEST_ORGS, requireDatabase, resetOrg } from '../helpers/db.js';
-import { demoIms, demoRegister } from '../helpers/demoFiles.js';
+import { demoIms, demoRegister, demoTwoB } from '../helpers/demoFiles.js';
 import { startApi } from '../helpers/http.js';
 
 const ORG_ID = TEST_ORGS.supplierMessages;
@@ -94,6 +95,16 @@ describe('after the cut-off', () => {
     expect(byInvoice(results, 'PS-3401').message.kind).toBe(K.NOT_FILED_AFTER_CUTOFF);
     expect(byInvoice(results, 'PS-3401').message.text).toContain('Please add it through GSTR-1A');
     expect(byInvoice(results, 'KE-112').message.text).toContain('include it in your quarterly GSTR-1');
+  });
+
+  it('says when each supplier last filed, once GSTR-2B says so', async () => {
+    const before = (await api.call('GET', '/api/suppliers?taxPeriod=2026-08')).body.suppliers;
+    expect(before.find((row) => row.tradeName === 'Orbit Distributors').lastFiledOn).toBeNull();
+
+    expect((await api.ingest('GSTR2B', demoTwoB('aug'))).status).toBe(200);
+    const after = (await api.call('GET', '/api/suppliers?taxPeriod=2026-08')).body.suppliers;
+    expect(after.find((row) => row.tradeName === 'Orbit Distributors').lastFiledOn).toBe('2026-09-04');
+    expect(after.find((row) => row.tradeName === 'Patel Systems').lastFiledOn).toBeNull();
   });
 
   it("reminds August's suppliers of what is still waiting in September", async () => {

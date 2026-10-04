@@ -524,6 +524,20 @@ export async function rebuildSupplierPeriods(orgId, taxPeriod, { runId = null, r
 // the supplier's risk band was scored on (supplierRisk.supplierView). A row once
 // read "Periods 3 · Docs 68" beside "differed on 10 of 36 documents": three
 // figures, two spans of history (audit P17). null sums every period held.
+// gstin -> the latest date the supplier filed a record for taxPeriod. Only
+// GSTR-2B says when (supfildt), so before the 14th there is nothing to report.
+export async function filedOnByGstin(orgId, taxPeriod) {
+  const [rows] = await pool.query(
+    `SELECT ${SUPPLIER_OF_RECORD} AS gstin, MAX(pr.supplier_filed_on) AS filed_on
+       FROM portal_records pr ${ALIAS_JOIN}
+      WHERE pr.org_id = ? AND pr.tax_period = ? AND pr.absent_since IS NULL
+        AND pr.supplier_filed_on IS NOT NULL
+      GROUP BY ${SUPPLIER_OF_RECORD}`,
+    [orgId, taxPeriod]
+  );
+  return new Map(rows.map((row) => [row.gstin, row.filed_on]));
+}
+
 export async function listSuppliers(orgId, { limit = 200, window = null } = {}) {
   const inWindow = window?.length ? 'AND sp.tax_period IN (?)' : '';
   const [rows] = await pool.query(
