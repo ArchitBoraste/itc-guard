@@ -215,7 +215,6 @@ describe('GET /api/suppliers', () => {
 
   it('returns a band and topFactors for a supplier with several observed periods', () => {
     const steady = supplier('STEADY');
-    expect(steady.stats.periodsObserved).toBe(PERIODS.length);
 
     // The thing that was broken: risk was null for every supplier.
     expect(steady.risk).not.toBeNull();
@@ -223,7 +222,11 @@ describe('GET /api/suppliers', () => {
 
     // The window runs THROUGH the as-of period, so it covers 2026-04..2026-06 —
     // three of the four seeded periods, the fourth being later than the as-of.
+    // The row's own figures use the same window (audit P17): they used to sum
+    // all four periods beside a band scored on three.
     expect(steady.risk.periodsObserved).toBe(3);
+    expect(steady.stats.periodsObserved).toBe(3);
+    expect(body.window.slice(-3)).toEqual(['2026-04', '2026-05', '2026-06']);
     expect(steady.risk.source).toBe('MODEL');
     expect(steady.risk.topFactors.length).toBeGreaterThan(0);
     for (const factor of steady.risk.topFactors) {
@@ -264,6 +267,16 @@ describe('GET /api/suppliers', () => {
     expect(future.risk.periodsObserved).toBe(0);
     expect(future.risk.guard).toBe('NO_HISTORY');
     expect(future.risk.reasons.join(' ')).toContain('no filing history yet');
+  });
+
+  // Under three months the screen shows New instead of a band; three or more, the band.
+  it('says which suppliers are too new for a band', () => {
+    expect(supplier('COLD').risk.standing).toBe('NEW');
+    expect(supplier('FUTURE').risk.standing).toBe('NEW');
+    const steady = supplier('STEADY').risk;
+    expect(steady.periodsObserved).toBe(3);
+    expect(steady.standing).toBe(steady.band);
+    expect(steady.phantoms).toEqual([]);
   });
 
   // The window includes the as-of period, so the counts a row shows and the

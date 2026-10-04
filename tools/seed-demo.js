@@ -13,9 +13,13 @@ import { fileURLToPath } from 'node:url';
 
 import { pool, closePool } from '../api/src/db/pool.js';
 import { commitUpload, createUpload } from '../api/src/services/ingest.js';
+import { presetDemoSupplierSchemes } from '../api/src/services/demo.js';
 import { createRun } from '../api/src/services/reconcile.js';
 import { rebuildSupplierStats } from '../api/src/services/supplierRisk.js';
 import { buildRunImsActions } from '../api/src/services/imsActions.js';
+import { syncSuppliers } from '../api/src/services/supplierStats.js';
+import { writeWorkspaceClock } from '../api/src/services/workspaceClock.js';
+import { addMonths } from '../api/src/matching/normalize.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = join(REPO_ROOT, 'fixtures');
@@ -61,7 +65,9 @@ async function resetOrgData() {
     'DELETE FROM record_changes WHERE org_id = ?',
     'DELETE FROM supplier_periods WHERE org_id = ?',
     'DELETE FROM supplier_risk WHERE org_id = ?',
+    'DELETE FROM supplier_gstin_aliases WHERE org_id = ?',
     'DELETE FROM suppliers WHERE org_id = ?',
+    'DELETE FROM supplier_contacts WHERE org_id = ?',
     'DELETE FROM expected_rate_lines WHERE org_id = ?',
     'DELETE FROM expected_invoices WHERE org_id = ?',
     'DELETE FROM portal_rate_lines WHERE org_id = ?',
@@ -98,18 +104,12 @@ async function seedPeriod(taxPeriod) {
   await ingest('IMS', 'ims.json', taxPeriod);
   await ingest('GSTR2B', 'gstr2b.json', taxPeriod);
 
-  // Mid-window: after 2B generation on the 14th, before GSTR-3B on the 20th —
-  // the reactive window the decision engine is built for.
-  const [year, month] = taxPeriod.split('-').map(Number);
-  const nextMonth = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
-  const asOfDate = `${nextMonth}-16`;
+  // The same QRMP schemes the in-app seeder pre-sets (services/demo.js).
+  await syncSuppliers(ORG_ID);
+  await presetDemoSupplierSchemes(ORG_ID);
 
-  const run = await createRun({
-    orgId: ORG_ID,
-    taxPeriod,
-    mode: 'REACTIVE',
-    asOfDate
-  });
+  // Against org 1's workspace date, set in main().
+  const run = await createRun({ orgId: ORG_ID, taxPeriod, mode: 'REACTIVE' });
   await rebuildSupplierStats(ORG_ID, taxPeriod, { runId: run.id });
 
   const buckets = Object.entries(run.bucketCounts)
@@ -117,7 +117,7 @@ async function seedPeriod(taxPeriod) {
     .map(([bucket, n]) => `${bucket}=${n}`)
     .join('  ');
 
-  console.log(`  run #${run.id}  as of ${asOfDate}  cut-off ${run.cutOffDate}`);
+  console.log(`  run #${run.id}  as of ${run.asOfDate}  cut-off ${run.cutOffDate}`);
   console.log(`  ${buckets}`);
   console.log('  totals (paise -> rupees):');
   for (const [name, value] of Object.entries(run.totals)) {
@@ -160,6 +160,12 @@ async function main() {
     console.log('resetting org data...');
     await resetOrgData();
   }
+
+  // The 16th after the latest period: past 2B on the 14th, before GSTR-3B on the
+  // 20th, the reactive window the decision engine is built for. One date for the
+  // whole workspace, so earlier periods read it too.
+  const clock = await writeWorkspaceClock(ORG_ID, `${addMonths([...targets].sort().at(-1), 1)}-16`);
+  console.log(`workspace date ${clock.asOfDate}`);
 
   for (const period of targets) await seedPeriod(period);
 

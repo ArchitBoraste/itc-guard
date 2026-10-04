@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { DEFAULT_MATERIALITY_TOLERANCE_PAISE } from './matching/recommend.js';
 
 // Absolute paths derived from this module's own URL, never from process.cwd().
 // Tests run from api/, tools run from the repo root, and the container runs from
@@ -64,8 +65,32 @@ export const config = {
   // race against module load order.
   get demo() {
     return demoConfig();
+  },
+
+  // Recommendation tuning, read lazily for the same reason as demo.
+  get matching() {
+    return {
+      // A value mismatch whose total tax differs by no more than this many paise
+      // is accepted as immaterial. See DEFAULT_MATERIALITY_TOLERANCE_PAISE.
+      materialityTolerancePaise: paiseSetting(
+        'MATERIALITY_TOLERANCE_PAISE',
+        DEFAULT_MATERIALITY_TOLERANCE_PAISE
+      )
+    };
   }
 };
+
+// A money setting is integer paise. Anything else is refused by name rather than
+// parsed into a number nobody meant.
+function paiseSetting(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a whole number of paise, 0 or more (got "${raw}")`);
+  }
+  return value;
+}
 
 function demoConfig() {
   return {
@@ -75,21 +100,22 @@ function demoConfig() {
     // repo is a forgeable cookie; an absent one is replaced by a random key at
     // boot, which merely means cookies do not survive a restart.
     secret: process.env.DEMO_SESSION_SECRET ?? null,
-    cookieSecure: (process.env.DEMO_COOKIE_SECURE ?? 'false').toLowerCase() === 'true',
-    sessionHours: Number(process.env.DEMO_SESSION_HOURS ?? 12),
-    // How many seeded orgs sit ready. Each one costs a seed up front and roughly
-    // a purchase register's worth of rows in MySQL.
-    poolSize: Number(process.env.DEMO_POOL_SIZE ?? 3),
-    // Hard ceiling on live demo orgs (POOL + CLAIMED + PROVISIONING). Org 1 and
-    // the reserved test orgs are not demo orgs and never count towards it.
-    maxOrgs: Number(process.env.DEMO_MAX_ORGS ?? 40),
-    // A claimed org untouched for this long is deleted.
+    // Secure in production unless told otherwise; a local http run needs it off.
+    cookieSecure: (process.env.DEMO_COOKIE_SECURE ?? String(process.env.NODE_ENV === 'production'))
+      .toLowerCase() === 'true',
+    // How long a visitor's cookie lasts, renewed as they use the app. A workspace
+    // has to survive coming back to the demo days later.
+    sessionDays: Number(process.env.DEMO_SESSION_DAYS ?? 180),
+    // Hard ceiling on live workspaces. Org 1 and the reserved test orgs are not
+    // demo orgs and never count towards it. An empty workspace is one row, so the
+    // cap bounds disk, not memory; see DEMO_MAX_ORGS in .env.prod.example.
+    maxOrgs: Number(process.env.DEMO_MAX_ORGS ?? 200),
+    // A workspace untouched for this long is deleted, unless it was uploaded to
+    // within retainDays.
     idleMinutes: Number(process.env.DEMO_IDLE_MINUTES ?? 180),
-    // How often the reaper runs and the pool is topped back up.
-    sweepMinutes: Number(process.env.DEMO_SWEEP_MINUTES ?? 5),
-    // Concurrent seeds. This is a 1 GB / 2 vCPU box; a seed parses an xlsx and
-    // two JSON downloads, so more than a couple at once is how it falls over.
-    seedConcurrency: Number(process.env.DEMO_SEED_CONCURRENCY ?? 2)
+    retainDays: Number(process.env.DEMO_RETAIN_DAYS ?? 30),
+    // How often the reaper runs.
+    sweepMinutes: Number(process.env.DEMO_SWEEP_MINUTES ?? 5)
   };
 }
 

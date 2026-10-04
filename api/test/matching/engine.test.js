@@ -13,6 +13,7 @@ import { FALLBACK_PASS, PRIMARY_PASS, candidatePairs } from '../../src/matching/
 import { assignOneToOne, comparePairs } from '../../src/matching/assign.js';
 import { BUCKETS, classify } from '../../src/matching/buckets.js';
 import { mergePortalRecords, reconcile, summarizeResults } from '../../src/matching/index.js';
+import { DEFAULT_WEIGHTS } from '../../src/matching/score.js';
 
 // --- builders --------------------------------------------------------------
 
@@ -454,9 +455,10 @@ describe('reconcile', () => {
   // was inside the prose of recommendationReason, and the Actions screen printed
   // a fixed "the cut-off has not passed" header over rows that said otherwise.
   describe('CUTOFF_PASSED', () => {
-    // Saved, never filed, amounts disagree: CHASE_SUPPLIER on both sides of the
-    // cut-off, which is exactly why the flag has to carry the difference.
-    const saved = () => portal({ filingStatus: 'SAVED', taxableValue: 9500000 });
+    // Saved, never filed, portal tax lower: CHASE_SUPPLIER before the cut-off and
+    // ACCEPT (chase the difference) after it. The flag is the only record of which
+    // side of the cut-off the verdict was taken on.
+    const saved = () => portal({ filingStatus: 'SAVED', taxableValue: 9500000, totalTax: 1710000 });
 
     it('is absent while the supplier can still fix it for free', () => {
       const [result] = reconcile([books()], [saved()], {
@@ -472,9 +474,9 @@ describe('reconcile', () => {
         taxPeriod: '2026-02',
         asOfDate: '2026-03-16'
       });
-      expect(result.recommendedAction).toBe('CHASE_SUPPLIER');
+      expect(result.recommendedAction).toBe('ACCEPT');
       expect(result.flags).toContain('CUTOFF_PASSED');
-      expect(result.recommendationReason).toContain('later period');
+      expect(result.recommendationReason).toContain('chase the supplier for the ₹900.00 difference');
     });
 
     it('moves with the supplier scheme, not with one global date', () => {
@@ -490,9 +492,74 @@ describe('reconcile', () => {
       expect(onThe12th('QRMP')).not.toContain('CUTOFF_PASSED');
     });
 
+    // The run's scheme is the trader's; each supplier's own decides their cut-off.
+    // A QRMP supplier's saved mismatch on the 12th is still a free fix, whatever
+    // the run's default says.
+    it("judges each document against its own supplier's scheme", () => {
+      const onThe12th = (schemeFor) =>
+        reconcile([books()], [saved()], {
+          taxPeriod: '2026-02',
+          asOfDate: '2026-03-12',
+          filingScheme: 'MONTHLY',
+          schemeFor
+        })[0];
+
+      const quarterly = onThe12th((gstin) => (gstin === books().supplierGstin ? 'QRMP' : null));
+      expect(quarterly.recommendedAction).toBe('CHASE_SUPPLIER');
+      expect(quarterly.flags).not.toContain('CUTOFF_PASSED');
+
+      // An unknown supplier falls back to the run's default.
+      const unknown = onThe12th(() => null);
+      expect(unknown.recommendedAction).toBe('ACCEPT');
+      expect(unknown.flags).toContain('CUTOFF_PASSED');
+    });
+
     it('stays off entirely when there is no calendar context to judge from', () => {
       const [result] = reconcile([books()], [saved()], { taxPeriod: '2026-02' });
       expect(result.flags).not.toContain('CUTOFF_PASSED');
+    });
+  });
+
+  // A saved record cannot reach 2B. Once its supplier's cut-off is behind the
+  // as-of date, one that agrees with the books is a document not filed, never a
+  // match: the demo's Anand AE/177 was saved on 8 Sep and never filed.
+  describe('a saved record that agrees, past its cut-off', () => {
+    const savedExact = () => portal({ filingStatus: 'SAVED' });
+    const on = (asOfDate, options = {}) =>
+      reconcile([books()], [savedExact()], { taxPeriod: '2026-02', asOfDate, ...options })[0];
+
+    it('is not filed: deferred, with the saved record kept beside the books row', () => {
+      const result = on('2026-03-12');
+      expect(result.bucket).toBe(BUCKETS.MISSING_IN_PORTAL);
+      expect(result.portal.filingStatus).toBe('SAVED');
+      expect(result.expected.invoiceNo).toBe('INV/DEL/2026/4471');
+      expect(result.recommendedAction).toBe('DEFERRED');
+      expect(result.recommendationReason).toContain('not filed by their cut-off');
+      expect(result.flags).toEqual(expect.arrayContaining(['SUPPLIER_UNFILED', 'CUTOFF_PASSED']));
+      expect(result.requiresConfirmation).toBe(false);
+      expect(result.itcAtRisk).toBe(1800000);
+    });
+
+    it('is still a match on the cut-off day itself, and with no calendar at all', () => {
+      expect(on('2026-03-11').bucket).toBe(BUCKETS.MATCHED);
+      expect(reconcile([books()], [savedExact()], { taxPeriod: '2026-02' })[0].bucket).toBe(BUCKETS.MATCHED);
+    });
+
+    it("is judged on its own supplier's cut-off: a QRMP supplier has until the 13th", () => {
+      const qrmp = { schemeFor: () => 'QRMP' };
+      expect(on('2026-03-13', qrmp).bucket).toBe(BUCKETS.MATCHED);
+      expect(on('2026-03-14', qrmp).bucket).toBe(BUCKETS.MISSING_IN_PORTAL);
+    });
+
+    it('leaves a filed record and a saved one that differs in their buckets', () => {
+      expect(reconcile([books()], [portal()], { taxPeriod: '2026-02', asOfDate: '2026-03-16' })[0].bucket)
+        .toBe(BUCKETS.MATCHED);
+      const differs = reconcile(
+        [books()],
+        [portal({ filingStatus: 'SAVED', taxableValue: 9500000, totalTax: 1710000 })],
+        { taxPeriod: '2026-02', asOfDate: '2026-03-16' }
+      )[0];
+      expect(differs.bucket).toBe(BUCKETS.VALUE_MISMATCH);
     });
   });
 
@@ -500,5 +567,18 @@ describe('reconcile', () => {
     const weights = { invoiceNo: 0.4, taxableValue: 0.25, totalTax: 0.15, invoiceDate: 0.35, gstin: 0.05 };
     const [result] = reconcile([books()], [portal()], { weights });
     expect(result.scoreBreakdown.invoiceDate.weight).toBe(0.35);
+    expect(DEFAULT_WEIGHTS.invoiceDate).toBe(0.3);
+  });
+
+  // The score popover lists each weight beside its contribution, so the weights
+  // have to read as shares of the score. They summed to 1.2 (audit P34).
+  it('ships weights that are shares of the score: they sum to exactly 1.0', () => {
+    const hundredths = Object.values(DEFAULT_WEIGHTS).reduce((sum, w) => sum + Math.round(w * 100), 0);
+    expect(hundredths).toBe(100);
+
+    // So a full match scores the sum of its contributions, with nothing rescaled.
+    const [result] = reconcile([books()], [portal()]);
+    const contributions = Object.values(result.scoreBreakdown).reduce((sum, c) => sum + c.contribution, 0);
+    expect(result.score).toBeCloseTo(contributions, 4);
   });
 });

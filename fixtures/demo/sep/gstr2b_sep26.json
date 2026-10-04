@@ -1,0 +1,415 @@
+{
+  "chksum": "232d11266d85095fcac51e70671b080d",
+  "gstin": "27AABCS1080F1ZN",
+  "rtnprd": "092026",
+  "docdata": {
+    "b2b": [
+      {
+        "ctin": "27AAFFO2231R1ZX",
+        "trdnm": "Orbit Distributors",
+        "supfildt": "03-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "INV-0902",
+            "dt": "02-09-2026",
+            "typ": "R",
+            "val": 47200,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8544",
+                "rt": 18,
+                "txval": 40000,
+                "igst": 0,
+                "cgst": 3600,
+                "sgst": 3600,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "29AACCL3907B1ZT",
+        "trdnm": "Laxmi Components",
+        "supfildt": "09-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "LC-905",
+            "dt": "07-09-2026",
+            "typ": "R",
+            "val": 29500,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8541",
+                "rt": 18,
+                "txval": 25000,
+                "igst": 4500,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "27AABCN7782E1Z9",
+        "trdnm": "National Supply Co",
+        "supfildt": "08-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "NS-701",
+            "dt": "09-09-2026",
+            "typ": "R",
+            "val": 21240,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8471",
+                "rt": 18,
+                "txval": 18000,
+                "igst": 0,
+                "cgst": 1620,
+                "sgst": 1620,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "27AAHFC3348Q1ZX",
+        "trdnm": "Crystal Enterprises",
+        "supfildt": "05-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "CE-1021",
+            "dt": "24-09-2026",
+            "typ": "R",
+            "val": 25960,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8532",
+                "rt": 18,
+                "txval": 22000,
+                "igst": 0,
+                "cgst": 1980,
+                "sgst": 1980,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "27AKLPG6614M1ZS",
+        "trdnm": "Ganesh Traders",
+        "supfildt": "06-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "GT/0201",
+            "dt": "04-09-2026",
+            "typ": "R",
+            "val": 17700,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8536",
+                "rt": 18,
+                "txval": 15000,
+                "igst": 0,
+                "cgst": 1350,
+                "sgst": 1350,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "24AAKFM5120D1ZR",
+        "trdnm": "Mahavir Sales",
+        "supfildt": "07-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "MS-951",
+            "dt": "12-09-2026",
+            "typ": "R",
+            "val": 35400,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8504",
+                "rt": 18,
+                "txval": 30000,
+                "igst": 5400,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "24AAECP8836L1ZY",
+        "trdnm": "Patel Systems",
+        "supfildt": "10-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "PS-3502",
+            "dt": "15-09-2026",
+            "typ": "R",
+            "val": 14160,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8473",
+                "rt": 18,
+                "txval": 12000,
+                "igst": 2160,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "07AADCU6071J1Z3",
+        "trdnm": "Unity Distributors",
+        "supfildt": "11-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "UD-2011",
+            "dt": "18-09-2026",
+            "typ": "R",
+            "val": 18880,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8528",
+                "rt": 18,
+                "txval": 16000,
+                "igst": 2880,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "27BBRPK2295N1ZT",
+        "trdnm": "Krishna Enterprises",
+        "supfildt": "12-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "KE-130",
+            "dt": "26-09-2026",
+            "typ": "R",
+            "val": 16520,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8539",
+                "rt": 18,
+                "txval": 14000,
+                "igst": 0,
+                "cgst": 1260,
+                "sgst": 1260,
+                "cess": 0
+              }
+            ]
+          },
+          {
+            "inum": "KE-112",
+            "dt": "24-08-2026",
+            "typ": "R",
+            "val": 14160,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8539",
+                "rt": 18,
+                "txval": 12000,
+                "igst": 0,
+                "cgst": 1080,
+                "sgst": 1080,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "24AAECP8836L1ZY",
+        "trdnm": "Patel Systems",
+        "supfildt": "19-09-2026",
+        "supprd": "082026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "PS-3401",
+            "dt": "19-08-2026",
+            "typ": "R",
+            "val": 21240,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8473",
+                "rt": 18,
+                "txval": 18000,
+                "igst": 3240,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "27ADQPA4410C1Z3",
+        "trdnm": "Anand Electricals",
+        "supfildt": "09-10-2026",
+        "supprd": "092026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "AE/177",
+            "dt": "21-08-2026",
+            "typ": "R",
+            "val": 25960,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8538",
+                "rt": 18,
+                "txval": 22000,
+                "igst": 0,
+                "cgst": 1980,
+                "sgst": 1980,
+                "cess": 0
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "b2ba": [
+      {
+        "ctin": "24AAKFM5120D1ZR",
+        "trdnm": "Mahavir Sales",
+        "supfildt": "18-09-2026",
+        "supprd": "082026",
+        "cfs": "Y",
+        "inv": [
+          {
+            "inum": "MS-878",
+            "dt": "11-08-2026",
+            "typ": "R",
+            "val": 47200,
+            "pos": "27",
+            "rev": "N",
+            "itcavl": "Y",
+            "rsn": "",
+            "diffprcnt": 100,
+            "items": [
+              {
+                "hsn": "8504",
+                "rt": 18,
+                "txval": 40000,
+                "igst": 7200,
+                "cgst": 0,
+                "sgst": 0,
+                "cess": 0
+              }
+            ],
+            "oinum": "MS-878",
+            "oidt": "11-08-2026"
+          }
+        ]
+      }
+    ],
+    "cdnr": [],
+    "cdnra": [],
+    "isd": [],
+    "isda": [],
+    "impg": [],
+    "impgsez": [],
+    "ecom": [],
+    "ecoma": []
+  }
+}

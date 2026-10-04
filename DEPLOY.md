@@ -151,8 +151,9 @@ Once, on a new database:
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec api node src/db/migrate.js
 ```
 
-Expect `applied 7 migration(s)`. It is idempotent — safe to re-run, and it skips
-what is already applied.
+Expect `applied 10 migration(s)`. It is idempotent — safe to re-run, and it skips
+what is already applied. An existing deployment is upgraded by hand: see
+[Upgrading: migrations](#upgrading-migrations-by-hand) under Operations.
 
 ---
 
@@ -170,8 +171,9 @@ curl -s  https://itc.example.com/health
 curl -s  https://itc.example.com/api/session
 ```
 
-`/api/session` should return `"state":"READY"` and set an `itcg_session` cookie.
-If it says `PROVISIONING`, the warm pool is still filling — wait ~10 s and retry.
+`/api/session` should return `"state":"READY"` and set an `itcg_session` cookie
+(`HttpOnly; SameSite=Lax; Secure`, 180 days). Each new visitor gets an empty
+workspace.
 
 **Confirm the MySQL tuning actually took.** It is applied via a file MySQL will
 silently ignore if its permissions are wrong, and the failure mode is a server
@@ -238,12 +240,13 @@ the images, and `docker load` them here.)
 
 ### If the box struggles, in this order
 
-1. `DEMO_MAX_ORGS` down (20 → 10). Each org is ~5 MB; fewer means less buffer
-   pool pressure. Biggest effect, no downside for judging.
-2. `DB_MEM_LIMIT=320M` and `innodb_buffer_pool_size = 64M` in
+1. `DB_MEM_LIMIT=320M` and `innodb_buffer_pool_size = 64M` in
    `deploy/mysql/small.cnf` (this needs `--build` on the db service).
-3. `DEMO_POOL_SIZE=1` — first visits then more often show the "preparing your
-   demo data" screen instead of being instant.
+
+`DEMO_MAX_ORGS` (200) is not a memory knob any more. Workspaces start empty, the
+API keeps nothing per workspace in memory, and the buffer pool holds what the
+visitors active right now touch, so the cap bounds disk: under 1 MB for a
+workspace that plays the whole demo. Lower it only if `df -h` is short.
 
 ---
 
@@ -262,13 +265,52 @@ alias dc='docker compose -f docker-compose.prod.yml --env-file .env.prod'
 | Memory right now | `docker stats --no-stream` |
 | Restart one service | `dc restart api` |
 | Apply an `.env.prod` change | `dc up -d api` |
-| Deploy new code | `git pull && dc up -d --build` |
+| Deploy new code | see [Upgrading: migrations](#upgrading-migrations-by-hand) |
 | Disk | `df -h && docker system df` |
 
-**Tuning the demo knobs.** `DEMO_POOL_SIZE`, `DEMO_MAX_ORGS`,
-`DEMO_IDLE_MINUTES`, `DEMO_SWEEP_MINUTES` and `DEMO_SEED_CONCURRENCY` are all
-read from the environment at access time, so changing one is: edit `.env.prod`,
-then `dc up -d api`. No rebuild.
+### Upgrading: migrations by hand
+
+`dc up -d --build` never migrates. When a deploy brings a new file in
+`api/src/db/migrations/`, apply it from the NEW image before the stack switches to
+it — the new code reads the new columns and tables, and every migration so far is
+additive, so the old code keeps serving while it runs:
+
+```bash
+git pull
+dc build api web
+dc run --rm api node src/db/migrate.js
+dc up -d
+```
+
+`migrate.js` applies only what is new, in filename order, and refuses to re-apply
+a migration whose file changed since it ran. It prints each `apply`/`skip`.
+
+Migrations to run by hand on a deployment older than branch `phase1-audit-fixes`:
+
+| Migration | What it adds | Afterwards |
+|---|---|---|
+| `008_claimable_split.sql` | `match_results.claimable_itc`: an accepted value mismatch claims min(books, portal); existing rows are backfilled as claimed whole | Totals of runs made before it are unchanged until the period is re-run |
+| `009_supplier_scheme_source.sql` | `suppliers.filing_scheme_source` (`INFERRED`/`USER`): a scheme the trader sets is never overwritten by inference | Visitor orgs seeded from now on have the 7 QRMP sample suppliers "set by you" |
+| `010_supplier_gstin_aliases.sql` | `supplier_gstin_aliases`: a mistyped GSTIN counts under the supplier it belongs to | An existing org's typo "suppliers" go at its next run (any upload, re-run or "Reset my data") |
+| `011_workspace_clock.sql` | `organizations.as_of_date`: one as-of date per workspace (NULL follows today in India); every run is computed against it | Existing runs keep the date they were computed for until the period is re-run or the workspace date is set (`PUT /api/workspace/clock`) |
+| `012_upload_snapshots.sql` | `uploads.snapshot_date` (an IMS upload's day), `replaced_at` and `replaced_by_upload_id` (a later upload of the same kind and period replaced it) | Uploads made before it show no snapshot date and are not marked replaced until the next upload of their kind and period |
+| `013_supplier_contacts.sql` | `supplier_contacts`: who to call at each supplier, from the register's contact columns or set by the trader; any old `suppliers.contact_phone/email` values are copied in (the columns stay, unused) | Contacts appear for a register on its next upload |
+| `014_cross_period_links.sql` | `match_results.linked_period` and `linked_via`: an earlier period's document (amendment or late filing) linked into a later period's run, kept out of that period's own totals | A later period links earlier documents at its next run; until then its old results still show them as phantoms |
+| `015_workspace_gstin.sql` | `organizations.workspace_gstin`: the trader GSTIN a workspace adopts from its first file that names one; a later file for another GSTIN is refused (422 `gstin_mismatch`); the IMS export files under it | An existing workspace adopts at its next upload; until then the export uses `organizations.gstin` as before |
+
+Existing data is never rewritten by these. To see the fixes on the demo straight
+away, reset the presenter's org (`dc exec api node /app/tools/demo-reset.js`);
+visitors pick them up on their next upload, or start again with "Clear all data". Runs made before the upgrade cannot tell new records from a
+neighbouring month's (`staleness.inputCountsKnown: false`) and report on stale rows
+alone until re-run.
+
+**Tuning the demo knobs.** `DEMO_SESSION_DAYS`, `DEMO_MAX_ORGS`,
+`DEMO_IDLE_MINUTES`, `DEMO_RETAIN_DAYS` and `DEMO_SWEEP_MINUTES` are all read
+from the environment at access time, so changing one is: edit `.env.prod`, then
+`dc up -d api`. No rebuild. Since `phase2-demo` there is no seeded pool:
+`DEMO_POOL_SIZE`, `DEMO_SESSION_HOURS` and `DEMO_SEED_CONCURRENCY` are ignored
+and can be deleted from `.env.prod`. Leftover pooled orgs are deleted by the
+next sweep.
 
 **Reset the presenter's own org** (org 1 — the one used for a scripted walkthrough,
 never handed to a visitor):
@@ -277,8 +319,9 @@ never handed to a visitor):
 dc exec api node /app/tools/demo-reset.js
 ```
 
-Visitors reset their own data with the "Reset my data" button; that never touches
-org 1 or anyone else's org.
+Visitors empty their own workspace with the "Clear all data" button
+(`POST /api/workspace/clear`); that never touches org 1 or anyone else's. A
+workspace with an upload in the last `DEMO_RETAIN_DAYS` (30) is never reaped.
 
 **Reboot.** Nothing to do. `restart: unless-stopped` on all four services plus an
 enabled Docker daemon brings the stack back. Verified: killing the API process
@@ -307,11 +350,18 @@ exhaust that.
 while serving plain HTTP. A `Secure` cookie is silently dropped over HTTP, so
 every request looks like a first visit. Either set it `false` or fix TLS.
 
-**`demo_at_capacity` (503)** — `DEMO_MAX_ORGS` reached. Raise it, or lower
-`DEMO_IDLE_MINUTES` so idle sessions are reclaimed sooner.
+**`demo_at_capacity` (503)** — `DEMO_MAX_ORGS` reached and every workspace is
+either in use or holds an upload from the last `DEMO_RETAIN_DAYS`. Raise the cap.
+At the cap a workspace that never had an upload goes after 10 idle minutes, one
+whose uploads are all older than `DEMO_RETAIN_DAYS` after a quarter of
+`DEMO_IDLE_MINUTES`. To see what is filling it, or to delete visitor workspaces
+outright (never org 1):
 
-**`session_provisioning` (409)** — normal and self-clearing. That visitor's org is
-still being seeded; the UI polls and takes itself out of the state.
+```bash
+dc run --rm api node /app/tools/purge-visitor-workspaces.js            # list only
+dc run --rm api node /app/tools/purge-visitor-workspaces.js --all --yes  # delete every one
+dc run --rm api node /app/tools/purge-visitor-workspaces.js --org 1234 --yes
+```
 
 **Disk filling** — container logs are capped (10 MB × 3 per service). The usual
 culprit is old images: `docker image prune -a`.

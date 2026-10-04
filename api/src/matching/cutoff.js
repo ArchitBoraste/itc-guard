@@ -56,6 +56,14 @@ export function daysToGstr3b(asOfDate, taxPeriod) {
   return daysBetween(asOfDate, gstr3bDueDate(taxPeriod));
 }
 
+// The scheme whose cut-off applies to one supplier's document: theirs when it is
+// known (schemeFor: gstin -> scheme or null), the caller's default otherwise.
+// Shared by the engine's recommendation and the run totals, so the two cannot
+// judge the same document against different dates.
+export function supplierSchemeFor(gstin, { schemeFor = null, filingScheme = FILING_SCHEMES.MONTHLY } = {}) {
+  return (gstin && schemeFor?.(gstin)) || filingScheme;
+}
+
 // Which half of the month the trader is in. Drives which mode the UI opens in.
 export function filingWindow(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.MONTHLY) {
   const asOf = dateToIso(asOfDate);
@@ -64,6 +72,40 @@ export function filingWindow(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.
   if (asOf < twoBGenerationDate(taxPeriod)) return 'CUTOFF_PASSED';
   if (asOf <= gstr3bDueDate(taxPeriod)) return 'REACTIVE';
   return 'CLOSED';
+}
+
+// The period's deadlines read against one as-of date: each date, and the whole
+// days left until it (0 on the day, negative once passed). Both cut-offs are
+// listed because a trader's suppliers file on both schemes; `window` is the
+// trader's own, from their filer type.
+//
+// filingCalendar('2026-09-05', '2026-08') ->
+//   { taxPeriod, asOfDate, window: 'PREVENTIVE', deadlines: [
+//       { key: 'CUTOFF_MONTHLY', date: '2026-09-11', daysLeft: 6 }, ... ] }
+export function filingCalendar(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.MONTHLY) {
+  const asOf = dateToIso(asOfDate);
+  if (!asOf || !cutoffDate(taxPeriod)) return null;
+  const deadline = (key, date) => ({ key, date, daysLeft: daysBetween(asOf, date) });
+  return {
+    taxPeriod,
+    asOfDate: asOf,
+    window: filingWindow(asOf, taxPeriod, filingScheme),
+    deadlines: [
+      deadline('CUTOFF_MONTHLY', cutoffDate(taxPeriod, FILING_SCHEMES.MONTHLY)),
+      deadline('CUTOFF_QRMP', cutoffDate(taxPeriod, FILING_SCHEMES.QRMP)),
+      deadline('GSTR2B_GENERATED', twoBGenerationDate(taxPeriod)),
+      deadline('GSTR3B_DUE', gstr3bDueDate(taxPeriod))
+    ]
+  };
+}
+
+// Whether the period's GSTR-2B exists yet on asOfDate: it is generated on the
+// 14th of the following month, so a 2B file for the period cannot predate it.
+export function isTwoBGenerated(asOfDate, taxPeriod) {
+  const asOf = dateToIso(asOfDate);
+  const generated = twoBGenerationDate(taxPeriod);
+  if (!asOf || !generated) return null;
+  return asOf >= generated;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,9 +127,12 @@ export function filingWindow(asOfDate, taxPeriod, filingScheme = FILING_SCHEMES.
 //     11th, points to QRMP — weaker, because a habitually late monthly filer
 //     looks identical.
 //
-// Defaults to MONTHLY with low confidence rather than guessing, because the
-// consequence of the wrong scheme is a cut-off date two days out, and calling a
-// monthly filer QRMP would tell the trader they have more time than they do.
+// Defaults to MONTHLY with LOW confidence — shown as "assumed" — rather than
+// guessing, because the consequence of the wrong scheme is a cut-off date two
+// days out, and calling a monthly filer QRMP would tell the trader they have more
+// time than they do. Filing by the 11th is NOT evidence of a monthly scheme: a
+// QRMP supplier using IFF who files early looks identical (audit P9), so only the
+// trader can settle it (supplier filing_scheme_source = USER).
 export function inferFilingScheme(history = [], options = {}) {
   const minObservations = options.minObservations ?? 3;
   const observations = history
@@ -139,8 +184,10 @@ export function inferFilingScheme(history = [], options = {}) {
 
   return {
     scheme: FILING_SCHEMES.MONTHLY,
-    confidence: filedDays.length >= minObservations ? 'MEDIUM' : 'LOW',
-    reason: 'filings appear monthly and reach the 11th cut-off',
+    confidence: 'LOW',
+    reason:
+      'assumed monthly: a quarterly (QRMP) supplier who uses IFF and files by the 11th ' +
+      'looks the same',
     evidence: { observations: observations.length, filedDays }
   };
 }

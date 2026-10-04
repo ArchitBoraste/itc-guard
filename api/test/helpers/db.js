@@ -59,7 +59,27 @@ export const TEST_ORGS = Object.freeze({
   supplierRisk: 11,
   suppliersRoute: 12,
   preventiveTwoB: 13,
-  alertPopulation: 14
+  alertPopulation: 14,
+  // Not a suite: tools/verify-answer-key.js loads all six periods here.
+  answerKey: 15,
+  claimableOnAccept: 16,
+  noActionIsNotADecision: 17,
+  periodStaleness: 18,
+  droppedDecision: 19,
+  preventivePairing: 20,
+  supplierScheme: 21,
+  registerReupload: 22,
+  sampleReload: 23,
+  supplierFacts: 24,
+  workspaceClock: 25,
+  uploadRules: 26,
+  supplierContacts: 27,
+  savedRecords: 28,
+  crossPeriod: 29,
+  workspaceGstin: 30,
+  registerSchemes: 31,
+  supplierMessages: 32,
+  clearWorkspace: 33
 });
 
 export async function ensureOrg(orgId, gstin) {
@@ -94,7 +114,9 @@ export async function resetOrg(orgId) {
     'DELETE FROM record_changes WHERE org_id = ?',
     'DELETE FROM supplier_periods WHERE org_id = ?',
     'DELETE FROM supplier_risk WHERE org_id = ?',
+    'DELETE FROM supplier_gstin_aliases WHERE org_id = ?',
     'DELETE FROM suppliers WHERE org_id = ?',
+    'DELETE FROM supplier_contacts WHERE org_id = ?',
     'DELETE FROM expected_rate_lines WHERE org_id = ?',
     'DELETE FROM expected_invoices WHERE org_id = ?',
     'DELETE FROM portal_rate_lines WHERE org_id = ?',
@@ -102,6 +124,11 @@ export async function resetOrg(orgId) {
     'DELETE FROM uploads WHERE org_id = ?'
   ];
   for (const sql of statements) await pool.query(sql, [orgId]);
+  // Back to following today: a suite that pinned the workspace date must not
+  // hand it to the next run of the suite.
+  await pool.query('UPDATE organizations SET as_of_date = NULL WHERE id = ?', [orgId]);
+  // ...nor the trader GSTIN its files made it adopt.
+  await pool.query('UPDATE organizations SET workspace_gstin = NULL WHERE id = ?', [orgId]);
 }
 
 export const COUNTED_TABLES = [

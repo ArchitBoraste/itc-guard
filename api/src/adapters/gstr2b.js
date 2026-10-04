@@ -372,6 +372,29 @@ export function detectFormat(input) {
   }
 }
 
+// The return period a GSTR-2B statement is for ('2026-08'), from its envelope, or
+// null when the file does not say. Never throws: it answers whether an upload may
+// go ahead before the file is parsed, and a bad file is parse()'s to report.
+export function statementPeriod(input) {
+  try {
+    const payload = parseJson(input);
+    return isBlank(payload.rtnprd) ? null : mmyyyyToPeriod(payload.rtnprd);
+  } catch {
+    return null;
+  }
+}
+
+// The recipient's (trader's) GSTIN the statement is for, from the envelope's
+// gstin, or null when the file does not say. Never throws.
+export function recipientGstin(input) {
+  try {
+    const value = String(parseJson(input).gstin ?? '').trim().toUpperCase();
+    return /^[0-9A-Z]{15}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 // parse(json, options?) -> PortalRecord[]
 //   options { orgId, taxPeriod }  taxPeriod overrides the envelope's rtnprd
 export function parse(input, options = {}) {

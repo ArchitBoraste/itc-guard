@@ -26,6 +26,7 @@ import {
   rerunPeriodIfRun
 } from '../../src/services/reconcile.js';
 import { commitUpload, createUpload } from '../../src/services/ingest.js';
+import { writeWorkspaceClock } from '../../src/services/workspaceClock.js';
 import { TEST_ORGS, ensureOrg, ingest, requireDatabase, resetOrg } from '../helpers/db.js';
 import { FIXTURES_PRESENT, readBuffer, readJson } from '../helpers/fixtures.js';
 
@@ -81,6 +82,8 @@ describe('a run whose portal data moved underneath it', () => {
     await requireDatabase();
     await ensureOrg(ORG_ID, TRADER_GSTIN);
     await resetOrg(ORG_ID);
+    // The workspace date every re-run reads.
+    await writeWorkspaceClock(ORG_ID, AS_OF);
 
     await ingest(ORG_ID, 'PURCHASE_REGISTER', 'purchase_register.xlsx', PERIOD);
     await ingest(ORG_ID, 'IMS', 'ims.json', PERIOD);
@@ -195,7 +198,7 @@ describe('a run whose portal data moved underneath it', () => {
 
   // --- the rebuild that commit triggers ------------------------------------
 
-  it('re-runs the period on commit, keeping the run and its clock', async () => {
+  it('re-runs the period on commit, keeping the run, at the workspace date', async () => {
     const before = await getRun(ORG_ID, runId);
 
     const edit = reduceOne(readJson(PERIOD, 'ims.json'), {
@@ -214,10 +217,11 @@ describe('a run whose portal data moved underneath it', () => {
 
     const after = await getRun(ORG_ID, runId);
     expect(after.staleness.isStale).toBe(false);
-    // The run's own clock survives: as-of date decides whether a mismatch is a
-    // free supplier fix or a reject, so moving it to today would change answers
-    // for reasons unrelated to the file.
-    expect(after.asOfDate).toBe(before.asOfDate);
+    // The as-of date decides whether a mismatch is a free supplier fix or a
+    // reject. The re-run reads the workspace's, not today's, so the file alone
+    // cannot change the answers.
+    expect(after.asOfDate).toBe(AS_OF);
+    expect(before.asOfDate).toBe(AS_OF);
     expect(after.mode).toBe(before.mode);
     expect(after.filingScheme).toBe(before.filingScheme);
   }, 240000);
@@ -247,11 +251,12 @@ describe('a run whose portal data moved underneath it', () => {
     expect(outcome).toMatchObject({ ran: false, reason: 'unknown_period' });
   });
 
-  it('treats a withdrawn record as un-actionable without calling the run stale', async () => {
-    // Rebuilding cannot bring a withdrawn record back, so a "re-run the
-    // reconciliation" prompt for it would never clear. It is still un-actionable:
-    // the matcher pairs it as though it were on the portal, and accepting a record
-    // IMS no longer holds sends an action for a document that is not there.
+  it('takes a withdrawn record out of the run when it is rebuilt', async () => {
+    // A download that no longer carries a record replaces the one that did: the
+    // record is off the portal. Until the run is rebuilt its row is un-actionable
+    // (accepting it would send an action for a document that is not there) and
+    // the run says it is out of date; rebuilding takes the record out entirely,
+    // where it used to stay in — matched and counted — for good.
     const json = readJson(PERIOD, 'ims.json');
     const gone = json.imsDetails.b2b.find(
       (row) => row.stin !== target.portal.supplierGstin
@@ -259,22 +264,28 @@ describe('a run whose portal data moved underneath it', () => {
     json.imsDetails.b2b = json.imsDetails.b2b.filter((row) => row !== gone);
     await ingest(ORG_ID, 'IMS', 'ims.json', PERIOD, asBuffer(json));
 
-    const rerun = await createRun({
-      orgId: ORG_ID, taxPeriod: PERIOD, mode: 'REACTIVE', asOfDate: AS_OF
-    });
-    // Withdrawal is reported, but it is not a reason to rebuild — and a run that
-    // says "out of date" forever teaches the trader to ignore the banner.
-    expect(rerun.staleness.withdrawnResults).toBeGreaterThan(0);
-    expect(rerun.staleness.staleResults).toBe(0);
-    expect(rerun.staleness.isStale).toBe(false);
+    const before = await getRun(ORG_ID, runId);
+    expect(before.staleness.withdrawnResults).toBeGreaterThan(0);
+    expect(before.staleness.isStale).toBe(true);
 
     const withdrawn = (await allResults(runId)).filter((row) => row.withdrawn);
     expect(withdrawn.length).toBeGreaterThan(0);
     expect(withdrawn[0].stale).toBe(false);
-
     await expect(
       confirmResult(ORG_ID, withdrawn[0].id, { confirmedAction: 'ACCEPT' })
     ).rejects.toMatchObject({ status: 409, code: 'record_withdrawn' });
+
+    const rerun = await createRun({
+      orgId: ORG_ID, taxPeriod: PERIOD, mode: 'REACTIVE', asOfDate: AS_OF
+    });
+    expect(rerun.staleness).toMatchObject({ withdrawnResults: 0, isStale: false });
+    expect((await allResults(runId)).filter((row) => row.withdrawn)).toHaveLength(0);
+    // The document may well still be in 2B; it is the IMS record that left.
+    const isGone = (row) =>
+      row.portal?.source === 'IMS' &&
+      row.portal?.supplierGstin === gone.stin &&
+      row.portal?.invoiceNo === String(gone.inum);
+    expect((await allResults(runId)).some(isGone)).toBe(false);
   }, 240000);
 
   // --- what a period already holds ----------------------------------------

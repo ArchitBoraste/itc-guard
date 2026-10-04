@@ -41,9 +41,9 @@ const NEIGHBOUR_PERIOD = '2026-02';
 // NOT org 1. That is the running application's org — resetOrg() refuses it, so
 // this constant cannot drift back without the suite failing on setup.
 const ORG_ID = TEST_ORGS.reconcile;
-// This suite's own filer, following the one-gstin-per-org convention. It is what
-// buildRunImsActions puts in `rtin`, and it is deliberately NOT the GSTIN the
-// fixture files were generated for — see FIXTURE_TRADER_GSTIN below.
+// This suite's own org GSTIN, deliberately NOT the one the fixture files were
+// generated for (FIXTURE_TRADER_GSTIN). The workspace adopts the files' GSTIN on
+// the first upload, and that is the one the IMS export files under.
 const TRADER_GSTIN = '27AABCS1429F5Z4';
 // After 2B generation on the 14th, before GSTR-3B on the 20th: the reactive window.
 const AS_OF = '2026-04-16';
@@ -258,7 +258,9 @@ describe('integration: fixture period through the whole stack', () => {
     // Must survive a round trip through text, which is how it reaches the portal.
     const parsed = JSON.parse(JSON.stringify(built.json));
 
-    expect(parsed.rtin).toBe(TRADER_GSTIN);
+    // The GSTIN the register named, adopted by the workspace: not the org row's own.
+    expect(parsed.rtin).toBe(FIXTURE_TRADER_GSTIN);
+    expect(parsed.rtin).not.toBe(TRADER_GSTIN);
     expect(parsed.reqtyp).toBe('SAVE');
     expect(Object.keys(parsed.invdata)).toEqual(UPLOAD_SECTIONS);
 
@@ -331,6 +333,31 @@ describe('integration: fixture period through the whole stack', () => {
     expect(Number(nonIms[0].n)).toBeGreaterThan(0);
   });
 
+  // --- open decisions ------------------------------------------------------
+
+  it('counts open decisions as the IMS records that are not clean matches', async () => {
+    // Before anyone decides anything, every IMS record except a clean match is
+    // carrying N. Reverse charge, ineligible and books-only records never count.
+    const open = groundTruth(PERIOD).documents.filter(
+      (doc) =>
+        doc.presence.inIms &&
+        ['VALUE_MISMATCH', 'SUGGESTED', 'MISSING_IN_BOOKS'].includes(doc.expectedBucket)
+    );
+    const inBucket = (bucket) => open.filter((doc) => doc.expectedBucket === bucket).length;
+
+    const { openDecisions } = await getRun(ORG_ID, run.id);
+    expect(openDecisions.count).toBe(open.length);
+    expect(openDecisions.byCategory.phantom.count).toBe(inBucket('MISSING_IN_BOOKS'));
+    expect(openDecisions.byCategory.verify.count).toBe(inBucket('SUGGESTED'));
+    expect(openDecisions.byCategory.other.count).toBe(inBucket('VALUE_MISMATCH'));
+
+    // The per-row flag the screens filter on is the same rule, row by row.
+    const page = await listResults(ORG_ID, run.id, { pageSize: 500 });
+    const flagged = page.results.filter((result) => result.needsDecision);
+    expect(flagged.length).toBe(openDecisions.count);
+    expect(flagged.reduce((sum, result) => sum + result.signedItc, 0)).toBe(openDecisions.itc);
+  });
+
   // --- confirming decisions ------------------------------------------------
 
   it('rejects a confirmedAction the record blocked flags disallow', async () => {
@@ -357,24 +384,31 @@ describe('integration: fixture period through the whole stack', () => {
     const page = await listResults(ORG_ID, run.id, { bucket: 'MISSING_IN_BOOKS', pageSize: 5 });
     expect(page.results.length).toBeGreaterThan(0);
     const target = page.results[0];
-    // A record not in the books is recommended for VERIFY, never auto-rejected.
-    expect(target.recommendedAction).toBe('VERIFY');
+    // A record not in the books is recommended for Reject, and never applied
+    // until a human says so.
+    expect(target.recommendedAction).toBe('REJECT');
     expect(target.confirmedAction).toBeNull();
+    expect(target.needsDecision).toBe(true);
 
-    await confirmResult(ORG_ID, target.id, { confirmedAction: 'REJECT' });
+    // The trader checks and finds the goods did arrive: they override to Accept.
+    await confirmResult(ORG_ID, target.id, { confirmedAction: 'ACCEPT' });
 
     const after = await listResults(ORG_ID, run.id, { bucket: 'MISSING_IN_BOOKS', pageSize: 5 });
     const updated = after.results.find((row) => row.id === target.id);
-    expect(updated.recommendedAction).toBe('VERIFY');
-    expect(updated.confirmedAction).toBe('REJECT');
+    expect(updated.recommendedAction).toBe('REJECT');
+    expect(updated.confirmedAction).toBe('ACCEPT');
 
-    // The upload JSON emits the trader's decision, not the recommendation.
+    // The upload JSON emits the trader's decision, not the recommendation, and
+    // no rejection remark rides along on an Accept.
     const built = await buildRunImsActions(ORG_ID, run.id);
     const wire = UPLOAD_SECTIONS.flatMap((s) => built.json.invdata[s]).find(
-      (row) => (row.inum ?? row.nt_num) === updated.portal.invoiceNo
+      (row) =>
+        row.stin === updated.portal.supplierGstin &&
+        (row.inum ?? row.nt_num) === updated.portal.invoiceNo
     );
     expect(wire).toBeTruthy();
-    expect(wire.action).toBe('R');
+    expect(wire.action).toBe('A');
+    expect('remarks' in wire).toBe(false);
   });
 
   it('moves a confirmation between claimable and at-risk and rebalances', async () => {

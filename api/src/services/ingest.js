@@ -9,8 +9,13 @@ import * as purchaseRegister from '../adapters/purchaseRegister.js';
 import * as ims from '../adapters/ims.js';
 import * as gstr2b from '../adapters/gstr2b.js';
 import { stripBom } from '../adapters/values.js';
+import { isTwoBGenerated, twoBGenerationDate } from '../matching/cutoff.js';
 import { assignExpectedIdentities, assignPortalIdentities } from './identity.js';
+import { saveRegisterContacts } from './supplierContacts.js';
+import { applyDeclaredSchemes } from './supplierStats.js';
 import { planPortalDiff, writePortalDiff } from './syncDiff.js';
+import { displayDate, displayPeriod, workspaceAsOf } from './workspaceClock.js';
+import { adoptFileGstin, assertFileGstin, fileTraderGstin } from './workspaceGstin.js';
 
 export const UPLOAD_KINDS = Object.freeze(['PURCHASE_REGISTER', 'IMS', 'GSTR2B']);
 
@@ -46,13 +51,17 @@ export async function createUpload({ orgId, kind, filename, buffer, taxPeriod = 
 
   const fileHash = createHash('sha256').update(buffer).digest('hex');
   const detected = detectFormat(kind, buffer);
+  // Another trader's file is refused before it is stored (services/workspaceGstin.js).
+  await assertFileGstin(orgId, fileTraderGstin(kind, buffer));
+  const asOfDate = await workspaceAsOf(orgId);
+  if (kind === 'GSTR2B') assertTwoBGenerated(taxPeriod ?? gstr2b.statementPeriod(buffer), asOfDate);
 
   const [result] = await pool.query(
     `INSERT INTO uploads
        (org_id, kind, file_format, detected_format, original_filename, byte_size,
-        file_hash, tax_period, status, raw_bytes)
+        file_hash, tax_period, snapshot_date, status, raw_bytes)
      VALUES (:orgId, :kind, :fileFormat, :detected, :filename, :byteSize,
-             :fileHash, :taxPeriod, 'RECEIVED', :raw)`,
+             :fileHash, :taxPeriod, :snapshotDate, 'RECEIVED', :raw)`,
     {
       orgId,
       kind,
@@ -62,11 +71,62 @@ export async function createUpload({ orgId, kind, filename, buffer, taxPeriod = 
       byteSize: buffer.length,
       fileHash,
       taxPeriod,
+      // An IMS download is the portal as it stood on one day: the workspace's.
+      snapshotDate: kind === 'IMS' ? asOfDate : null,
       raw: buffer
     }
   );
 
-  return getUpload(orgId, result.insertId);
+  const created = await getUpload(orgId, result.insertId);
+  return { ...created, warnings: snapshotWarnings(created) };
+}
+
+// GSTR-2B for a period is generated on the 14th of the following month, so on an
+// earlier workspace date a file for it cannot exist yet and is refused.
+function assertTwoBGenerated(taxPeriod, asOfDate) {
+  if (!taxPeriod || isTwoBGenerated(asOfDate, taxPeriod) !== false) return;
+  const generated = displayDate(twoBGenerationDate(taxPeriod));
+  throw new ServiceError(
+    `GSTR-2B for ${displayPeriod(taxPeriod)} is generated on ${generated}, and the workspace ` +
+      `date is ${displayDate(asOfDate)}. Move the workspace date to ${generated} or later to upload it.`,
+    409,
+    'gstr2b_not_generated'
+  );
+}
+
+const FILE_NAME_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// The as-of date a file name carries, as the IMS download names are written:
+// 'ims_aug26_as_of_05sep.json' -> '2026-09-05'. With no year in the name, the year
+// is the one that puts the date nearest `near`. null when the name carries none.
+export function asOfDateInFileName(filename, near) {
+  const match = /as[\s_-]*of[\s_-]*(\d{1,2})[\s_-]*([a-z]{3})[a-z]*(?:[\s_-]*(\d{4}|\d{2})(?!\d))?/i.exec(
+    String(filename ?? '')
+  );
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = FILE_NAME_MONTHS.indexOf(match[2].toLowerCase()) + 1;
+  if (month < 1 || day < 1 || day > 31) return null;
+
+  const iso = (year) => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (match[3]) return iso(match[3].length === 2 ? 2000 + Number(match[3]) : Number(match[3]));
+  const nearYear = Number(String(near).slice(0, 4));
+  const distance = (candidate) => Math.abs(Date.parse(candidate) - Date.parse(near));
+  return [nearYear - 1, nearYear, nearYear + 1].map(iso).sort((a, b) => distance(a) - distance(b))[0];
+}
+
+// An IMS file named for one day and uploaded on another is recorded on the
+// workspace date. Said, not refused: the name may simply be wrong.
+function snapshotWarnings(upload) {
+  if (upload.kind !== 'IMS' || !upload.snapshot_date) return [];
+  const named = asOfDateInFileName(upload.original_filename, upload.snapshot_date);
+  if (!named || named === upload.snapshot_date) return [];
+  const recorded = displayDate(upload.snapshot_date);
+  return [
+    `The file name says this IMS download is as of ${displayDate(named)}, but the workspace ` +
+      `date is ${recorded}, so it was recorded as the ${recorded} snapshot. If the name is ` +
+      'right, move the workspace date and upload it again.'
+  ];
 }
 
 // Format sniffing belongs to the adapters: the envelope keys it looks at are
@@ -80,7 +140,8 @@ function detectFormat(kind, buffer) {
 export async function getUpload(orgId, id, { withBytes = false } = {}) {
   const columns =
     'id, org_id, kind, file_format, detected_format, original_filename, byte_size, ' +
-    'file_hash, tax_period, row_count, status, error_message, parsed_at, committed_at, created_at' +
+    'file_hash, tax_period, snapshot_date, row_count, status, error_message, parsed_at, ' +
+    'committed_at, replaced_at, replaced_by_upload_id, created_at' +
     (withBytes ? ', raw_bytes' : '');
   const [rows] = await pool.query(
     `SELECT ${columns} FROM uploads WHERE org_id = :orgId AND id = :id`,
@@ -94,34 +155,43 @@ export async function getUpload(orgId, id, { withBytes = false } = {}) {
 
 // Detected format plus the first N canonical rows, so the trader can see that the
 // mapping worked before committing anything.
-export async function previewUpload(orgId, id, { limit = 20, columnMap = null } = {}) {
+export async function previewUpload(orgId, id, { limit = 20, columnMap = null, allInvoices = false } = {}) {
   const upload = await getUpload(orgId, id, { withBytes: true });
   const buffer = upload.raw_bytes;
   if (!buffer) throw new ServiceError('upload has no stored bytes', 409, 'conflict');
 
-  const parsed = parseUpload(upload, buffer, columnMap);
+  const parsed = parseUpload(upload, buffer, columnMap, { allInvoices });
   return {
     uploadId: upload.id,
     kind: upload.kind,
     detectedFormat: parsed.format,
     taxPeriod: parsed.taxPeriod,
     metadata: parsed.metadata,
+    warnings: [...snapshotWarnings(upload), ...parsed.warnings],
     totalRows: parsed.rows.length,
     rows: parsed.rows.slice(0, limit)
   };
 }
 
-function parseUpload(upload, buffer, columnMap) {
+// allInvoices: the trader confirms a register with no document-type column
+// holds invoices only (purchaseRegister.requireDocumentType).
+function parseUpload(upload, buffer, columnMap, { allInvoices = false } = {}) {
   try {
     if (upload.kind === 'PURCHASE_REGISTER') {
       const out = purchaseRegister.parseWithMetadata(buffer, columnMap, {
         taxPeriod: upload.tax_period ?? undefined,
-        orgId: upload.org_id
+        orgId: upload.org_id,
+        allInvoices
       });
       return {
         format: out.format,
-        taxPeriod: out.taxPeriod,
+        // A CSV carries no file-level period, so it is the one most of its rows
+        // fall in. Recorded on the upload at commit, which is what puts a CSV in
+        // the period-filtered upload history (audit P33).
+        taxPeriod: out.taxPeriod ?? dominantPeriod(out.invoices),
         metadata: out.metadata,
+        // Rows read as one document without the file saying so (P31).
+        warnings: out.warnings ?? [],
         rows: out.invoices
       };
     }
@@ -129,11 +199,14 @@ function parseUpload(upload, buffer, columnMap) {
     const json = JSON.parse(stripBom(buffer.toString('utf8')));
     const options = { orgId: upload.org_id };
     if (upload.tax_period) options.taxPeriod = upload.tax_period;
-    const rows = upload.kind === 'IMS' ? ims.parse(json, options) : gstr2b.parse(json, options);
+    const rows = upload.kind === 'IMS'
+      ? inUploadPeriod(ims.parse(json, options), upload.tax_period)
+      : gstr2b.parse(json, options);
     return {
       format: upload.kind === 'IMS' ? 'IMS_JSON' : 'GSTR2B_JSON',
       taxPeriod: upload.tax_period ?? rows[0]?.taxPeriod ?? null,
       metadata: null,
+      warnings: [],
       rows
     };
   } catch (err) {
@@ -144,27 +217,41 @@ function parseUpload(upload, buffer, columnMap) {
 
 // --- commit ----------------------------------------------------------------
 
-// Upserts on identity_key, so re-uploading the same source for the same period
-// updates rows instead of inserting duplicates. Returns what changed.
-export async function commitUpload(orgId, id, { columnMap = null } = {}) {
+// A commit REPLACES what the org held for its period and source, in one
+// transaction (audit P30):
+//   * purchase register: rows of the file's period that the new file does not
+//     carry are deleted. Upserting on identity_key keeps the ids of unchanged rows,
+//     so the decisions made on them survive the rebuild.
+//   * IMS / 2B: a record missing from the new download is marked absent
+//     (syncDiff), and an absent record no longer takes part in reconciliation
+//     (loadPortal). It is kept for the change feed.
+// Every period the file touched has its run marked out of date until rebuilt.
+// Returns what changed, and those periods.
+export async function commitUpload(orgId, id, { columnMap = null, allInvoices = false } = {}) {
   const upload = await getUpload(orgId, id, { withBytes: true });
   const buffer = upload.raw_bytes;
   if (!buffer) throw new ServiceError('upload has no stored bytes', 409, 'conflict');
 
-  const parsed = parseUpload(upload, buffer, columnMap);
+  const parsed = parseUpload(upload, buffer, columnMap, { allInvoices });
+  // Again at commit: the workspace date may have moved back since the upload.
+  if (upload.kind === 'GSTR2B') assertTwoBGenerated(parsed.taxPeriod, await workspaceAsOf(orgId));
 
   const outcome = await withTransaction(async (connection) => {
-    if (upload.kind === 'PURCHASE_REGISTER') {
-      return commitExpected(connection, orgId, upload, parsed);
-    }
-    return commitPortal(connection, orgId, upload, parsed);
+    // Again at commit, where an empty workspace adopts the file's GSTIN.
+    const traderGstin = await adoptFileGstin(connection, orgId, fileTraderGstin(upload.kind, buffer));
+    const committed = upload.kind === 'PURCHASE_REGISTER'
+      ? await commitExpected(connection, orgId, upload, parsed)
+      : await commitPortal(connection, orgId, upload, parsed);
+    await markRunsStale(connection, orgId, committed.periods);
+    return { ...committed, traderGstin };
   });
 
+  // Committed now, so current again even if it was once replaced.
   await pool.query(
     `UPDATE uploads
         SET status = 'PARSED', row_count = :rowCount, parsed_at = NOW(),
             committed_at = NOW(), tax_period = COALESCE(tax_period, :taxPeriod),
-            detected_format = :format
+            detected_format = :format, replaced_at = NULL, replaced_by_upload_id = NULL
       WHERE org_id = :orgId AND id = :id`,
     {
       orgId,
@@ -174,8 +261,42 @@ export async function commitUpload(orgId, id, { columnMap = null } = {}) {
       format: parsed.format
     }
   );
+  const replacedUploadIds = await markReplacedUploads(orgId, upload, upload.tax_period ?? parsed.taxPeriod);
+  // The register's "Supplier filing frequency" column, set as the trader's own.
+  const filingSchemes = upload.kind === 'PURCHASE_REGISTER'
+    ? await applyDeclaredSchemes(orgId, parsed.rows)
+    : { declared: 0, changed: 0 };
 
-  return { uploadId: upload.id, kind: upload.kind, taxPeriod: parsed.taxPeriod, ...outcome };
+  return {
+    uploadId: upload.id,
+    kind: upload.kind,
+    taxPeriod: parsed.taxPeriod,
+    snapshotDate: upload.snapshot_date,
+    warnings: [...snapshotWarnings(upload), ...parsed.warnings],
+    replacedUploadIds,
+    filingSchemes,
+    ...outcome
+  };
+}
+
+// The latest commit of a kind and period owns that kind's data for the period, so
+// every earlier one is marked replaced: kept in the history, never deleted.
+async function markReplacedUploads(orgId, upload, taxPeriod) {
+  if (!taxPeriod) return [];
+  const [earlier] = await pool.query(
+    `SELECT id FROM uploads
+      WHERE org_id = ? AND kind = ? AND tax_period = ? AND id <> ?
+        AND committed_at IS NOT NULL AND replaced_at IS NULL`,
+    [orgId, upload.kind, taxPeriod, upload.id]
+  );
+  const ids = earlier.map((row) => row.id);
+  if (ids.length) {
+    await pool.query(
+      'UPDATE uploads SET replaced_at = NOW(), replaced_by_upload_id = ? WHERE org_id = ? AND id IN (?)',
+      [upload.id, orgId, ids]
+    );
+  }
+  return ids;
 }
 
 async function commitExpected(connection, orgId, upload, parsed) {
@@ -241,9 +362,78 @@ async function commitExpected(connection, orgId, upload, parsed) {
   // Rate lines are children of the invoice, so replace them wholesale for the
   // invoices this upload touched rather than trying to diff them.
   await replaceExpectedRateLines(connection, orgId, invoices);
+  const contacts = await saveRegisterContacts(connection, orgId, upload.id, invoices);
 
-  const after = await countRows(connection, 'expected_invoices', orgId);
-  return { parsed: invoices.length, inserted: after - before, updated: invoices.length - (after - before) };
+  const afterUpsert = await countRows(connection, 'expected_invoices', orgId);
+  const filePeriod = upload.tax_period ?? parsed.taxPeriod;
+  const replaced = await replacePeriodRegister(connection, orgId, filePeriod, invoices);
+
+  return {
+    parsed: invoices.length,
+    inserted: afterUpsert - before,
+    updated: invoices.length - (afterUpsert - before),
+    replaced,
+    contacts,
+    periods: periodsOf(invoices, filePeriod)
+  };
+}
+
+// The register for one period is whatever the latest file says it is. Rows the
+// new file does not carry are deleted, with their rate lines and results
+// (ON DELETE CASCADE). Bounded to the file's own period: a CSV that also carries
+// a stray row from another month adds that row there and deletes nothing.
+async function replacePeriodRegister(connection, orgId, taxPeriod, invoices) {
+  if (!taxPeriod) return 0;
+  const keep = invoices.filter((invoice) => invoice.taxPeriod === taxPeriod).map((i) => i.identityKey);
+  const [result] = keep.length
+    ? await connection.query(
+        `DELETE FROM expected_invoices
+          WHERE org_id = ? AND tax_period = ? AND identity_key NOT IN (?)`,
+        [orgId, taxPeriod, keep]
+      )
+    : await connection.query(
+        'DELETE FROM expected_invoices WHERE org_id = ? AND tax_period = ?',
+        [orgId, taxPeriod]
+      );
+  return result.affectedRows;
+}
+
+// An IMS download is one return period's worklist. A GSTR-1A filed for an earlier
+// month, or a document filed late, is acted on now and reaches THIS period's 2B,
+// whatever source period (rtnprd) it names, so every record belongs to the
+// upload's period: the one declared, else the one most of its records name. Left
+// on its source period, one GSTR-1A record would also make the upload replace
+// that earlier period's IMS.
+function inUploadPeriod(records, declared) {
+  const period = declared ?? dominantPeriod(records);
+  return records.map((record) => ({ ...record, taxPeriod: period }));
+}
+
+// The period most of a file's rows fall in, for a file that declares none.
+export function dominantPeriod(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    if (row.taxPeriod) counts.set(row.taxPeriod, (counts.get(row.taxPeriod) ?? 0) + 1);
+  }
+  // Most rows first; a tie goes to the later period.
+  return [...counts].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
+}
+
+const periodsOf = (rows, ...extra) =>
+  [...new Set([...rows.map((row) => row.taxPeriod), ...extra].filter(Boolean))].sort();
+
+// A run computed before this commit no longer describes its period's data.
+// Recorded on the run itself, so it holds whatever the commit changed — a
+// replaced register can leave every count exactly as it was. createRun()
+// rewrites the summary, which clears it. See reconcile.runStaleness().
+export async function markRunsStale(connection, orgId, periods) {
+  if (!periods.length) return;
+  await connection.query(
+    `UPDATE runs
+        SET summary = JSON_SET(COALESCE(summary, JSON_OBJECT()), '$.inputsChangedAt', ?)
+      WHERE org_id = ? AND tax_period IN (?)`,
+    [new Date().toISOString(), orgId, periods]
+  );
 }
 
 async function replaceExpectedRateLines(connection, orgId, invoices) {
@@ -402,7 +592,10 @@ async function commitPortal(connection, orgId, upload, parsed) {
     parsed: records.length,
     inserted: after - before,
     updated: records.length - (after - before),
-    changes: changeCount
+    changes: changeCount,
+    // Records the new download no longer carries: absent from here on.
+    replaced: plan.disappeared.length,
+    periods: periodsOf(records, parsed.taxPeriod ?? upload.tax_period)
   };
 }
 
@@ -455,10 +648,93 @@ async function countRows(connection, table, orgId) {
   return Number(rows[0].n);
 }
 
+// --- delete ----------------------------------------------------------------
+
+// Removes an upload and every row it still owns, in one transaction. Because a
+// commit replaces its period's rows, the latest file of a kind owns that kind's
+// data for its period, so deleting it removes that data; a superseded file owns
+// only what nothing replaced since. Rows go with their rate lines, results and
+// change-feed entries (ON DELETE CASCADE), and so do the changes this upload
+// detected. A period left with nothing to reconcile loses its run and supplier
+// figures; any other period it touched is marked out of date for the caller to
+// rebuild. An upload it replaced stays marked replaced: its rows had become this
+// one's, so they go too, and the period is left without that kind of file.
+export async function deleteUpload(orgId, id) {
+  const upload = await getUpload(orgId, id);
+  return withTransaction(async (connection) => {
+    const periods = await periodsOwnedBy(connection, orgId, id, upload.tax_period);
+
+    await connection.query(
+      'DELETE FROM record_changes WHERE org_id = ? AND detected_from_upload_id = ?',
+      [orgId, id]
+    );
+    const [books] = await connection.query(
+      'DELETE FROM expected_invoices WHERE org_id = ? AND upload_id = ?',
+      [orgId, id]
+    );
+    const [portal] = await connection.query(
+      'DELETE FROM portal_records WHERE org_id = ? AND upload_id = ?',
+      [orgId, id]
+    );
+    await connection.query(
+      `UPDATE runs SET pr_upload_id = NULLIF(pr_upload_id, ?),
+                       ims_upload_id = NULLIF(ims_upload_id, ?),
+                       gstr2b_upload_id = NULLIF(gstr2b_upload_id, ?)
+        WHERE org_id = ?`,
+      [id, id, id, orgId]
+    );
+    await connection.query('DELETE FROM uploads WHERE org_id = ? AND id = ?', [orgId, id]);
+
+    const emptied = await dropEmptyPeriods(connection, orgId, periods);
+    await markRunsStale(connection, orgId, periods);
+    return {
+      uploadId: id,
+      kind: upload.kind,
+      removed: { registerRows: books.affectedRows, portalRecords: portal.affectedRows },
+      periods,
+      emptiedPeriods: emptied
+    };
+  });
+}
+
+async function periodsOwnedBy(connection, orgId, uploadId, declared) {
+  const [rows] = await connection.query(
+    `SELECT tax_period FROM expected_invoices WHERE org_id = ? AND upload_id = ?
+     UNION
+     SELECT tax_period FROM portal_records WHERE org_id = ? AND upload_id = ?`,
+    [orgId, uploadId, orgId, uploadId]
+  );
+  return [...new Set([...rows.map((row) => row.tax_period), declared].filter(Boolean))].sort();
+}
+
+// A period with no books and no portal record left has nothing a run could say.
+async function dropEmptyPeriods(connection, orgId, periods) {
+  const emptied = [];
+  for (const taxPeriod of periods) {
+    const [[left]] = await connection.query(
+      `SELECT (SELECT COUNT(*) FROM expected_invoices WHERE org_id = ? AND tax_period = ?) +
+              (SELECT COUNT(*) FROM portal_records
+                WHERE org_id = ? AND tax_period = ? AND absent_since IS NULL) AS n`,
+      [orgId, taxPeriod, orgId, taxPeriod]
+    );
+    if (Number(left.n) > 0) continue;
+    for (const sql of [
+      'DELETE FROM runs WHERE org_id = ? AND tax_period = ?',
+      'DELETE FROM supplier_periods WHERE org_id = ? AND tax_period = ?',
+      'DELETE FROM supplier_risk WHERE org_id = ? AND as_of_period = ?'
+    ]) {
+      await connection.query(sql, [orgId, taxPeriod]);
+    }
+    emptied.push(taxPeriod);
+  }
+  return emptied;
+}
+
 export async function listUploads(orgId, { limit = 50 } = {}) {
   const [rows] = await pool.query(
     `SELECT id, kind, file_format, detected_format, original_filename, byte_size,
-            tax_period, row_count, status, created_at, committed_at
+            tax_period, snapshot_date, row_count, status, created_at, committed_at,
+            replaced_at, replaced_by_upload_id
        FROM uploads WHERE org_id = :orgId
       ORDER BY id DESC LIMIT :limit`,
     { orgId, limit }

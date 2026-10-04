@@ -550,6 +550,21 @@ describe('preventive alerts through the filing month', () => {
     expect(saver.chaseMessage).toContain('saved but not filed yet');
   });
 
+  // Past the cut-off the engine calls a saved record that agrees "not filed"
+  // (MISSING_IN_PORTAL with the record beside it). This list still says what it
+  // is: saved, never filed, and now a month late.
+  it('keeps a saved record listed as saved once the cut-off has passed', () => {
+    const saver = supplierIn(onThe16th, 'SAVER');
+    expect(saver.preCutOff).toBe(false);
+    expect(saver.invoices).toHaveLength(1);
+    expect(saver.invoices[0]).toMatchObject({
+      status: ALERT_STATUS.SAVED_NOT_FILED,
+      bucket: 'MISSING_IN_PORTAL',
+      filingStatus: 'SAVED',
+      inGstr2b: false
+    });
+  });
+
   it('raises nothing at all for an invoice already reported and filed', () => {
     for (const alerts of [onThe5th, onThe10th, onThe12th, onThe16th]) {
       expect(supplierIn(alerts, 'FILER')).toBeNull();

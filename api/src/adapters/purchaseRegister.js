@@ -73,11 +73,42 @@ const HEADER_ALIASES = new Map(
   }).flatMap(([field, headers]) => headers.map((h) => [normalizeHeader(h), field]))
 );
 
+// The supplier's contact, in three optional columns no GSTN template has: the
+// app's own extension, which a trader adds to their register so the chase
+// message has somebody to go to. Matched exactly like the template headers, but
+// kept out of HEADER_ALIASES: they are never evidence of a template.
+const CONTACT_ALIASES = new Map(
+  Object.entries({
+    contactPerson: ['supplier contact person', 'contact person', 'contact name', 'supplier contact'],
+    contactPhone: [
+      'supplier phone', 'phone', 'phone number', 'mobile', 'mobile number', 'supplier mobile',
+      'contact number', 'whatsapp', 'whatsapp number'
+    ],
+    contactEmail: ['supplier email', 'supplier e-mail', 'email', 'e-mail', 'email id', 'email address'],
+    // Monthly or Quarterly: the trader saying how the supplier files GSTR-1, which
+    // sets the supplier's cut-off (services/supplierStats.js applyDeclaredSchemes).
+    filingFrequency: [
+      'supplier filing frequency', 'filing frequency', 'gstr-1 frequency', 'gstr1 frequency',
+      'return frequency', 'supplier filing scheme'
+    ]
+  }).flatMap(([field, headers]) => headers.map((h) => [normalizeHeader(h), field]))
+);
+
+const fieldForHeader = (cell) =>
+  HEADER_ALIASES.get(normalizeHeader(cell)) ?? CONTACT_ALIASES.get(normalizeHeader(cell));
+
+// "Supplier filing frequency" values -> the canonical filing scheme.
+const FILING_FREQUENCIES = new Map(
+  Object.entries({ monthly: 'MONTHLY', quarterly: 'QRMP', qrmp: 'QRMP' })
+);
+
 const REQUIRED_FIELDS = ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue'];
 
 // Every canonical field a columnMap may point at, in the order a mapping UI
-// should offer them. Derived from the alias table so the two cannot drift.
-export const MAPPABLE_FIELDS = Object.freeze([...new Set(HEADER_ALIASES.values())]);
+// should offer them. Derived from the alias tables so they cannot drift.
+export const MAPPABLE_FIELDS = Object.freeze([
+  ...new Set([...HEADER_ALIASES.values(), ...CONTACT_ALIASES.values()])
+]);
 
 // ---------------------------------------------------------------------------
 // Fuzzy header suggestion
@@ -139,7 +170,11 @@ const HEADER_SYNONYMS = Object.freeze({
   originalInvoiceDate: [
     'original invoice date', 'original document date',
     'invoice/advance payment voucher date', 'against invoice date'
-  ]
+  ],
+  contactPerson: ['supplier contact person', 'contact person', 'contact name', 'party contact'],
+  contactPhone: ['supplier phone', 'phone', 'mobile', 'contact number', 'whatsapp', 'party phone'],
+  contactEmail: ['supplier email', 'email', 'e-mail', 'email id', 'party email'],
+  filingFrequency: ['supplier filing frequency', 'filing frequency', 'gstr-1 frequency', 'return frequency']
 });
 
 // Lowercase, drop every non-alphanumeric character. 'Bill Dt' -> 'billdt', so
@@ -241,17 +276,43 @@ const SUPPLY_TYPES = new Map(
   })
 );
 
+// Every spelling of a document type a register uses, in one table: the GSTN
+// templates' own (and the CSV's single letters), and Tally's voucher types, where
+// every purchase invoice is a "Purchase" voucher (audit P32: a real Tally export
+// was refused over it). Read through docTypeKey(), so case, dots and dashes do not
+// matter: "CR. NOTE" is "cr note".
+//
+// Values name the DOCUMENT. A trader who books a supplier's credit note as a
+// Tally "Debit Note" voucher (Tally's purchase-return habit) has to map or fix
+// that column; nothing in the file can tell the two habits apart.
 const DOC_TYPES = new Map(
   Object.entries({
     invoice: 'INVOICE',
     inv: 'INVOICE',
     i: 'INVOICE',
-    'debit note': 'DEBIT_NOTE',
-    d: 'DEBIT_NOTE',
+    'tax invoice': 'INVOICE',
+    purchase: 'INVOICE',
+    purchases: 'INVOICE',
+    'purchase invoice': 'INVOICE',
+    'purchase voucher': 'INVOICE',
+    bill: 'INVOICE',
     'credit note': 'CREDIT_NOTE',
-    c: 'CREDIT_NOTE'
+    'credit notes': 'CREDIT_NOTE',
+    'cr note': 'CREDIT_NOTE',
+    'credit memo': 'CREDIT_NOTE',
+    cn: 'CREDIT_NOTE',
+    c: 'CREDIT_NOTE',
+    'debit note': 'DEBIT_NOTE',
+    'debit notes': 'DEBIT_NOTE',
+    'dr note': 'DEBIT_NOTE',
+    'debit memo': 'DEBIT_NOTE',
+    dn: 'DEBIT_NOTE',
+    d: 'DEBIT_NOTE'
   })
 );
+
+const docTypeKey = (raw) =>
+  String(raw).toLowerCase().replace(/[.\-_]/g, ' ').replace(/\s+/g, ' ').trim();
 
 function looksLikeZip(buffer) {
   return buffer.length > 1 && buffer[0] === 0x50 && buffer[1] === 0x4b; // 'PK'
@@ -313,7 +374,7 @@ function mapHeaderRow(headerCells, columnMap = null) {
   const mapped = {};
 
   headerCells.forEach((cell, index) => {
-    const field = HEADER_ALIASES.get(normalizeHeader(cell));
+    const field = fieldForHeader(cell);
     if (field && !(field in mapped)) mapped[field] = index;
   });
 
@@ -356,17 +417,41 @@ function cell(row, mapped, field) {
   return index === undefined ? null : row[index] ?? null;
 }
 
-function enumValue(raw, table, { field, at, fallback }) {
+function enumValue(raw, table, { field, at, fallback, keyOf = (v) => String(v).trim().toLowerCase(), expected }) {
   if (isBlank(raw)) {
     if (fallback !== undefined) return fallback;
     throw new AdapterError(`${field} is empty`, { at, field });
   }
-  const key = String(raw).trim().toLowerCase();
-  const value = table.get(key);
+  const value = table.get(keyOf(raw));
   if (!value) {
-    throw new AdapterError(`${field} has unknown value ${JSON.stringify(raw)}`, { at, field });
+    throw new AdapterError(
+      `${field} has unknown value ${JSON.stringify(raw)}${expected ? ` — expected ${expected}` : ''}`,
+      { at, field }
+    );
   }
   return value;
+}
+
+// No document-type column means every row reads as an invoice, and a credit note
+// read as an invoice ADDS the credit it should take away (audit P32: unmapping
+// the column was the obvious workaround, and it did exactly that, silently).
+// Two cases may go without one: the GSTR-2 B2B section CSV, whose rows are all
+// invoices by definition (its notes are the CDNR section, with its own Document
+// Type column), and a caller who confirms the file holds invoices only.
+function requireDocumentType(mapped, headerCells, columnMap, { allInvoices = false } = {}) {
+  if ('docType' in mapped || allInvoices) return;
+  const invoiceHeader = normalizeHeader(headerCells[mapped.invoiceNo]);
+  const b2bSection = invoiceHeader === 'invoice number' && !columnMap?.invoiceNo;
+  if (b2bSection) return;
+  throw Object.assign(
+    new AdapterError(
+      'no document-type column is mapped, so credit and debit notes cannot be told from ' +
+        'invoices: every row would be read as an invoice, and a credit note would add credit ' +
+        'instead of reducing it. Map the column that says Invoice, Credit Note or Debit Note ' +
+        '(Tally calls it Voucher Type), or confirm that every row is an invoice.'
+    ),
+    { code: 'document_type_unmapped' }
+  );
 }
 
 function readRow(row, mapped, at) {
@@ -389,7 +474,9 @@ function readRow(row, mapped, at) {
     docType: enumValue(cell(row, mapped, 'docType'), DOC_TYPES, {
       field: 'document type',
       at,
-      fallback: 'INVOICE'
+      fallback: 'INVOICE',
+      keyOf: docTypeKey,
+      expected: 'Invoice (or Purchase), Credit Note or Debit Note'
     }),
     invoiceNo,
     invoiceNoNorm: normalizeInvoiceNo(invoiceNo),
@@ -421,8 +508,31 @@ function readRow(row, mapped, at) {
     cgst: rupeesToPaise(cell(row, mapped, 'cgst'), { at, field: 'central tax' }),
     sgst: rupeesToPaise(cell(row, mapped, 'sgst'), { at, field: 'state/ut tax' }),
     cess: rupeesToPaise(cell(row, mapped, 'cess'), { at, field: 'cess' }),
+    // A voucher or row-group id from the trader's own system, when the columnMap
+    // names one (no GSTN template has it): the surest way to tell two documents
+    // apart that a supplier numbered and dated alike.
+    voucherId: trimOrNull(cell(row, mapped, 'voucherId')),
+    supplierContact: contactOf(row, mapped),
+    // Blank says nothing about the supplier.
+    supplierFilingScheme: enumValue(cell(row, mapped, 'filingFrequency'), FILING_FREQUENCIES, {
+      field: 'supplier filing frequency',
+      at,
+      fallback: null,
+      expected: 'Monthly or Quarterly'
+    }),
     sourceRowNo: null
   };
+}
+
+// { person, phone, email } from the optional contact columns, or null when the
+// row carries none. A phone typed into Excel arrives as a number; it is text here.
+function contactOf(row, mapped) {
+  const contact = {
+    person: trimOrNull(cell(row, mapped, 'contactPerson')),
+    phone: trimOrNull(cell(row, mapped, 'contactPhone')),
+    email: trimOrNull(cell(row, mapped, 'contactEmail'))
+  };
+  return contact.person || contact.phone || contact.email ? contact : null;
 }
 
 function toExpectedInvoice(parts, { taxPeriod, orgId, rateLines }) {
@@ -449,6 +559,8 @@ function toExpectedInvoice(parts, { taxPeriod, orgId, rateLines }) {
     itcEligibility: parts.itcEligibility,
     originalInvoiceNo: parts.originalInvoiceNo,
     originalInvoiceDate: parts.originalInvoiceDate,
+    supplierContact: parts.supplierContact,
+    supplierFilingScheme: parts.supplierFilingScheme,
     sourceRowNo: parts.sourceRowNo,
     rateLines
   };
@@ -466,6 +578,7 @@ function parseTemplateV24(buffer, columnMap, options) {
   const rows = sheetRows(sheet);
   const mapped = mapHeaderRow(rows[HEADER_ROW - 1] ?? [], columnMap);
   requireFields(mapped, `row ${HEADER_ROW}`);
+  requireDocumentType(mapped, rows[HEADER_ROW - 1] ?? [], columnMap, options);
 
   // Row 1: recipient GSTIN + financial year. Row 2: trade name + tax period.
   const metadata = readMetadata(rows.slice(0, METADATA_ROWS));
@@ -540,9 +653,16 @@ function parseGstr2Csv(buffer, columnMap, options) {
 
   const mapped = mapHeaderRow(data[0], columnMap);
   requireFields(mapped, 'row 1');
+  requireDocumentType(mapped, data[0], columnMap, options);
 
-  // Rate rows for one document must collapse into a single ExpectedInvoice.
+  // Rate rows for one document must collapse into a single ExpectedInvoice,
+  // grouped on supplier, number and date (and voucher id, when mapped). That key
+  // alone merged two DIFFERENT documents a supplier numbered and dated alike
+  // (audit P31: Deepak Sales Corp's two D1404s of 16 June became one entry), so a
+  // row joins a document only if it fits it; see fitsDocument().
   const groups = new Map();
+  const documents = [];
+  const warnings = [];
   for (let i = 1; i < data.length; i += 1) {
     const row = data[i];
     if (row.every((value) => isBlank(value))) continue;
@@ -550,16 +670,30 @@ function parseGstr2Csv(buffer, columnMap, options) {
     const parts = readRow(row, mapped, at);
     parts.sourceRowNo = i + 1;
 
-    const key = [parts.supplierGstin, parts.invoiceNoNorm, parts.invoiceDate].join('|');
-    const group = groups.get(key);
-    if (group) {
-      group.rateLines.push(rateLineOf(parts));
+    const key = [parts.supplierGstin, parts.invoiceNoNorm, parts.invoiceDate, parts.voucherId ?? ''].join('|');
+    const sameKey = groups.get(key) ?? [];
+    const document = sameKey.find((candidate) => fitsDocument(candidate, parts));
+    if (!document) {
+      const created = { head: parts, rateLines: [rateLineOf(parts)] };
+      sameKey.push(created);
+      groups.set(key, sameKey);
+      documents.push(created);
       continue;
     }
-    groups.set(key, { head: parts, rateLines: [rateLineOf(parts)] });
+    document.rateLines.push(rateLineOf(parts));
+    document.head.supplierContact ??= parts.supplierContact;
+    document.head.supplierFilingScheme ??= parts.supplierFilingScheme;
+    // Nothing in the file says whether these rows are one document: say so.
+    if (parts.rate === null) {
+      warnings.push(
+        `${at}: read as part of the document on row ${document.head.sourceRowNo} ` +
+          `(${parts.invoiceNo}, ${parts.invoiceDate}): same supplier, number and date, and no ` +
+          'rate, document value or voucher id to tell them apart'
+      );
+    }
   }
 
-  const invoices = [...groups.values()].map(({ head, rateLines }) => {
+  const invoices = documents.map(({ head, rateLines }) => {
     const totals = sumRateLines(rateLines);
     return toExpectedInvoice(
       { ...head, ...totals },
@@ -567,7 +701,20 @@ function parseGstr2Csv(buffer, columnMap, options) {
     );
   });
 
-  return { invoices, metadata: null, taxPeriod: options.taxPeriod ?? null };
+  return { invoices, metadata: null, taxPeriod: options.taxPeriod ?? null, warnings };
+}
+
+// Whether a row is another rate line of `document` rather than a second document
+// under the same supplier, number and date. Each document has one row per rate,
+// and every row carries the document's own value; a repeated rate or a different
+// value is a different document.
+function fitsDocument(document, parts) {
+  const rateTaken =
+    parts.rate !== null && document.rateLines.some((line) => line.rate === parts.rate);
+  const valueDiffers =
+    parts.invoiceValue !== null && document.head.invoiceValue !== null &&
+    parts.invoiceValue !== document.head.invoiceValue;
+  return !rateTaken && !valueDiffers;
 }
 
 function rateLineOf(parts) {
@@ -615,7 +762,9 @@ function refuse(buffer) {
 
 // parse(buffer, columnMap?, options?) -> ExpectedInvoice[]
 //   columnMap  { canonicalField: headerText | columnIndex } for non-template files
-//   options    { taxPeriod, orgId, format }
+//   options    { taxPeriod, orgId, format, allInvoices }
+//              allInvoices: the caller confirms a file with no document-type
+//              column holds invoices only (see requireDocumentType)
 export function parse(input, columnMap = null, options = {}) {
   const buffer = asBuffer(input);
   const format = resolveFormat(buffer, columnMap, options);
@@ -638,6 +787,23 @@ export function parseWithMetadata(input, columnMap = null, options = {}) {
     return { format, ...parseGstr2Csv(buffer, columnMap, options) };
   }
   throw refuse(buffer);
+}
+
+// The recipient's (trader's) GSTIN on the v2.4 template's first row, or null: a
+// CSV carries none. Reads the metadata rows only, and never throws, so it can
+// answer before the file is parsed.
+export function recipientGstin(input) {
+  try {
+    const buffer = asBuffer(input);
+    if (!looksLikeZip(buffer)) return null;
+    const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: METADATA_ROWS });
+    const sheet = wb.Sheets[SHEET_NAME] ?? wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) return null;
+    const value = String(readMetadata(sheetRows(sheet, METADATA_ROWS)).recipientGstin ?? '').trim().toUpperCase();
+    return /^[0-9A-Z]{15}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 // describeColumns(buffer) -> { format, layout, mappable, headerRow, headers[],

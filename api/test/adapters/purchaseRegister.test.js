@@ -283,7 +283,8 @@ describe('purchase register — column mapping and failure modes', () => {
         taxableValue: 'Base Amount',
         igst: 'IGST Amt'
       },
-      { format: FORMAT_GSTR2_CSV }
+      // No document-type column: the caller has to say every row is an invoice.
+      { format: FORMAT_GSTR2_CSV, allInvoices: true }
     );
     expect(invoices).toHaveLength(1);
     expect(invoices[0].taxableValue).toBe(10000000);
@@ -296,7 +297,7 @@ describe('purchase register — column mapping and failure modes', () => {
     const invoices = parse(
       buffer,
       { supplierGstin: 0, invoiceNo: 1, invoiceDate: 2, taxableValue: 3 },
-      { format: FORMAT_GSTR2_CSV }
+      { format: FORMAT_GSTR2_CSV, allInvoices: true }
     );
     expect(invoices[0].taxableValue).toBe(100000);
   });
@@ -412,11 +413,129 @@ describe('purchase register — fuzzy column suggestion', () => {
       Object.entries(described.suggested).map(([field, hit]) => [field, hit.index])
     );
 
-    const invoices = parse(buffer, columnMap);
+    const invoices = parse(buffer, columnMap, { allInvoices: true });
     expect(invoices).toHaveLength(1);
     expect(invoices[0].supplierGstin).toBe('27AABCU9603R1ZM');
     expect(invoices[0].taxableValue).toBe(10000000);
     expect(invoices[0].igst).toBe(1800000);
     expect(invoices[0].invoiceDate).toBe('2026-03-03');
+  });
+});
+
+// A trader's own export: Tally names every purchase invoice a "Purchase" voucher,
+// and the whole file was refused over it (audit P32). The obvious workaround,
+// unmapping the column, then read every credit note as an invoice.
+describe('purchase register — document types in a trader’s own file', () => {
+  const header = 'Party GSTIN,Voucher Type,Bill No,Bill Date,Taxable Amount,IGST';
+  const columnMap = {
+    supplierGstin: 'Party GSTIN',
+    docType: 'Voucher Type',
+    invoiceNo: 'Bill No',
+    invoiceDate: 'Bill Date',
+    taxableValue: 'Taxable Amount',
+    igst: 'IGST'
+  };
+  const file = (...rows) => Buffer.from([header, ...rows].join('\n'), 'utf8');
+  const typeOf = (voucherType) =>
+    parse(file(`27AABCU9603R1ZM,${voucherType},B-1,03/03/2026,"1,000.00",180.00`), columnMap)[0].docType;
+
+  it.each([
+    ['Purchase', 'INVOICE'],
+    ['PURCHASE', 'INVOICE'],
+    ['Tax Invoice', 'INVOICE'],
+    ['Invoice', 'INVOICE'],
+    ['Credit Note', 'CREDIT_NOTE'],
+    ['CR. NOTE', 'CREDIT_NOTE'],
+    ['Cr-Note', 'CREDIT_NOTE'],
+    ['credit memo', 'CREDIT_NOTE'],
+    ['Debit Note', 'DEBIT_NOTE'],
+    ['Dr. Note', 'DEBIT_NOTE'],
+    ['DN', 'DEBIT_NOTE']
+  ])('reads the voucher type %j as %s', (voucherType, docType) => {
+    expect(typeOf(voucherType)).toBe(docType);
+  });
+
+  it('still refuses a voucher type it does not know, and says what it expected', () => {
+    expect(() => typeOf('Journal')).toThrow(
+      /row 2: document type has unknown value "Journal" — expected Invoice \(or Purchase\), Credit Note or Debit Note/
+    );
+  });
+
+  it('refuses a file whose document-type column is not mapped, and says why', () => {
+    const { docType, ...withoutType } = columnMap;
+    const buffer = file('27AABCU9603R1ZM,Credit Note,C-7,03/03/2026,"1,000.00",180.00');
+    expect(() => parse(buffer, withoutType)).toThrow(/credit and debit notes cannot be told from invoices/);
+    try {
+      parse(buffer, withoutType);
+    } catch (err) {
+      expect(err.code).toBe('document_type_unmapped');
+    }
+  });
+
+  it('reads every row as an invoice only when the caller confirms it', () => {
+    const { docType, ...withoutType } = columnMap;
+    const buffer = file('27AABCU9603R1ZM,Purchase,B-1,03/03/2026,"1,000.00",180.00');
+    expect(parse(buffer, withoutType, { allInvoices: true })[0].docType).toBe('INVOICE');
+  });
+
+  it('needs no confirmation for the GSTR-2 B2B section CSV, which holds invoices only', () => {
+    expect(() => parse(csv('27AABCU9603R1ZM,A/1003,14-Jul-17,"1,10,000",29-Karnataka,N,Regular,12,"10,000","1,200",0,0,0,Inputs'))).not.toThrow();
+  });
+});
+
+// Two documents a supplier numbered and dated alike used to become ONE book entry
+// in the CSV path, which groups rows on supplier + number + date (audit P31:
+// Deepak Sales Corp's two D1404s of 16 June, Rs 35,727.50 and Rs 87,231.48 of
+// tax, became one Rs 1,22,958.98 entry; the real Rs 87,231 invoice was then
+// recommended Reject and the other read as "not in your books").
+describe('purchase register — documents sharing a number and date', () => {
+  const header = 'Party GSTIN,Voucher Type,Bill No,Bill Date,Rate,Taxable Amount,IGST,Bill Amount,Voucher Key';
+  const base = { supplierGstin: 'Party GSTIN', docType: 'Voucher Type', invoiceNo: 'Bill No', invoiceDate: 'Bill Date', taxableValue: 'Taxable Amount', igst: 'IGST' };
+  const read = (rows, map) =>
+    parseWithMetadata(Buffer.from([header, ...rows].join('\n'), 'utf8'), { ...base, ...map });
+  const row = ({ rate = '', taxable, igst, value = '', key = '' }) =>
+    `33VHXWA2766G3ZP,Purchase,D1404,16/06/2026,${rate},${taxable},${igst},${value},${key}`;
+
+  it('keeps two documents apart when their document values differ', () => {
+    const { invoices, warnings } = read(
+      [row({ taxable: '198486.11', igst: '35727.50', value: '234213.61' }),
+        row({ taxable: '484619.33', igst: '87231.48', value: '571850.81' })],
+      { invoiceValue: 'Bill Amount' }
+    );
+    expect(invoices.map((invoice) => invoice.igst)).toEqual([3572750, 8723148]);
+    expect(warnings).toEqual([]);
+  });
+
+  it('keeps two documents apart when the same rate turns up twice', () => {
+    const { invoices } = read(
+      [row({ rate: '18', taxable: '1000', igst: '180' }), row({ rate: '18', taxable: '2000', igst: '360' })],
+      { rate: 'Rate' }
+    );
+    expect(invoices).toHaveLength(2);
+  });
+
+  it('still collapses one document’s rate lines', () => {
+    const { invoices, warnings } = read(
+      [row({ rate: '18', taxable: '1000', igst: '180', value: '1230' }),
+        row({ rate: '5', taxable: '0', igst: '50', value: '1230' })],
+      { rate: 'Rate', invoiceValue: 'Bill Amount' }
+    );
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0].igst).toBe(23000);
+    expect(warnings).toEqual([]);
+  });
+
+  it('uses a voucher id when the file has one', () => {
+    const { invoices } = read(
+      [row({ taxable: '1000', igst: '180', key: 'V-1' }), row({ taxable: '1000', igst: '180', key: 'V-2' })],
+      { voucherId: 'Voucher Key' }
+    );
+    expect(invoices).toHaveLength(2);
+  });
+
+  it('merges rows it cannot tell apart, and says so in the upload result', () => {
+    const { invoices, warnings } = read([row({ taxable: '1000', igst: '180' }), row({ taxable: '2000', igst: '360' })], {});
+    expect(invoices).toHaveLength(1);
+    expect(warnings).toEqual([expect.stringMatching(/^row 3: read as part of the document on row 2 \(D1404, 2026-06-16\)/)]);
   });
 });

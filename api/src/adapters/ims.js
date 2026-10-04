@@ -232,6 +232,19 @@ export function detectFormat(input) {
   }
 }
 
+// The recipient's (trader's) GSTIN the file names, or null. The offline utility's
+// download envelope documents none (docs/ims-json-schema.md), so it is read only
+// when present: gstin, or rtin as the upload envelope calls it. Never throws.
+export function recipientGstin(input) {
+  try {
+    const payload = parseJson(input);
+    const value = String(payload.gstin ?? payload.rtin ?? '').trim().toUpperCase();
+    return /^[0-9A-Z]{15}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 // parse(json, options?) -> PortalRecord[]
 //   options { orgId, taxPeriod }  taxPeriod overrides the MM-only rtnprd derivation
 export function parse(input, options = {}) {

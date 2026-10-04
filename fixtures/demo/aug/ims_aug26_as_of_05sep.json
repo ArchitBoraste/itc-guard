@@ -1,0 +1,60 @@
+{
+  "gstin": "27AABCS1080F1ZN",
+  "imsDetails": {
+    "b2b": [
+      {
+        "stin": "27AAFFO2231R1ZX",
+        "tradenm": "Orbit Distributors",
+        "inum": "INV-0801",
+        "idt": "03-08-2026",
+        "inv_typ": "R",
+        "val": 59000,
+        "action": "N",
+        "pos": "27",
+        "txval": 50000,
+        "iamt": 0,
+        "camt": 4500,
+        "samt": 4500,
+        "cess": 0,
+        "srcform": "R1",
+        "rtnprd": "08",
+        "srcfilstatus": "FILED",
+        "rtnTyp": "R1",
+        "sRtnPrd": "08",
+        "ispendactblocked": "N",
+        "isRemarksBlocked": "N",
+        "itcRedReqBlocked": "N"
+      },
+      {
+        "stin": "24AAKFM5120D1ZR",
+        "tradenm": "Mahavir Sales",
+        "inum": "MS-878",
+        "idt": "11-08-2026",
+        "inv_typ": "R",
+        "val": 41300,
+        "action": "N",
+        "pos": "27",
+        "txval": 35000,
+        "iamt": 6300,
+        "camt": 0,
+        "samt": 0,
+        "cess": 0,
+        "srcform": "R1",
+        "rtnprd": "08",
+        "srcfilstatus": "FILED",
+        "rtnTyp": "R1",
+        "sRtnPrd": "08",
+        "ispendactblocked": "N",
+        "isRemarksBlocked": "N",
+        "itcRedReqBlocked": "N"
+      }
+    ],
+    "b2ba": [],
+    "b2bdn": [],
+    "b2bdna": [],
+    "b2bcn": [],
+    "b2bcna": [],
+    "ecom": [],
+    "ecoma": []
+  }
+}

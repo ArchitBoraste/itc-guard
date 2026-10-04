@@ -1,34 +1,42 @@
-// Per-visitor demo tenancy, end to end over HTTP.
+// Per-visitor workspaces, end to end over HTTP.
 //
-// The bug this exists to prevent is the one the feature was built for: two judges
-// open the same URL, one of them confirms a decision, and it changes what the
-// other is looking at. That is not a subtle failure — it reads as the product
-// being broken — so it is asserted here against real cookies and a real database
-// rather than against the service functions.
+// What a visitor must be able to rely on:
+//   * a first visit gets an EMPTY workspace of their own: the demo starts on the
+//     Upload screen, so nothing is seeded;
+//   * it is still theirs after a refresh or a return visit (a 180-day httpOnly
+//     cookie, renewed as they use the app);
+//   * nothing they do is visible to anyone else, and "Clear all data" empties
+//     theirs and nobody else's;
+//   * the reaper never deletes a workspace that had an upload in the last 30
+//     days, and the cap still holds.
 //
 // Everything runs through the actual Express app with the real demoSession
-// middleware. fetch does not manage a cookie jar, which is exactly what is wanted:
-// each "browser" here is a Cookie header this file controls, so a malformed or
-// stale one can be sent deliberately.
+// middleware. Each "browser" here is a Cookie header this file controls, so a
+// malformed or stale one can be sent deliberately.
 //
 // Owns no reserved org id. It creates demo orgs (demo_state IS NOT NULL, ids from
 // AUTO_INCREMENT at 1000+) and deletes every one of them afterwards. Org 1 and the
 // TEST_ORGS ids have demo_state IS NULL and are structurally out of reach.
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { closePool, pool } from '../../src/db/pool.js';
 import { requireDatabase } from '../helpers/db.js';
+import { demoIms, demoRegister } from '../helpers/demoFiles.js';
+import { TRADER } from '../../../tools/demo-timeline.js';
 
-// Imported after the environment is set in beforeAll — config.demo is read
-// lazily, but keeping the order explicit documents the dependency.
+// Imported after the environment is set in beforeAll. config.demo is read lazily,
+// but keeping the order explicit documents the dependency.
 let createApp;
 let wipeOrgData;
-let topUpPool;
 let reapIdleOrgs;
 let tenancyStats;
 let traderGstinFor;
+let todayInIndia;
 
 const COOKIE_NAME = 'itcg_session';
+const SIX_MONTHS_SECONDS = 180 * 24 * 3600;
 
 let server;
 let base;
@@ -36,75 +44,71 @@ let base;
 // --- a browser -------------------------------------------------------------
 
 // The smallest thing that behaves like one: it keeps the cookie the server set
-// and sends it back. `cookie` can be overwritten to forge or corrupt it.
+// and sends it back. `cookie` can be overwritten to forge or corrupt it, and the
+// raw Set-Cookie headers of the last response are kept for their attributes.
 function browser(initialCookie = null) {
-  const state = { cookie: initialCookie };
+  const state = { cookie: initialCookie, setCookies: [] };
 
-  async function call(path, options = {}) {
+  async function send(path, options = {}) {
     const headers = { ...(options.headers ?? {}) };
     if (state.cookie) headers.cookie = state.cookie;
     const res = await fetch(`${base}${path}`, { ...options, headers });
 
-    const setCookie = res.headers.getSetCookie?.() ?? [];
-    for (const raw of setCookie) {
+    state.setCookies = res.headers.getSetCookie?.() ?? [];
+    for (const raw of state.setCookies) {
       const pair = raw.split(';')[0];
       if (pair.startsWith(`${COOKIE_NAME}=`)) state.cookie = pair;
     }
 
     const text = await res.text();
-    let body = null;
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = null;
-      }
-    }
-    return { status: res.status, body };
+    return { status: res.status, body: text ? JSON.parse(text) : null };
   }
 
-  return {
-    state,
-    call,
-    json: (method, path, payload) =>
-      call(path, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload ?? {})
-      }),
+  const json = (method, path, payload) =>
+    send(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload ?? {})
+    });
 
-    // Mints or resumes the session and waits out any seeding. The pool is warmed
-    // in beforeAll so this normally returns on the first call.
-    async ready({ timeoutMs = 90_000 } = {}) {
-      const deadline = Date.now() + timeoutMs;
-      for (;;) {
-        const { status, body } = await call('/api/session');
-        if (status !== 200) throw new Error(`GET /api/session -> ${status}`);
-        if (body.session.state === 'READY') return body.session;
-        if (Date.now() > deadline) {
-          throw new Error(`session never became READY (last state ${body.session.state})`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-    }
-  };
+  async function ingest(kind, path) {
+    const form = new FormData();
+    form.append('kind', kind);
+    form.append('file', new Blob([readFileSync(path)]), basename(path));
+    const created = await send('/api/uploads', { method: 'POST', body: form });
+    expect(created.status).toBe(201);
+    return json('POST', `/api/uploads/${created.body.upload.id}/commit`);
+  }
+
+  return { state, call: send, json, ingest };
 }
 
-// What each session sees. Read over HTTP rather than out of the database,
-// because "what the other judge sees" is the claim being made.
-async function snapshot(client) {
-  const runs = (await client.call('/api/runs')).body.runs;
-  const april = runs.find((run) => run.taxPeriod === '2026-04');
-  const results = (await client.call(`/api/runs/${april.id}/results?pageSize=500`)).body;
-  const changes = (await client.call(`/api/changes?runId=${april.id}`)).body;
-  return {
-    runCount: runs.length,
-    runId: april.id,
-    resultTotal: results.total,
-    confirmed: results.results.filter((row) => row.confirmedAction).length,
-    invalidatedCount: changes.invalidatedCount,
-    claimableItc: april.totals.claimableItc
-  };
+// What one workspace holds, read over HTTP: "what the other visitor sees" is the
+// claim being made.
+async function contents(client) {
+  const [uploads, runs, clock] = await Promise.all([
+    client.call('/api/uploads'),
+    client.call('/api/runs'),
+    client.call('/api/workspace/clock')
+  ]);
+  return { uploads: uploads.body.uploads, runs: runs.body.runs, clock: clock.body.clock };
+}
+
+async function sessionOf(client) {
+  const { status, body } = await client.call('/api/session');
+  expect(status).toBe(200);
+  return body.session;
+}
+
+// A visitor who has reconciled August as of 5 Sep: something worth isolating.
+async function withAugust(client) {
+  await sessionOf(client);
+  expect((await client.json('PUT', '/api/workspace/clock', { asOfDate: '2026-09-05' })).status).toBe(200);
+  expect((await client.ingest('PURCHASE_REGISTER', demoRegister('aug'))).status).toBe(200);
+  expect((await client.ingest('IMS', demoIms('aug', '2026-09-05'))).status).toBe(200);
+  const run = await client.json('POST', '/api/runs', { taxPeriod: '2026-08' });
+  expect(run.status).toBe(201);
+  return run.body.run;
 }
 
 const listen = (app) =>
@@ -114,232 +118,176 @@ const listen = (app) =>
 
 // --- setup -----------------------------------------------------------------
 
-const createdOrgIds = new Set();
-
-// NOTE ON CLEANUP. Orgs this suite creates are deleted once, in afterAll, after
-// seeding has been quiesced — never between cases.
-//
-// Deleting them in an afterEach (to keep the footprint small) raced the pool:
-// claiming a warm org fires an unawaited topUpPool(), which counts live orgs and
-// creates more, while afterEach deleted them underneath it. The two disagreed
-// about the live count often enough that roughly one run in three tripped the
-// org cap and failed an unrelated assertion. afterAll finds every row with a
-// non-NULL demo_state, so nothing is missed by waiting.
-
-async function rememberNewOrgs() {
+async function demoOrgIds() {
   const [rows] = await pool.query('SELECT id FROM organizations WHERE demo_state IS NOT NULL');
-  for (const row of rows) createdOrgIds.add(Number(row.id));
+  return rows.map((row) => Number(row.id));
 }
+
+let preexisting = new Set();
 
 beforeAll(async () => {
   await requireDatabase();
 
   process.env.DEMO_TENANCY = 'on';
   process.env.DEMO_SESSION_SECRET = 'test-secret-not-for-deployment';
-  // Two warm orgs so the isolation tests do not each pay for a seed, and a low
-  // cap so nothing here can run away with the developer's database.
-  process.env.DEMO_POOL_SIZE = '2';
-  // The suite claims ~19 orgs across all cases and holds them to the end, so this
-  // is deliberate headroom: no case should ever meet the cap by accident. The
-  // ceiling behaviour itself is asserted directly, and on purpose, in "the
-  // reaper" — which lowers this to exactly the live count for that one test.
-  process.env.DEMO_MAX_ORGS = '30';
+  process.env.DEMO_COOKIE_SECURE = 'true';
+  process.env.DEMO_SESSION_DAYS = '180';
+  process.env.DEMO_MAX_ORGS = '40';
   process.env.DEMO_IDLE_MINUTES = '180';
+  process.env.DEMO_RETAIN_DAYS = '30';
 
   ({ createApp } = await import('../../src/app.js'));
   ({ wipeOrgData } = await import('../../src/services/demoStory.js'));
-  ({ topUpPool, reapIdleOrgs, tenancyStats } = await import('../../src/services/demoTenancy.js'));
+  ({ reapIdleOrgs, tenancyStats } = await import('../../src/services/demoTenancy.js'));
   ({ traderGstinFor } = await import('../../src/services/demo.js'));
+  ({ todayInIndia } = await import('../../src/services/workspaceClock.js'));
+
+  // Demo orgs that were already here are not this suite's to delete.
+  preexisting = new Set(await demoOrgIds());
 
   server = await listen(createApp({ pingDb: async () => true }));
   base = `http://127.0.0.1:${server.address().port}`;
-
-  await topUpPool();
-  await rememberNewOrgs();
-}, 300_000);
-
-// Claiming a warm org kicks off a background top-up, so a seed can still be
-// running after the last assertion. Deleting an org's uploads while it is being
-// seeded trips the portal_records -> uploads foreign key, so the pool is turned
-// off and allowed to finish before anything is removed.
-async function settleSeeds({ timeoutMs = 120_000 } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const [[{ n }]] = await pool.query(
-      "SELECT COUNT(*) AS n FROM organizations WHERE demo_state = 'PROVISIONING'"
-    );
-    if (Number(n) === 0 || Date.now() > deadline) return;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-
-async function quiesceTenancy() {
-  process.env.DEMO_TENANCY = 'off';
-  process.env.DEMO_POOL_SIZE = '0';
-  await settleSeeds();
-}
+});
 
 afterAll(async () => {
-  await quiesceTenancy();
-  await rememberNewOrgs();
-  for (const orgId of createdOrgIds) {
-    if (orgId === 1) continue; // never, under any circumstance
+  process.env.DEMO_TENANCY = 'off';
+  for (const orgId of await demoOrgIds()) {
+    if (orgId === 1 || preexisting.has(orgId)) continue;
     await wipeOrgData(orgId);
     await pool.query('DELETE FROM organizations WHERE id = ? AND demo_state IS NOT NULL', [orgId]);
   }
-  // Nothing this suite created may outlive it, so say so rather than trusting it.
-  const [leftovers] = await pool.query(
-    'SELECT id FROM organizations WHERE demo_state IS NOT NULL'
-  );
-  if (leftovers.length) {
-    console.error(`[test] left ${leftovers.length} demo org(s) behind: ${leftovers.map((r) => r.id).join(', ')}`);
-  }
   if (server) await new Promise((resolve) => server.close(resolve));
   await closePool();
-}, 180_000);
+});
 
-// --- tests -----------------------------------------------------------------
+// --- a first visit ---------------------------------------------------------
 
-describe('a visitor gets their own seeded org', () => {
-  it('hands out a distinct org, with the demo story already in it', async () => {
-    const judge = browser();
-    const session = await judge.ready();
+describe('a new visitor', () => {
+  it('gets an empty workspace of their own', async () => {
+    const visitor = browser();
+    const session = await sessionOf(visitor);
 
+    expect(session).toMatchObject({ state: 'READY', isNew: true, perVisitor: true });
     expect(session.orgId).toBeGreaterThan(1);
-    expect(session.perVisitor).toBe(true);
-    expect(judge.state.cookie).toMatch(new RegExp(`^${COOKIE_NAME}=`));
 
-    const view = await snapshot(judge);
-    // The state demo:reset produces: two periods, and exactly one decision that
-    // was made and then invalidated by the supplier's revision.
-    expect(view.runCount).toBe(2);
-    expect(view.invalidatedCount).toBe(1);
-    expect(view.resultTotal).toBeGreaterThan(0);
+    expect(await contents(visitor)).toEqual({
+      uploads: [],
+      runs: [],
+      clock: { asOfDate: todayInIndia(), today: todayInIndia(), followsToday: true }
+    });
 
-    // Its own trader identity, because organizations.gstin is globally unique and
-    // stays that way.
-    const org = (await judge.call('/api/org')).body.org;
+    // Its own trader identity: organizations.gstin is globally unique.
+    const org = (await visitor.call('/api/org')).body.org;
     expect(org.id).toBe(session.orgId);
     expect(org.gstin).toBe(traderGstinFor(session.orgId));
-    expect(org.gstin).not.toBe('27AABCS1429F1Z8');
   });
 
-  it('keeps the same org across requests that carry the cookie', async () => {
-    const judge = browser();
-    const first = await judge.ready();
-    const second = (await judge.call('/api/session')).body.session;
-    expect(second.orgId).toBe(first.orgId);
-    expect(second.isNew).toBe(false);
+  it('is handed a long-lived httpOnly, Secure, SameSite=Lax cookie', async () => {
+    const visitor = browser();
+    await sessionOf(visitor);
+    const cookie = visitor.state.setCookies.find((raw) => raw.startsWith(`${COOKIE_NAME}=`));
+    expect(cookie).toMatch(/; HttpOnly/);
+    expect(cookie).toMatch(/; SameSite=Lax/);
+    expect(cookie).toMatch(/; Secure/);
+    expect(cookie).toMatch(new RegExp(`; Max-Age=${SIX_MONTHS_SECONDS}(;|$)`));
   });
 });
 
-describe('two sessions cannot see each other', () => {
-  it('a confirmation in one leaves the other untouched', async () => {
-    const alice = browser();
-    const bob = browser();
-    const aliceSession = await alice.ready();
-    const bobSession = await bob.ready();
+describe('a returning visitor', () => {
+  it('keeps the same workspace across refreshes and return visits', async () => {
+    const visitor = browser();
+    const first = await sessionOf(visitor);
+    const run = await withAugust(visitor);
 
-    expect(aliceSession.orgId).not.toBe(bobSession.orgId);
+    const again = await sessionOf(visitor);
+    expect(again).toMatchObject({ orgId: first.orgId, isNew: false });
 
-    const before = await snapshot(bob);
-
-    // Alice confirms one of her own recommendations.
-    const aliceView = await snapshot(alice);
-    const aliceResults = (
-      await alice.call(`/api/runs/${aliceView.runId}/results?pageSize=500`)
-    ).body.results;
-    const target = aliceResults.find(
-      (row) => row.recommendedAction === 'ACCEPT' && !row.confirmedAction
-    );
-    expect(target, 'the seeded demo should contain an un-confirmed ACCEPT').toBeTruthy();
-
-    const patched = await alice.json('PATCH', `/api/results/${target.id}`, {
-      confirmedAction: 'ACCEPT'
-    });
-    expect(patched.status).toBe(200);
-
-    const aliceAfter = await snapshot(alice);
-    expect(aliceAfter.confirmed).toBe(aliceView.confirmed + 1);
-
-    const after = await snapshot(bob);
-    expect(after).toEqual(before);
+    // Days later, a new tab: the same cookie, the same workspace, the same data.
+    const later = browser(visitor.state.cookie);
+    expect((await sessionOf(later)).orgId).toBe(first.orgId);
+    const held = await contents(later);
+    expect(held.runs.map((entry) => entry.id)).toEqual([run.id]);
+    expect(held.uploads).toHaveLength(2);
+    expect(held.clock).toMatchObject({ asOfDate: '2026-09-05', followsToday: false });
   });
 
-  it('refuses a result id belonging to another session', async () => {
+  it('has the cookie renewed as they use the app, at most once a minute', async () => {
+    const visitor = browser();
+    await sessionOf(visitor);
+    await sessionOf(visitor);
+    expect(visitor.state.setCookies.join()).toMatch(new RegExp(`Max-Age=${SIX_MONTHS_SECONDS}`));
+    await sessionOf(visitor);
+    expect(visitor.state.setCookies).toEqual([]);
+  });
+});
+
+// --- isolation -------------------------------------------------------------
+
+describe('two workspaces', () => {
+  it('cannot see each other', async () => {
     const alice = browser();
     const bob = browser();
-    await alice.ready();
-    await bob.ready();
+    const aliceRun = await withAugust(alice);
+    await sessionOf(bob);
 
-    const aliceView = await snapshot(alice);
-    const aliceResults = (
-      await alice.call(`/api/runs/${aliceView.runId}/results?pageSize=500`)
-    ).body.results;
+    expect(await contents(bob)).toMatchObject({ uploads: [], runs: [], clock: { followsToday: true } });
 
-    // Bob names one of Alice's result ids directly. Every query filters on
-    // org_id, so it is not his to confirm and the row is simply not found.
-    const stolen = await bob.json('PATCH', `/api/results/${aliceResults[0].id}`, {
-      confirmedAction: 'ACCEPT'
-    });
+    // Bob names Alice's run and one of her results directly. Every query filters
+    // on org_id, so neither is found.
+    expect((await bob.call(`/api/runs/${aliceRun.id}`)).status).toBe(404);
+    expect((await bob.call(`/api/runs/${aliceRun.id}/results`)).status).toBe(404);
+    const aliceResults = (await alice.call(`/api/runs/${aliceRun.id}/results?pageSize=500`)).body.results;
+    const stolen = await bob.json('PATCH', `/api/results/${aliceResults[0].id}`, { confirmedAction: 'ACCEPT' });
     expect(stolen.status).toBe(404);
-
-    // And her run, by id.
-    const peek = await bob.call(`/api/runs/${aliceView.runId}`);
-    expect(peek.status).toBe(404);
   });
 });
 
-describe('reset', () => {
-  it('rebuilds only the calling org', async () => {
+describe('Clear all data', () => {
+  it("empties the caller's workspace, the date included, and nobody else's", async () => {
     const alice = browser();
     const bob = browser();
-    const aliceSession = await alice.ready();
-    await bob.ready();
-
-    // Both of them make a decision, so both have something a reset would clear.
-    for (const client of [alice, bob]) {
-      const view = await snapshot(client);
-      const rows = (await client.call(`/api/runs/${view.runId}/results?pageSize=500`)).body.results;
-      const target = rows.find((row) => row.recommendedAction === 'ACCEPT' && !row.confirmedAction);
-      await client.json('PATCH', `/api/results/${target.id}`, { confirmedAction: 'ACCEPT' });
+    const aliceSession = await sessionOf(alice);
+    await withAugust(alice);
+    await withAugust(bob);
+    const bobBefore = await contents(bob);
+    // Both adopted the sample trader's GSTIN from its files: two workspaces may.
+    for (const visitor of [alice, bob]) {
+      expect((await visitor.call('/api/org')).body.org).toMatchObject({ gstin: TRADER.gstin, gstinAdopted: true });
     }
 
-    const bobBefore = await snapshot(bob);
-    const aliceBefore = await snapshot(alice);
-    expect(aliceBefore.confirmed).toBeGreaterThan(0);
+    const cleared = await alice.json('POST', '/api/workspace/clear');
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.cleared).toEqual({ orgId: aliceSession.orgId });
 
-    const reset = await alice.json('POST', '/api/session/reset');
-    expect(reset.status).toBe(202);
-    expect(reset.body.session.state).toBe('PROVISIONING');
-
-    // Everything else is closed while it rebuilds, and says why rather than 500ing.
-    const during = await alice.call('/api/runs');
-    expect([200, 409]).toContain(during.status);
-    if (during.status === 409) expect(during.body.error).toBe('session_provisioning');
-
-    const back = await alice.ready();
-    expect(back.orgId).toBe(aliceSession.orgId); // same org, same cookie
-
-    const aliceAfter = await snapshot(alice);
-    expect(aliceAfter.confirmed).toBe(0);
-    expect(aliceAfter.invalidatedCount).toBe(1); // the story is back
-    expect(aliceAfter.runCount).toBe(2);
-
-    // Bob did not notice.
-    expect(await snapshot(bob)).toEqual(bobBefore);
-  }, 180_000);
-});
-
-describe('a cookie that cannot be honoured starts a fresh session', () => {
-  it('no cookie at all', async () => {
-    const visitor = browser();
-    const { status, body } = await visitor.call('/api/session');
-    expect(status).toBe(200);
-    expect(body.session.orgId).toBeGreaterThan(1);
-    expect(body.session.isNew).toBe(true);
+    expect((await sessionOf(alice)).orgId).toBe(aliceSession.orgId);
+    expect(await contents(alice)).toEqual({
+      uploads: [],
+      runs: [],
+      clock: { asOfDate: todayInIndia(), today: todayInIndia(), followsToday: true }
+    });
+    // ...and the trader GSTIN with it: the next file sets it afresh.
+    const org = (await alice.call('/api/org')).body.org;
+    expect(org.gstinAdopted).toBe(false);
+    expect(org.gstin).not.toBe(TRADER.gstin);
+    expect(await contents(bob)).toEqual(bobBefore);
   });
 
+  it('is refused where there is one shared workspace', async () => {
+    const visitor = browser();
+    await sessionOf(visitor);
+    process.env.DEMO_TENANCY = 'off';
+    try {
+      const refused = await visitor.json('POST', '/api/workspace/clear');
+      expect(refused.status).toBe(409);
+    } finally {
+      process.env.DEMO_TENANCY = 'on';
+    }
+  });
+});
+
+// --- cookies that cannot be honoured -----------------------------------------
+
+describe('a cookie that cannot be honoured starts a fresh, empty workspace', () => {
   it.each([
     ['not signed at all', `${COOKIE_NAME}=12345`],
     ['a forged signature', `${COOKIE_NAME}=12345.aaaabbbbccccdddd`],
@@ -349,105 +297,134 @@ describe('a cookie that cannot be honoured starts a fresh session', () => {
     ['naming the presenter org', `${COOKIE_NAME}=1.anything`]
   ])('%s', async (_label, cookie) => {
     const visitor = browser(cookie);
-    const { status, body } = await visitor.call('/api/session');
-    expect(status).toBe(200);
-    expect(body.session.orgId).toBeGreaterThan(1);
-    expect(body.session.isNew).toBe(true);
-
-    // And the app works from there, rather than merely not erroring.
-    await visitor.ready();
-    const runs = await visitor.call('/api/runs');
-    expect(runs.status).toBe(200);
-    expect(runs.body.runs.length).toBe(2);
+    const session = await sessionOf(visitor);
+    expect(session.orgId).toBeGreaterThan(1);
+    expect(session.isNew).toBe(true);
+    expect((await contents(visitor)).runs).toEqual([]);
   });
 
-  it('a correctly signed cookie naming an org that has been deleted', async () => {
-    const judge = browser();
-    const session = await judge.ready();
-    const cookie = judge.state.cookie;
-
-    // The reaper's exact deletion, applied now.
+  it('a correctly signed cookie naming a workspace that has been deleted', async () => {
+    const visitor = browser();
+    const session = await sessionOf(visitor);
     await wipeOrgData(session.orgId);
-    await pool.query('DELETE FROM organizations WHERE id = ? AND demo_state IS NOT NULL', [
-      session.orgId
-    ]);
-    createdOrgIds.delete(session.orgId);
+    await pool.query('DELETE FROM organizations WHERE id = ? AND demo_state IS NOT NULL', [session.orgId]);
 
-    // Same browser, same cookie, next morning.
-    const returning = browser(cookie);
-    const after = await returning.ready();
+    const returning = browser(visitor.state.cookie);
+    const after = await sessionOf(returning);
     expect(after.orgId).not.toBe(session.orgId);
-    expect(after.orgId).toBeGreaterThan(1);
-
-    const view = await snapshot(returning);
-    expect(view.runCount).toBe(2);
-    expect(view.invalidatedCount).toBe(1);
-  }, 180_000);
+    expect(after.isNew).toBe(true);
+  });
 });
 
+// --- the reaper --------------------------------------------------------------
+
+const ageWorkspace = (orgId, days) =>
+  pool.query('UPDATE organizations SET last_seen_at = DATE_SUB(NOW(), INTERVAL ? DAY) WHERE id = ?', [days, orgId]);
+const ageUploads = (orgId, days) =>
+  pool.query('UPDATE uploads SET created_at = DATE_SUB(NOW(), INTERVAL ? DAY) WHERE org_id = ?', [days, orgId]);
+const exists = async (orgId) =>
+  (await pool.query('SELECT id FROM organizations WHERE id = ?', [orgId]))[0].length === 1;
+
 describe('the reaper', () => {
-  it('deletes an idle claimed org and leaves org 1 and the pool alone', async () => {
-    const judge = browser();
-    const session = await judge.ready();
+  it('deletes an idle empty workspace', async () => {
+    const visitor = browser();
+    const { orgId } = await sessionOf(visitor);
+    await ageWorkspace(orgId, 2);
+    expect(await reapIdleOrgs()).toContain(orgId);
+    expect(await exists(orgId)).toBe(false);
+  });
 
-    const [[appBefore]] = await pool.query(
-      'SELECT COUNT(*) AS n FROM runs WHERE org_id = 1'
+  it('keeps an idle workspace that had an upload in the last 30 days', async () => {
+    const visitor = browser();
+    const { orgId } = await sessionOf(visitor);
+    await withAugust(visitor);
+    await ageUploads(orgId, 29);
+    await ageWorkspace(orgId, 29);
+    expect(await reapIdleOrgs()).not.toContain(orgId);
+    expect(await exists(orgId)).toBe(true);
+  });
+
+  it('deletes an idle workspace whose uploads are all older than that', async () => {
+    const visitor = browser();
+    const { orgId } = await sessionOf(visitor);
+    await withAugust(visitor);
+    await ageUploads(orgId, 31);
+    await ageWorkspace(orgId, 31);
+    expect(await reapIdleOrgs()).toContain(orgId);
+    expect(await exists(orgId)).toBe(false);
+  });
+
+  it('deletes what is left of the seeded pool, and never touches org 1', async () => {
+    const [created] = await pool.query(
+      `INSERT INTO organizations (gstin, legal_name, state_code, demo_state, last_seen_at)
+       VALUES ('POOLLEFTOVER001', 'Leftover', '27', 'POOL', NOW())`
     );
+    const [[appBefore]] = await pool.query('SELECT COUNT(*) AS n FROM uploads WHERE org_id = 1');
 
-    // Age it past the idle TTL.
-    await pool.query(
-      'UPDATE organizations SET last_seen_at = DATE_SUB(NOW(), INTERVAL 10 DAY) WHERE id = ?',
-      [session.orgId]
-    );
+    expect(await reapIdleOrgs()).toContain(Number(created.insertId));
 
-    const reaped = await reapIdleOrgs();
-    expect(reaped).toContain(session.orgId);
-    createdOrgIds.delete(session.orgId);
-
-    const [gone] = await pool.query('SELECT id FROM organizations WHERE id = ?', [session.orgId]);
-    expect(gone.length).toBe(0);
-
-    // Org 1 is untouched — it has demo_state IS NULL, so the sweep cannot see it.
-    const [[appAfter]] = await pool.query('SELECT COUNT(*) AS n FROM runs WHERE org_id = 1');
+    const [[appAfter]] = await pool.query('SELECT COUNT(*) AS n FROM uploads WHERE org_id = 1');
     expect(Number(appAfter.n)).toBe(Number(appBefore.n));
-
     const [[org1]] = await pool.query('SELECT demo_state FROM organizations WHERE id = 1');
-    expect(org1.demo_state).toBeNull();
+    expect(org1?.demo_state ?? null).toBeNull();
   });
+});
 
-  it('never exceeds the configured ceiling', async () => {
-    const stats = await tenancyStats();
-    expect(stats.live).toBeLessThanOrEqual(stats.maxOrgs);
-  });
-
-  // The database cannot grow without limit over several days of judging, so at
-  // some point a new arrival has to be refused. It has to be refused CLEANLY —
-  // a stated reason and a status the UI can render, not a stack trace.
-  it('refuses a new session rather than growing past the cap', async () => {
+describe('the cap', () => {
+  it('reclaims an idle unused workspace for a new visitor, and refuses when there is none', async () => {
     const savedMax = process.env.DEMO_MAX_ORGS;
-    const savedPool = process.env.DEMO_POOL_SIZE;
     try {
-      // Stop the pool refilling itself, and let any refill already in flight
-      // finish — otherwise a fresh POOL org appears between measuring and asking,
-      // and the visitor is (correctly) served instead of turned away.
-      process.env.DEMO_POOL_SIZE = '0';
-      await settleSeeds();
+      const idle = browser();
+      const { orgId: idleOrg } = await sessionOf(idle);
+      await ageWorkspace(idleOrg, 1);
 
-      // Drain what is pooled, so the next visitor genuinely needs a new org.
-      await pool.query("UPDATE organizations SET demo_state = 'RETIRED' WHERE demo_state = 'POOL'");
+      process.env.DEMO_MAX_ORGS = String((await tenancyStats()).live);
 
-      // Exactly what is live, so there is no headroom left for one more.
-      const stats = await tenancyStats();
-      process.env.DEMO_MAX_ORGS = String(stats.live);
+      // At the cap, the idle empty workspace makes room.
+      const arriving = browser();
+      const arrived = await sessionOf(arriving);
+      expect(arrived.isNew).toBe(true);
+      expect(await exists(idleOrg)).toBe(false);
 
+      // Every other workspace is in use or holds a recent upload: refused, with a
+      // stated reason and a status the UI can render.
       const turnedAway = await browser().call('/api/session');
       expect(turnedAway.status).toBe(503);
       expect(turnedAway.body.error).toBe('demo_at_capacity');
       expect(turnedAway.body.message).toMatch(/capacity/i);
     } finally {
       process.env.DEMO_MAX_ORGS = savedMax;
-      process.env.DEMO_POOL_SIZE = savedPool;
-      await reapIdleOrgs();
+    }
+  });
+
+  it('reclaims a never-used workspace after minutes, but one with an upload only after the longer grace', async () => {
+    const savedMax = process.env.DEMO_MAX_ORGS;
+    const ageMinutes = (orgId, minutes) =>
+      pool.query('UPDATE organizations SET last_seen_at = DATE_SUB(NOW(), INTERVAL ? MINUTE) WHERE id = ?', [minutes, orgId]);
+    try {
+      // Used 40 days ago, seen 20 minutes ago: inside the 45-minute grace.
+      const used = browser();
+      const { orgId: usedOrg } = await sessionOf(used);
+      await withAugust(used);
+      await ageUploads(usedOrg, 40);
+      await ageMinutes(usedOrg, 20);
+
+      // Never uploaded to, seen 20 minutes ago: a scanner's, or an abandoned tab.
+      const unused = browser();
+      const { orgId: unusedOrg } = await sessionOf(unused);
+      await ageMinutes(unusedOrg, 20);
+
+      process.env.DEMO_MAX_ORGS = String((await tenancyStats()).live);
+
+      expect((await sessionOf(browser())).isNew).toBe(true);
+      expect(await exists(unusedOrg)).toBe(false);
+      expect(await exists(usedOrg)).toBe(true);
+
+      const turnedAway = await browser().call('/api/session');
+      expect(turnedAway.status).toBe(503);
+      expect(await exists(usedOrg)).toBe(true);
+    } finally {
+      process.env.DEMO_MAX_ORGS = savedMax;
     }
   });
 });

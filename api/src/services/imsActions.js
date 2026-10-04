@@ -1,25 +1,17 @@
 // Builds the IMS upload JSON for a run.
 //
-// confirmed_action wins over recommended_action. That ordering is the product:
-// the engine proposes, the trader decides, and what goes to the portal is the
-// trader's decision wherever they made one.
+// Each record carries the action it has RIGHT NOW (services/decisions.js): the
+// trader's decision wherever they made one, an action already on the portal, and
+// Accept for a clean match. Every other recommendation — a Reject included — is a
+// proposal until the trader confirms it, so it goes out as N. N is the deemed-
+// acceptance default and never a decision, so the records carrying it are counted
+// back to the caller as open decisions, by category, and the route refuses to
+// hand the file over while any remain unless the trader acknowledges them.
 import { pool } from '../db/pool.js';
 import { buildImsActionJson } from '../adapters/imsActionWriter.js';
 import { ServiceError } from './ingest.js';
-
-// Workflow states are not portal actions. CHASE_SUPPLIER / VERIFY / DEFERRED all
-// mean "do nothing in IMS yet", which is action N — and N is precisely the
-// deemed-acceptance default, so these records must still appear in the upload
-// carrying N rather than being silently dropped.
-const RECOMMENDED_TO_IMS = {
-  ACCEPT: 'ACCEPT',
-  REJECT: 'REJECT',
-  PENDING: 'PENDING',
-  NO_ACTION: 'NO_ACTION',
-  CHASE_SUPPLIER: 'NO_ACTION',
-  VERIFY: 'NO_ACTION',
-  DEFERRED: 'NO_ACTION'
-};
+import { currentImsAction, isImsActionable, isImsDecision, summarizeOpenDecisions } from './decisions.js';
+import { decisionView } from './reconcile.js';
 
 const ACTION_CODES = { ACCEPT: 'A', REJECT: 'R', PENDING: 'P', NO_ACTION: 'N' };
 
@@ -30,15 +22,20 @@ export async function buildRunImsActions(orgId, runId) {
   );
   if (!runs.length) throw new ServiceError('run not found', 404, 'not_found');
 
-  const [orgs] = await pool.query('SELECT gstin FROM organizations WHERE id = ?', [orgId]);
+  // The trader GSTIN the workspace adopted from its files, else the org's own.
+  const [orgs] = await pool.query(
+    'SELECT COALESCE(workspace_gstin, gstin) AS gstin FROM organizations WHERE id = ?',
+    [orgId]
+  );
   if (!orgs.length) throw new ServiceError('organization not found', 404, 'not_found');
 
   // Only IMS-sourced records can be actioned. A 2B-only record (ISD, imports, or
   // anything ITC-ineligible) has no IMS row to act on, and the writer refuses it.
   const [rows] = await pool.query(
-    `SELECT mr.id, mr.bucket, mr.recommended_action, mr.confirmed_action, mr.remarks,
-            pr.source, pr.section, pr.supplier_gstin, pr.supplier_name, pr.doc_type,
-            pr.supply_type, pr.invoice_no, pr.invoice_no_norm, pr.invoice_date,
+    `SELECT mr.id, mr.bucket, mr.confirmed_action, mr.remarks, mr.signed_itc, mr.flags,
+            mr.portal_record_id, pr.absent_since,
+            pr.source AS portal_source, pr.section, pr.supplier_gstin, pr.supplier_name,
+            pr.doc_type, pr.supply_type, pr.invoice_no, pr.invoice_no_norm, pr.invoice_date,
             pr.tax_period, pr.place_of_supply, pr.taxable_value, pr.igst, pr.cgst,
             pr.sgst, pr.cess, pr.total_tax, pr.invoice_value, pr.filing_status,
             pr.ims_action, pr.pending_blocked, pr.remarks_blocked,
@@ -52,15 +49,18 @@ export async function buildRunImsActions(orgId, runId) {
   );
 
   const decisions = [];
+  const exported = [];
   const skipped = [];
 
   for (const row of rows) {
-    const chosen = row.confirmed_action ?? RECOMMENDED_TO_IMS[row.recommended_action] ?? 'NO_ACTION';
-    const action = ACTION_CODES[chosen];
-    if (!action) {
-      skipped.push({ resultId: row.id, reason: `no IMS action for ${chosen}` });
+    const view = decisionView(row);
+    // A record the supplier withdrew is no longer in IMS to act on.
+    if (!isImsActionable(view)) {
+      skipped.push({ resultId: row.id, reason: 'withdrawn by the supplier' });
       continue;
     }
+    exported.push(view);
+    const action = ACTION_CODES[currentImsAction(view)];
 
     decisions.push({
       record: {
@@ -92,9 +92,10 @@ export async function buildRunImsActions(orgId, runId) {
         sourceForm: row.source_form
       },
       action,
-      remarks: row.remarks ?? undefined,
+      // The stated reason for a rejection, and for nothing else.
+      remarks: action === 'R' ? row.remarks ?? undefined : undefined,
       resultId: row.id,
-      source: row.confirmed_action ? 'CONFIRMED' : 'RECOMMENDED'
+      source: isImsDecision(row.confirmed_action) ? 'CONFIRMED' : 'RECOMMENDED'
     });
   }
 
@@ -103,6 +104,8 @@ export async function buildRunImsActions(orgId, runId) {
   return {
     json,
     warnings,
+    // The records about to go out as N. The same rule as run.openDecisions.
+    openDecisions: summarizeOpenDecisions(exported),
     stats: {
       records: decisions.length,
       confirmed: decisions.filter((d) => d.source === 'CONFIRMED').length,

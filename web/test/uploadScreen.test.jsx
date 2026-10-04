@@ -1,285 +1,363 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+// The Upload screen: three cards, the Reconcile bar, history with Remove, and
+// Clear all data. Fixtures are the API's own answers on the demo's dates.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import aug11 from './fixtures/aug-11sep.json';
+import aug14 from './fixtures/aug-14sep.json';
 
-// Only the `api` object is stubbed; ApiError stays real, because the screen
-// constructs one for the unmappable-xlsx case and the test asserts its message.
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
     api: {
       listUploads: vi.fn(),
-      listPeriods: vi.fn(),
       uploadFile: vi.fn(),
       uploadColumns: vi.fn(),
       previewUpload: vi.fn(),
       commitUpload: vi.fn(),
+      deleteUpload: vi.fn(),
       createRun: vi.fn(),
-      seedDemo: vi.fn()
+      clearWorkspace: vi.fn(),
+      listDemoFiles: vi.fn()
     }
   };
 });
 
-import { api } from '../src/api.js';
+import { ApiError, api } from '../src/api.js';
 import { UploadScreen } from '../src/screens/Upload.jsx';
 
-const ORG = {
-  org: { gstin: '27AABCS1429F1Z8', legalName: 'Sharma Electronics Private Limited' },
-  demoPeriods: ['2026-04'],
-  defaultDemoPeriod: '2026-04'
+const AUGUST = '2026-08';
+const inventory = (fixture) => fixture.periods.find((entry) => entry.taxPeriod === AUGUST);
+
+// On 7 Sep: the register and two IMS downloads, the 5 Sep one replaced by the 7 Sep one.
+const UPLOADS_7SEP = [
+  { id: 3, kind: 'IMS', original_filename: 'ims_aug26_as_of_07sep.json', tax_period: AUGUST, snapshot_date: '2026-09-07', row_count: 5, committed_at: '2026-09-07 04:42:00', created_at: '2026-09-07 04:42:00', replaced_by_upload_id: null },
+  { id: 2, kind: 'IMS', original_filename: 'ims_aug26_as_of_05sep.json', tax_period: AUGUST, snapshot_date: '2026-09-05', row_count: 2, committed_at: '2026-09-07 04:40:00', created_at: '2026-09-07 04:40:00', replaced_by_upload_id: 3 },
+  { id: 1, kind: 'PURCHASE_REGISTER', original_filename: 'purchase_register_aug26.xlsx', tax_period: AUGUST, snapshot_date: null, row_count: 11, committed_at: '2026-09-07 04:35:00', created_at: '2026-09-07 04:35:00', replaced_by_upload_id: null }
+];
+
+const CALENDAR_7SEP = {
+  taxPeriod: AUGUST,
+  deadlines: [
+    { key: 'CUTOFF_MONTHLY', date: '2026-09-11', daysLeft: 4 },
+    { key: 'GSTR2B_GENERATED', date: '2026-09-14', daysLeft: 7 },
+    { key: 'GSTR3B_DUE', date: '2026-09-20', daysLeft: 13 }
+  ]
 };
 
-function mountUploadPanel(props = {}) {
-  return render(
-    <UploadScreen org={ORG} runs={[{ taxPeriod: '2026-04' }]} onIngested={vi.fn()} {...props} />
+function renderUpload(props = {}) {
+  const refresh = vi.fn().mockResolvedValue(undefined);
+  const navigate = vi.fn();
+  render(
+    <UploadScreen
+      period={AUGUST}
+      inventory={{
+        taxPeriod: AUGUST, hasBooks: true, hasPortal: true, runId: null,
+        register: { documents: 11, suppliers: 11, invoices: 10, creditNotes: 1, debitNotes: 0, contacts: 11 },
+        imsRecords: { records: 5, suppliers: 5, filed: 3, saved: 2 },
+        twoB: null
+      }}
+      calendar={CALENDAR_7SEP}
+      run={null}
+      perVisitor
+      dataVersion={0}
+      refresh={refresh}
+      navigate={navigate}
+      {...props}
+    />
   );
-}
-
-function dropFile(name, contents = 'x', type = 'text/csv') {
-  const input = screen.getByTestId('file-PURCHASE_REGISTER');
-  fireEvent.change(input, { target: { files: [new File([contents], name, { type })] } });
+  return { refresh, navigate };
 }
 
 beforeEach(() => {
-  api.listUploads.mockResolvedValue([]);
-  // What the server already holds for each period. The Reconcile gate reads this
-  // rather than trusting what this page happens to have uploaded.
-  api.listPeriods.mockResolvedValue([]);
+  api.listUploads.mockResolvedValue(UPLOADS_7SEP);
+  api.listDemoFiles.mockResolvedValue([]);
 });
 
-describe('upload screen — a rejected file can be dismissed', () => {
-  // The reported crash: dismissing parked `undefined` under the zone's key rather
-  // than removing it, and the next render did `state.status` on that undefined.
-  // React unmounted the whole tree, so the page went white and the nav went with
-  // it. If that regresses, render() below throws and this test fails.
-  it('dismisses a non-GSTN .xlsx rejection without unmounting the screen', async () => {
-    api.uploadFile.mockResolvedValue({ id: 7, detected_format: 'UNKNOWN' });
-    api.uploadColumns.mockResolvedValue({
-      uploadId: 7,
-      format: 'UNKNOWN',
-      layout: 'XLSX',
-      mappable: false,
-      headerRow: 5,
-      headers: [],
-      mapped: {},
-      suggested: {},
-      mappableFields: [],
-      requiredFields: [],
-      missingFields: []
-    });
+describe('an empty workspace', () => {
+  it('offers three files to choose and nothing to reconcile', async () => {
+    api.listUploads.mockResolvedValue([]);
+    renderUpload({ period: null, inventory: null, calendar: null });
+    for (const kind of ['PURCHASE_REGISTER', 'IMS', 'GSTR2B']) {
+      expect(within(screen.getByTestId(`card-${kind}`)).getByRole('button', { name: 'Choose file' })).toBeEnabled();
+    }
+    expect(screen.getByTestId('reconcile')).toBeDisabled();
+    expect(screen.getByTestId('reconcile-bar')).toHaveTextContent('Add your purchase register and an IMS download to reconcile.');
+    expect(await screen.findByTestId('empty-history')).toBeInTheDocument();
+  });
+});
 
-    mountUploadPanel();
-    dropFile('ledger.xlsx', 'PK', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+describe('the cards on 7 Sep', () => {
+  it('describe the register and the IMS download', async () => {
+    renderUpload();
+    const register = screen.getByTestId('card-PURCHASE_REGISTER');
+    expect(register).toHaveTextContent('11documents');
+    expect(register).toHaveTextContent('10 invoices · 1 credit note · contacts for 11 suppliers');
+    expect(await within(register).findByText('purchase_register_aug26.xlsx')).toBeInTheDocument();
 
-    const error = await screen.findByTestId('inline-error');
-    expect(error).toHaveTextContent(/not the GSTN v2\.4 template/i);
-    // No mapping step is offered for a file mapping cannot rescue.
-    expect(screen.queryByTestId('column-mapper')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('inline-error')).not.toBeInTheDocument();
-    });
-
-    // Still mounted, and the zone is back to its initial state rather than stuck.
-    expect(screen.getByTestId('dropzone-PURCHASE_REGISTER')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /choose a file/i })).toHaveLength(3);
-    expect(screen.queryByTestId('reconcile-panel')).not.toBeInTheDocument();
+    const ims = screen.getByTestId('card-IMS');
+    expect(ims).toHaveTextContent('Downloaded 7 Sep 2026 · 3 filed · 2 saved, not filed');
+    expect(within(ims).getByRole('button', { name: 'Upload newer download' })).toBeInTheDocument();
   });
 
-  it('dismisses a parse failure and lets the same zone be used again', async () => {
-    api.uploadFile.mockRejectedValueOnce(
-      Object.assign(new Error('row 2: document date is not d-MMM-yy'), { status: 422 })
+  it('lock GSTR-2B until the 14th, saying how long', () => {
+    renderUpload();
+    const twoB = screen.getByTestId('card-GSTR2B');
+    expect(screen.getByTestId('lock-GSTR2B')).toHaveTextContent('Opens 14 Sep 2026');
+    expect(twoB).toHaveTextContent('7 days');
+    expect(twoB).toHaveTextContent("The portal generates August's GSTR-2B on 14 Sep 2026.");
+    expect(within(twoB).getByRole('button', { name: 'Choose file' })).toBeDisabled();
+  });
+
+  it('open GSTR-2B on the 14th', () => {
+    renderUpload({ calendar: aug14.clock.calendar });
+    expect(screen.queryByTestId('lock-GSTR2B')).toBeNull();
+    expect(within(screen.getByTestId('card-GSTR2B')).getByRole('button', { name: 'Choose file' })).toBeEnabled();
+  });
+});
+
+describe("the period's files, whatever the counts say", () => {
+  // July's three files are in the history, but the period's counts carry no
+  // per-file detail (an API from before it existed) and the IMS file no date.
+  const JULY = '2026-07';
+  const JULY_FILES = [
+    { id: 13, kind: 'GSTR2B', original_filename: 'gstr2b.json', tax_period: JULY, snapshot_date: null, row_count: 398, committed_at: '2026-09-01 11:18:46', created_at: '2026-09-01 11:18:46', replaced_by_upload_id: null },
+    { id: 12, kind: 'IMS', original_filename: 'ims.json', tax_period: JULY, snapshot_date: null, row_count: 368, committed_at: '2026-09-01 11:18:46', created_at: '2026-09-01 11:18:46', replaced_by_upload_id: null },
+    { id: 11, kind: 'PURCHASE_REGISTER', original_filename: 'purchase_register.xlsx', tax_period: JULY, snapshot_date: null, row_count: 420, committed_at: '2026-09-01 11:18:46', created_at: '2026-09-01 11:18:46', replaced_by_upload_id: null }
+  ];
+  const renderJuly = (props) =>
+    renderUpload({
+      period: JULY,
+      inventory: { taxPeriod: JULY, books: 394, ims: 368, gstr2b: 398, hasBooks: true, hasPortal: true, runId: 7 },
+      calendar: null,
+      run: { id: 7, taxPeriod: JULY },
+      ...props
+    });
+
+  beforeEach(() => api.listUploads.mockResolvedValue(JULY_FILES));
+
+  it('shows each current file on its card', async () => {
+    renderJuly();
+    for (const [kind, name] of [['PURCHASE_REGISTER', 'purchase_register.xlsx'], ['IMS', 'ims.json'], ['GSTR2B', 'gstr2b.json']]) {
+      const card = screen.getByTestId(`card-${kind}`);
+      expect(await within(card).findByText(name)).toBeInTheDocument();
+      expect(card).not.toHaveTextContent('Drop the file here');
+    }
+    expect(screen.getByTestId('card-IMS')).toHaveTextContent('368records');
+  });
+
+  it('names what the register is checked against, with no download date', async () => {
+    renderJuly();
+    await within(screen.getByTestId('card-IMS')).findByText('ims.json');
+    expect(screen.getByTestId('reconcile-bar')).toHaveTextContent(
+      'Purchase register against IMS and GSTR-2B. A newer upload updates them straight away.'
     );
-
-    mountUploadPanel();
-    dropFile('books.csv');
-
-    expect(await screen.findByTestId('inline-error')).toHaveTextContent(/not d-MMM-yy/);
-    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
-    await waitFor(() => expect(screen.queryByTestId('inline-error')).not.toBeInTheDocument());
-
-    // A second, successful drop on the cleared zone still works.
-    api.uploadFile.mockResolvedValue({ id: 9, detected_format: 'GSTR2_CSV' });
-    api.previewUpload.mockResolvedValue({
-      detectedFormat: 'GSTR2_CSV',
-      totalRows: 2,
-      taxPeriod: '2026-05',
-      rows: [{ taxPeriod: '2026-05' }]
-    });
-    api.commitUpload.mockResolvedValue({ parsed: 2, taxPeriod: '2026-05' });
-
-    dropFile('books.csv');
-    expect(await screen.findByTestId('rowcount-PURCHASE_REGISTER')).toHaveTextContent('2');
+    expect(screen.getByTestId('reconcile-bar')).not.toHaveTextContent('against .');
   });
 
-  it('cancelling the column mapper does not blank the screen either', async () => {
-    api.uploadFile.mockResolvedValue({ id: 11, detected_format: 'UNKNOWN' });
-    api.uploadColumns.mockResolvedValue(columnsFixture());
+  it('marks Upload done only while the cards show the files', async () => {
+    renderJuly();
+    await within(screen.getByTestId('card-IMS')).findByText('ims.json');
+    const steps = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem');
+    expect(steps.map((step) => step.className)).toEqual(['step is-done', 'step is-done', 'step is-current']);
+    expect(screen.getByTestId('see-results')).toBeInTheDocument();
+  });
 
-    mountUploadPanel();
-    dropFile('tally.csv');
-
-    await screen.findByTestId('column-mapper');
-    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
-
-    await waitFor(() => expect(screen.queryByTestId('column-mapper')).not.toBeInTheDocument());
-    expect(screen.getByTestId('dropzone-PURCHASE_REGISTER')).toBeInTheDocument();
-    expect(screen.queryByTestId('reconcile-panel')).not.toBeInTheDocument();
+  it('starts at Upload for a period with nothing on its cards', async () => {
+    api.listUploads.mockResolvedValue([]);
+    renderJuly({ inventory: null, run: null });
+    expect(await screen.findByTestId('empty-history')).toBeInTheDocument();
+    const steps = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem');
+    expect(steps[0]).toHaveClass('is-current');
+    expect(screen.getByTestId('card-IMS')).toHaveTextContent('Drop the file here');
+    expect(screen.getByTestId('reconcile')).toBeDisabled();
   });
 });
 
-describe('upload screen — column mapping pre-fill', () => {
-  it('pre-selects the adapter’s guesses and marks them as guesses', async () => {
-    api.uploadFile.mockResolvedValue({ id: 11, detected_format: 'UNKNOWN' });
-    api.uploadColumns.mockResolvedValue(columnsFixture());
-
-    mountUploadPanel();
-    dropFile('tally.csv');
-
-    await screen.findByTestId('column-mapper');
-
-    expect(screen.getByTestId('map-supplierGstin')).toHaveValue('0');
-    expect(screen.getByTestId('map-invoiceNo')).toHaveValue('1');
-    expect(screen.getByTestId('map-invoiceDate')).toHaveValue('2');
-    expect(screen.getByTestId('map-taxableValue')).toHaveValue('3');
-
-    // Every required field is filled, so Apply is live without any manual work.
-    expect(screen.getByTestId('apply-mapping')).toBeEnabled();
-
-    // Guesses are labelled, and the note says how many.
-    expect(screen.getByTestId('guessed-supplierGstin')).toBeInTheDocument();
-    expect(screen.getByTestId('guess-note')).toHaveTextContent('4');
+describe('uploading', () => {
+  it('reads the file, commits it, and follows it to its period', async () => {
+    api.uploadFile.mockResolvedValue({ id: 9, detected_format: 'IMS_JSON', warnings: [] });
+    api.commitUpload.mockResolvedValue({ taxPeriod: AUGUST, parsed: 10 });
+    const { refresh } = renderUpload();
+    const file = new File(['{}'], 'ims_aug26_as_of_11sep.json', { type: 'application/json' });
+    await userEvent.upload(screen.getByTestId('file-IMS'), file);
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith({ prefer: AUGUST }));
+    expect(api.uploadFile).toHaveBeenCalledWith('IMS', file);
+    expect(api.commitUpload).toHaveBeenCalledWith(9);
   });
 
-  it('leaves a field the adapter could not place unset, and Apply disabled', async () => {
-    api.uploadFile.mockResolvedValue({ id: 12, detected_format: 'UNKNOWN' });
-    api.uploadColumns.mockResolvedValue(
-      columnsFixture({
-        headers: [{ index: 0, text: 'Col A' }, { index: 1, text: 'Col B' }],
-        suggested: {}
+  it("shows another trader's file being refused on the card", async () => {
+    api.uploadFile.mockRejectedValue(
+      new ApiError('These files belong to GSTIN 29AAACX1234A1Z5; this workspace is for 27AABCS1080F1ZN.', {
+        status: 422,
+        code: 'gstin_mismatch'
       })
     );
-
-    mountUploadPanel();
-    dropFile('mystery.csv');
-
-    await screen.findByTestId('column-mapper');
-    expect(screen.getByTestId('map-supplierGstin')).toHaveValue('');
-    expect(screen.getByTestId('apply-mapping')).toBeDisabled();
-    expect(screen.queryByTestId('guess-note')).not.toBeInTheDocument();
+    renderUpload();
+    await userEvent.upload(screen.getByTestId('file-PURCHASE_REGISTER'), new File(['x'], 'other.xlsx'));
+    expect(await screen.findByTestId('error-PURCHASE_REGISTER')).toHaveTextContent('this workspace is for 27AABCS1080F1ZN');
   });
 
-  it('drops the guessed mark once the user overrides that field', async () => {
-    api.uploadFile.mockResolvedValue({ id: 13, detected_format: 'UNKNOWN' });
-    api.uploadColumns.mockResolvedValue(columnsFixture());
-
-    mountUploadPanel();
-    dropFile('tally.csv');
-
-    await screen.findByTestId('column-mapper');
-    expect(screen.getByTestId('guessed-invoiceNo')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByTestId('map-invoiceNo'), { target: { value: '2' } });
-
-    await waitFor(() =>
-      expect(screen.queryByTestId('guessed-invoiceNo')).not.toBeInTheDocument()
+  it("shows the API's refusal of a GSTR-2B before the 14th", async () => {
+    api.uploadFile.mockRejectedValue(
+      new ApiError('GSTR-2B for August 2026 is generated on 14 Sep 2026, and the workspace date is 11 Sep 2026.', {
+        status: 409,
+        code: 'gstr2b_not_generated'
+      })
     );
-    // The other guesses are untouched.
-    expect(screen.getByTestId('guessed-supplierGstin')).toBeInTheDocument();
-    expect(screen.getByTestId('guess-note')).toHaveTextContent('3');
+    renderUpload({ period: null, inventory: null, calendar: null });
+    await userEvent.upload(screen.getByTestId('file-GSTR2B'), new File(['{}'], 'gstr2b_aug26.json'));
+    expect(await screen.findByTestId('error-GSTR2B')).toHaveTextContent('is generated on 14 Sep 2026');
+  });
+
+  it('asks which column is which for a register it does not recognise, contacts and frequency included', async () => {
+    api.uploadFile.mockResolvedValue({ id: 5, detected_format: 'UNKNOWN' });
+    api.uploadColumns.mockResolvedValue({
+      mappable: true,
+      headers: ['GSTIN', 'Bill No', 'Bill Date', 'Taxable', 'Contact', 'Return frequency'].map((text, index) => ({ index, text })),
+      mapped: { supplierGstin: 0 },
+      suggested: { invoiceNo: { index: 1, header: 'Bill No', confidence: 'HIGH' } },
+      mappableFields: ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue', 'docType', 'contactPerson', 'filingFrequency'],
+      requiredFields: ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue']
+    });
+    api.previewUpload.mockResolvedValue({});
+    api.commitUpload.mockResolvedValue({ taxPeriod: AUGUST });
+    const { refresh } = renderUpload();
+    await userEvent.upload(screen.getByTestId('file-PURCHASE_REGISTER'), new File(['a,b'], 'tally.csv'));
+
+    const mapper = await screen.findByTestId('column-mapper');
+    expect(within(mapper).getByText('Supplier contact and filing frequency (optional)')).toBeInTheDocument();
+    expect(screen.getByTestId('map-filingFrequency')).toBeInTheDocument();
+    expect(screen.getByTestId('apply-mapping')).toBeDisabled();
+
+    await userEvent.selectOptions(screen.getByTestId('map-invoiceDate'), '2');
+    await userEvent.selectOptions(screen.getByTestId('map-taxableValue'), '3');
+    await userEvent.selectOptions(screen.getByTestId('map-filingFrequency'), '5');
+    await userEvent.click(within(mapper).getByRole('checkbox'));
+    await userEvent.click(screen.getByTestId('apply-mapping'));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(api.commitUpload).toHaveBeenCalledWith(5, {
+      columnMap: { supplierGstin: 0, invoiceNo: 1, invoiceDate: 2, taxableValue: 3, filingFrequency: 5 },
+      allInvoices: true
+    });
   });
 });
 
-// Shaped exactly like GET /api/uploads/:id/columns for the reported CSV.
-function columnsFixture(overrides = {}) {
-  return {
-    uploadId: 11,
-    format: 'UNKNOWN',
-    layout: 'CSV',
-    mappable: true,
-    headerRow: 1,
-    headers: [
-      { index: 0, text: 'Party GSTIN' },
-      { index: 1, text: 'Bill No' },
-      { index: 2, text: 'Bill Date' },
-      { index: 3, text: 'Net Amount' }
-    ],
-    mapped: {},
-    suggested: {
-      supplierGstin: { index: 0, header: 'Party GSTIN', score: 0.8, confidence: 'MEDIUM' },
-      invoiceNo: { index: 1, header: 'Bill No', score: 1, confidence: 'HIGH' },
-      invoiceDate: { index: 2, header: 'Bill Date', score: 1, confidence: 'HIGH' },
-      taxableValue: { index: 3, header: 'Net Amount', score: 1, confidence: 'HIGH' }
-    },
-    mappableFields: [
-      'supplierGstin', 'supplierName', 'invoiceNo', 'invoiceDate', 'taxableValue', 'igst'
-    ],
-    requiredFields: ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue'],
-    missingFields: ['supplierGstin', 'invoiceNo', 'invoiceDate', 'taxableValue'],
-    ...overrides
-  };
-}
-
-// The reported bug: all three sources were committed for April in an earlier
-// session, the trader re-downloads IMS and drops that one file, and the panel
-// says "1 source committed … a purchase register and at least one portal file are
-// both needed" with the button disabled. Re-downloading IMS weekly while the
-// purchase register sits unchanged is the NORMAL way this product is used.
-describe('reconcile gate — what the period holds, not what this page uploaded', () => {
-  const commitOneImsFile = async () => {
-    api.uploadFile.mockResolvedValue({ id: 21, detected_format: 'IMS_JSON' });
-    api.previewUpload.mockResolvedValue({
-      detectedFormat: 'IMS_JSON',
-      taxPeriod: '2026-04',
-      totalRows: 384,
-      rows: []
-    });
-    api.commitUpload.mockResolvedValue({ parsed: 384, taxPeriod: '2026-04', rerun: { ran: true } });
-
-    const input = screen.getByTestId('file-IMS');
-    fireEvent.change(input, {
-      target: { files: [new File(['{}'], 'ims.json', { type: 'application/json' })] }
-    });
-    await screen.findByTestId('reconcile-panel');
-  };
-
-  it('enables the run when the register is already stored for that period', async () => {
-    api.listPeriods.mockResolvedValue([
-      { taxPeriod: '2026-04', books: 414, ims: 384, gstr2b: 420, hasBooks: true, hasPortal: true, runId: 291 }
-    ]);
-    mountUploadPanel();
-    await commitOneImsFile();
-
-    await waitFor(() => expect(screen.getByTestId('run-reconcile')).toBeEnabled());
-    // And it says why, rather than leaving the trader to guess what the button
-    // knows that the page does not show.
-    expect(screen.getByTestId('reconcile-status')).toHaveTextContent('414 register rows');
-    expect(screen.getByTestId('reconcile-status')).not.toHaveTextContent('Still needed');
+describe('reconciling', () => {
+  it('reconciles the period and opens Overview', async () => {
+    api.createRun.mockResolvedValue({ id: 1 });
+    const { refresh, navigate } = renderUpload();
+    await userEvent.click(screen.getByTestId('reconcile'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('overview'));
+    expect(api.createRun).toHaveBeenCalledWith(AUGUST);
+    expect(refresh).toHaveBeenCalled();
   });
 
-  it('still refuses, and names what is missing, when there is no register', async () => {
-    // The gate has to be able to say no, or it is not a gate.
-    api.listPeriods.mockResolvedValue([
-      { taxPeriod: '2026-04', books: 0, ims: 384, gstr2b: 0, hasBooks: false, hasPortal: true, runId: null }
-    ]);
-    mountUploadPanel();
-    await commitOneImsFile();
-
-    await waitFor(() => expect(screen.getByTestId('run-reconcile')).toBeDisabled());
-    expect(screen.getByTestId('reconcile-status')).toHaveTextContent(
-      'Still needed: a purchase register.'
+  it('becomes "See results" once the period has a run, since uploads rebuild it', async () => {
+    api.listUploads.mockResolvedValue(aug11.uploads);
+    renderUpload({ run: aug11.run, inventory: inventory(aug11) });
+    expect(screen.queryByTestId('reconcile')).toBeNull();
+    expect(screen.getByTestId('see-results')).toHaveTextContent('See results');
+    await waitFor(() =>
+      expect(screen.getByTestId('reconcile-bar')).toHaveTextContent('Purchase register against IMS as of 11 Sep 2026')
     );
   });
+});
 
-  it('re-reads the period inventory after a commit rather than trusting the mount', async () => {
-    api.listPeriods.mockResolvedValue([]);
-    mountUploadPanel();
-    await commitOneImsFile();
+describe('upload history', () => {
+  it('greys out a replaced download and says what replaced it', async () => {
+    renderUpload();
+    const table = await screen.findByTestId('upload-history');
+    const replaced = within(table).getByText('ims_aug26_as_of_05sep.json').closest('tr');
+    expect(replaced).toHaveClass('is-muted');
+    expect(replaced).toHaveTextContent('Replaced by 7 Sep 2026');
+    expect(within(table).getByText('ims_aug26_as_of_07sep.json').closest('tr')).toHaveTextContent('IMS · as of 7 Sep 2026');
+  });
 
-    // Once on mount, once after the commit: a file just landed, so what the
-    // server holds for that period has changed.
-    await waitFor(() => expect(api.listPeriods).toHaveBeenCalledTimes(2));
+  it('removes a file only after confirming', async () => {
+    api.deleteUpload.mockResolvedValue({});
+    const { refresh } = renderUpload();
+    await screen.findByTestId('upload-history');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove ims_aug26_as_of_07sep.json' }));
+    const dialog = screen.getByRole('dialog', { name: 'Remove ims_aug26_as_of_07sep.json?' });
+    expect(dialog).toHaveTextContent('Its records leave August 2026');
+    expect(api.deleteUpload).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(api.deleteUpload).toHaveBeenCalledWith(3));
+    expect(refresh).toHaveBeenCalled();
+  });
+});
+
+describe('upload history', () => {
+  const JULY_REGISTER = {
+    id: 0, kind: 'PURCHASE_REGISTER', original_filename: 'purchase_register_jul26.xlsx', tax_period: '2026-07',
+    snapshot_date: null, row_count: 9, committed_at: '2026-08-07 04:35:00', created_at: '2026-08-07 04:35:00',
+    replaced_by_upload_id: null
+  };
+  const rows = () => within(screen.getByTestId('upload-history')).getAllByRole('row').slice(1);
+
+  it("lists the selected period's files only, until asked for every period", async () => {
+    api.listUploads.mockResolvedValue([...UPLOADS_7SEP, JULY_REGISTER]);
+    renderUpload();
+    await screen.findByTestId('upload-history');
+    expect(screen.getByTestId('history-scope')).toHaveTextContent('August 2026');
+    expect(rows()).toHaveLength(3);
+    expect(within(screen.getByTestId('upload-history')).queryByText('purchase_register_jul26.xlsx')).toBeNull();
+    expect(within(screen.getByTestId('upload-history')).queryByRole('columnheader', { name: 'Period' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show all periods' }));
+    expect(screen.getByTestId('history-scope')).toHaveTextContent('All periods');
+    expect(rows()).toHaveLength(4);
+    expect(within(screen.getByTestId('upload-history')).getByRole('columnheader', { name: 'Period' })).toBeInTheDocument();
+    expect(rows()[3]).toHaveTextContent('Jul 2026');
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show all periods' }));
+    expect(rows()).toHaveLength(3);
+  });
+
+  it('offers no toggle when every file is for the period in view', async () => {
+    renderUpload();
+    await screen.findByTestId('upload-history');
+    expect(screen.queryByRole('checkbox', { name: 'Show all periods' })).toBeNull();
+  });
+
+  it('says when the period has no files of its own', async () => {
+    api.listUploads.mockResolvedValue([JULY_REGISTER]);
+    renderUpload({ inventory: null });
+    expect(await screen.findByTestId('empty-history')).toHaveTextContent('No files for August 2026');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show all periods' }));
+    expect(within(screen.getByTestId('upload-history')).getByText('purchase_register_jul26.xlsx')).toBeInTheDocument();
+  });
+});
+
+describe('Clear all data', () => {
+  it('asks first, then empties the workspace', async () => {
+    api.clearWorkspace.mockResolvedValue({});
+    const { refresh } = renderUpload();
+    await userEvent.click(screen.getByTestId('clear-all'));
+    const dialog = screen.getByRole('dialog', { name: 'Clear all data?' });
+    expect(dialog).toHaveTextContent('Every upload, run, decision and contact in this workspace is deleted');
+    expect(api.clearWorkspace).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Clear all data' }));
+    await waitFor(() => expect(api.clearWorkspace).toHaveBeenCalled());
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it('sits under Accepted formats', () => {
+    renderUpload();
+    const formats = screen.getByRole('heading', { name: 'Accepted formats' }).closest('aside');
+    expect(within(formats).getByTestId('clear-all')).toBeInTheDocument();
+  });
+
+  it('is offered with one trader too, and clears that trader', async () => {
+    api.clearWorkspace.mockResolvedValue({});
+    renderUpload({ perVisitor: false });
+    await userEvent.click(screen.getByTestId('clear-all'));
+    const dialog = screen.getByRole('dialog', { name: 'Clear all data?' });
+    expect(dialog).toHaveTextContent('Every upload, run, decision and contact for this trader is deleted');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(api.clearWorkspace).not.toHaveBeenCalled();
   });
 });

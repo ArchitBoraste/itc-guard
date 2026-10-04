@@ -31,7 +31,10 @@ export const FLAGS = Object.freeze({
   // the prose of recommendationReason, and the Actions screen was left describing
   // a CHASE_SUPPLIER group with a hard-coded "the cut-off has not passed" — the
   // exact opposite of what the rows underneath it said.
-  CUTOFF_PASSED: 'CUTOFF_PASSED'
+  CUTOFF_PASSED: 'CUTOFF_PASSED',
+  // An earlier period's document arriving in this one, linked to its books row
+  // there (matching/link.js): an amendment, or a late filing.
+  FROM_EARLIER_PERIOD: 'FROM_EARLIER_PERIOD'
 });
 
 // The two GSTR-2B sections that never pass through IMS. Records here are

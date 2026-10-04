@@ -28,7 +28,9 @@
 import { closePool } from '../api/src/db/pool.js';
 import { describeConnection } from '../api/src/config.js';
 import { ensureOrg } from '../api/src/services/demo.js';
-import { rupees, seedDemoStory } from '../api/src/services/demoStory.js';
+import { STORY_PERIOD, rupees, seedDemoStory } from '../api/src/services/demoStory.js';
+import { writeWorkspaceClock } from '../api/src/services/workspaceClock.js';
+import { addMonths } from '../api/src/matching/normalize.js';
 
 const ORG_ID = 1;
 
@@ -38,6 +40,11 @@ async function main() {
 
   console.log(`\nwiping org ${ORG_ID} (the presenter's own org)`);
   await ensureOrg(ORG_ID);
+
+  // The 16th after the story period: past 2B on the 14th, before GSTR-3B on the
+  // 20th. Set first, so the runs the story builds read it.
+  const clock = await writeWorkspaceClock(ORG_ID, `${addMonths(STORY_PERIOD, 1)}-16`);
+  console.log(`workspace date ${clock.asOfDate}`);
 
   const built = await seedDemoStory(ORG_ID, { log: (line) => console.log(line) });
   const { run, target, feed, invalidated, runId } = built;

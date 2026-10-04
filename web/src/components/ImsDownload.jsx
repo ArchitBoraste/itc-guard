@@ -1,125 +1,90 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../api.js';
-import { IMS_ACTION_CODE, ACTION_LABEL, IMS_ACTIONS } from '../lib/vocab.js';
-import { InlineError } from './States.jsx';
+import { formatDate } from '../lib/calendar.js';
+import { ConfirmDialog } from './ConfirmDialog.jsx';
 
-// The download is the product's output: the file the trader uploads to the
-// portal. Before handing it over it says exactly what is in it — how many records
-// carry which action, and how many of those are the trader's own decisions rather
-// than the engine's suggestions. Nobody should upload a file to the GST portal
-// without seeing that.
-export function ImsDownload({ run, compact = false }) {
-  const [summary, setSummary] = useState(null);
+function save({ blob, filename }) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// "Download IMS file". While any record would go out as Not decided the API
+// answers 409 open_decisions with the counts; the trader sees them here and can
+// still download, knowingly. Not decided is accepted automatically at GSTR-3B.
+export function ImsDownloadButton({ run, dueDate = null, className = 'btn btn-primary', children = 'Download IMS file' }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(null);
   const [error, setError] = useState(null);
 
-  const load = useCallback(async () => {
-    if (!run) return;
+  const download = async (acknowledgeOpenDecisions = false) => {
+    setBusy(true);
     setError(null);
     try {
-      setSummary(await api.imsActionsSummary(run.id));
+      save(await api.downloadImsActions(run.id, { acknowledgeOpenDecisions }));
+      setOpen(null);
     } catch (err) {
-      setError(err);
-      setSummary(null);
+      if (err.status === 409 && err.code === 'open_decisions') setOpen(err.body?.openDecisions ?? { count: 0 });
+      else setError(err);
+    } finally {
+      setBusy(false);
     }
-  }, [run]);
+  };
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  if (!run) return null;
-
-  const stats = summary?.stats;
-  const byAction = stats?.byAction ?? {};
-  // The file is built from stored verdicts. If the portal has moved since they
-  // were computed, the envelope would carry an Accept for a record that no longer
-  // agrees — and once uploaded, that is final.
-  const stale = Boolean(run.staleness?.isStale);
+  const stale = Boolean(run?.staleness?.isStale);
+  const byCategory = open?.byCategory;
+  const lines = byCategory
+    ? [
+        [byCategory.phantom?.count, 'not in your books'],
+        [byCategory.verify?.count, 'probably the same invoice, not yet confirmed'],
+        [byCategory.other?.count, 'with a different amount or another open question']
+      ].filter(([count]) => count > 0)
+    : [];
 
   return (
-    <section
-      className={`panel ims-download ${compact ? 'is-compact' : ''}`}
-      data-testid="ims-download"
-    >
-      <header className="panel-head">
-        <div>
-          <h2>IMS action file</h2>
-          <p className="muted">
-            {stats
-              ? `${stats.records} record${stats.records === 1 ? '' : 's'} · ` +
-                `${stats.confirmed} confirmed by you, ${stats.recommended} left as recommended`
-              : 'Building the upload envelope…'}
-          </p>
-        </div>
-        {stale ? (
-          <span className="download-blocked" data-testid="download-blocked">
-            <span className="btn btn-primary is-disabled" aria-disabled="true">
-              Download IMS action JSON
-            </span>
-            <span className="small bad">
-              Re-run the reconciliation first — this run is out of date.
-            </span>
-          </span>
-        ) : (
-          <a
-            className="btn btn-primary"
-            href={api.imsActionsUrl(run.id)}
-            download={`ims-actions-run-${run.id}.json`}
-            data-testid="download-ims-json"
-          >
-            Download IMS action JSON
-          </a>
-        )}
-      </header>
-
-      <InlineError error={error} onDismiss={() => setError(null)} />
-
-      {stats ? (
-        <>
-          <div className="action-codes">
-            {IMS_ACTIONS.map((action) => {
-              const code = IMS_ACTION_CODE[action];
-              const count = byAction[code] ?? 0;
-              return (
-                <div
-                  key={action}
-                  className={`code-chip ${count ? '' : 'is-zero'}`}
-                  data-testid={`ims-count-${code}`}
-                >
-                  <span className="code-letter">{code}</span>
-                  <span className="code-name">{ACTION_LABEL[action]}</span>
-                  <span className="code-count mono">{count}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          <p className="muted small">
-            Records with no IMS action recorded still go into the file carrying{' '}
-            <strong>N</strong> — they are not dropped, because N is precisely the state that
-            gets deemed accepted at GSTR-3B.
-          </p>
-
-          {summary.warnings?.length ? (
-            <div className="warn-list" data-testid="ims-warnings">
-              <strong>{summary.warnings.length} warning(s) from the writer</strong>
-              <ul>
-                {summary.warnings.slice(0, 6).map((warning, index) => (
-                  <li key={index} className="mono small">
-                    {typeof warning === 'string' ? warning : JSON.stringify(warning)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {stats.skipped?.length ? (
-            <p className="muted small">
-              {stats.skipped.length} result(s) had no IMS action to write and were left out.
-            </p>
-          ) : null}
-        </>
+    <>
+      <button
+        type="button"
+        className={className}
+        onClick={() => download(false)}
+        disabled={!run || busy || stale}
+        title={stale ? 'Re-run first: these results are out of date' : undefined}
+        data-testid="download-ims"
+      >
+        {busy && !open ? 'Preparing…' : children}
+      </button>
+      {error ? (
+        <span className="inline-error" role="alert">
+          {error.message}
+        </span>
       ) : null}
-    </section>
+      <ConfirmDialog
+        open={Boolean(open)}
+        title={`${open?.count ?? 0} record${open?.count === 1 ? '' : 's'} not decided yet`}
+        confirmLabel="Download anyway"
+        busy={busy}
+        onConfirm={() => download(true)}
+        onCancel={() => setOpen(null)}
+      >
+        <p>
+          They go to the portal as Not decided, which is accepted automatically
+          {dueDate ? ` on ${formatDate(dueDate)}` : ' when GSTR-3B is filed'}.
+        </p>
+        {lines.length ? (
+          <ul data-testid="open-decision-counts">
+            {lines.map(([count, words]) => (
+              <li key={words}>
+                {count} {words}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </ConfirmDialog>
+    </>
   );
 }

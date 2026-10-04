@@ -1,525 +1,375 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { api } from '../api.js';
+import { Chip } from '../components/Chip.jsx';
+import { DataTable } from '../components/DataTable.jsx';
+import { EmptyState } from '../components/EmptyState.jsx';
+import { Icon } from '../components/Icon.jsx';
+import { PageHeader } from '../components/PageHeader.jsx';
+import { ErrorBox, InlineError, Loading } from '../components/States.jsx';
+import { formatDate } from '../lib/calendar.js';
+import { RISK_CHIP, schemeLabel } from '../lib/issues.js';
 import { rupees } from '../lib/money.js';
-import { formatDate, formatPeriod } from '../lib/calendar.js';
-import { Empty, ErrorBox, Loading } from '../components/States.jsx';
-import { RISK_BAND_LABEL } from '../lib/vocab.js';
+import { matchesSearch, notInBooksText, standingOf, supplierRows } from '../lib/suppliers.js';
 
-// Who to chase, ranked by how reliably they file.
-//
-// days_late is measured against THAT supplier's own cut-off — the 11th for a
-// monthly filer, the 13th for QRMP. Using one deadline for everybody would mark
-// every QRMP supplier two days late every month and train the trader to ignore
-// the column entirely.
+function ContactForm({ supplier, onSaved, onCancel }) {
+  const id = useId();
+  const [draft, setDraft] = useState({
+    contactPerson: supplier.contact?.person ?? '',
+    phone: supplier.contact?.phone ?? '',
+    email: supplier.contact?.email ?? ''
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
 
-function lateness(days) {
-  if (days === null || days === undefined) return { label: 'not filed', tone: 'unknown' };
-  if (days > 0) return { label: `${days}d late`, tone: 'bad' };
-  if (days === 0) return { label: 'on the deadline', tone: 'warn' };
-  return { label: `${Math.abs(days)}d early`, tone: 'good' };
-}
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.setContact(supplier.gstin, draft);
+      await onSaved();
+    } catch (err) {
+      setError(err);
+      setBusy(false);
+    }
+  };
 
-// A sparkline of days-late per period, drawn against the cut-off as the zero line.
-// Bars above the line are late; below is early. No library — it is six rectangles.
-function LateTrend({ periods }) {
-  const points = (periods ?? []).filter((entry) => entry.daysLate !== null);
-  if (!points.length) {
-    return <span className="muted small">no filing dates observed</span>;
-  }
-  // One point is not a trend. Drawn, it becomes a single full-width bar that
-  // reads as a strong signal — the widest mark in the column, from one month.
-  if (points.length < 2) {
-    return <span className="muted small">one month only</span>;
-  }
-
-  const magnitude = Math.max(3, ...points.map((entry) => Math.abs(entry.daysLate)));
-  const height = 34;
-  const width = Math.max(60, points.length * 14);
-  const step = width / points.length;
-  const mid = height / 2;
+  const field = (name, label, type = 'text', autoComplete = 'off') => (
+    <label htmlFor={`${id}-${name}`}>
+      {label}
+      <input
+        id={`${id}-${name}`}
+        className="input"
+        type={type}
+        autoComplete={autoComplete}
+        value={draft[name]}
+        onChange={(event) => setDraft((value) => ({ ...value, [name]: event.target.value }))}
+      />
+    </label>
+  );
 
   return (
-    <svg className="trend" width={width} height={height} role="img" aria-label="days late by period">
-      <line x1={0} y1={mid} x2={width} y2={mid} className="trend-axis" />
-      {points.map((entry, index) => {
-        const scaled = (entry.daysLate / magnitude) * (mid - 3);
-        const y = scaled >= 0 ? mid - scaled : mid;
-        return (
-          <rect
-            key={entry.taxPeriod}
-            x={index * step + 2}
-            y={y}
-            width={Math.max(step - 4, 4)}
-            height={Math.max(Math.abs(scaled), 1.5)}
-            className={entry.daysLate > 0 ? 'trend-late' : 'trend-early'}
-          >
-            <title>
-              {formatPeriod(entry.taxPeriod)}: {lateness(entry.daysLate).label}
-            </title>
-          </rect>
-        );
-      })}
-    </svg>
+    <form className="detail-panel" onSubmit={save} aria-label={`Contact for ${supplier.tradeName}`} data-testid="contact-form">
+      <div className="strong-line">Contact for {supplier.tradeName}</div>
+      <div className="inline-form">
+        {field('contactPerson', 'Name')}
+        {field('phone', 'Phone', 'tel')}
+        {field('email', 'Email', 'email')}
+      </div>
+      <InlineError error={error} />
+      <div className="button-row">
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? 'Saving…' : 'Save contact'}
+        </button>
+        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
-// The band, and the sentences behind it.
-//
-// The probability NEVER appears. A trader cannot check "0.61", and a number
-// carries an air of precision that a model fitted on 200 synthetic rows has not
-// earned. What they can check is "filed late in 4 of the last 6 months" — they
-// were there.
-// The counts a row shows, taken from the SAME feature object the risk reasons
-// were generated from.
-//
-// These used to come from listSuppliers' own aggregate over every observed
-// period, while the reasons beside them came from the risk scoring window. The
-// two spans differed and nothing said so: Deepak Sales Corp filed two days early
-// in March and two days late in April, and the row read "Late 1" next to "filed
-// on time in all of the last 1 month". Both were true. Neither was legible.
-//
-// Falling back to the aggregate keeps a supplier with no risk row rendering
-// something rather than blanking three columns.
-// Sort order for the bands.
-//
-// UNPROVEN sits ABOVE Low and below the two real concern bands. Absence of
-// history is not evidence of reliability — the phase 7 call — so an unproven
-// supplier should not be filed under "normal"; but there is nothing to act on
-// either, so they must not push a genuine concern down the page.
-const SORT_BAND_ORDER = ['HIGH', 'MEDIUM', 'UNPROVEN', 'LOW', null];
-
-// The table's columns, in order.
-//
-// Declared once rather than written out in the <thead>, because the expanded
-// detail row spans them with a colSpan and the two have to agree. Hard-coding
-// colSpan={11} works right up until someone adds a column, at which point the
-// panel silently stops spanning the table and nothing fails.
-const SUPPLIER_COLUMNS = [
-  { label: 'Supplier' },
-  { label: 'Risk' },
-  { label: 'Scheme' },
-  { label: 'Periods', num: true },
-  { label: 'Docs', num: true },
-  { label: 'Late', num: true },
-  { label: 'Missed', num: true },
-  { label: 'Mismatches', num: true },
-  { label: 'Avg timing', num: true },
-  { label: 'Days-late trend' },
-  { label: 'Tax observed', num: true }
+const SCHEMES = [
+  { value: 'MONTHLY', label: 'Monthly (GSTR-1 by the 11th)' },
+  { value: 'QRMP', label: 'Quarterly (IFF by the 13th)' },
+  { value: '', label: 'Work it out from their filings' }
 ];
 
-function rowCounts(supplier) {
-  const features = supplier.risk?.features;
-  if (!features) {
-    return {
-      periodsObserved: supplier.stats.periodsObserved,
-      lateCount: supplier.stats.lateCount,
-      missedCount: supplier.stats.missedCount,
-      mismatchCount: supplier.stats.mismatchCount,
-      avgDaysLate: supplier.stats.avgDaysLate,
-      fromRisk: false
-    };
-  }
-  return {
-    periodsObserved: features.periodsObserved ?? 0,
-    lateCount: features.lateCount ?? 0,
-    missedCount: features.missedCount ?? 0,
-    mismatchCount: features.mismatches ?? 0,
-    avgDaysLate: features.meanDaysLate ?? null,
-    fromRisk: true
+function SchemeForm({ supplier, onSaved, onCancel }) {
+  const id = useId();
+  const [value, setValue] = useState(supplier.filingSchemeSource === 'USER' ? supplier.filingScheme : '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.setFilingScheme(supplier.gstin, value || null);
+      await onSaved();
+    } catch (err) {
+      setError(err);
+      setBusy(false);
+    }
   };
-}
 
-// A single month is one observation. It cannot support a concern and it cannot
-// support a clean bill of health either — "Normal for this point in the month"
-// off one document is the phase 7 mistake pointing the other way.
-const MIN_PERIODS_FOR_A_VERDICT = 2;
-
-// Display band. UNPROVEN is not a fourth risk level — the stored band is
-// untouched, and the phase 7 call that absence of history means MEDIUM rather
-// than LOW still holds in the data. This is a different SENTENCE about the same
-// band, used in exactly two situations:
-//
-//   * a guard fired, so the band on screen is NOT the band the model computed —
-//     the app is withholding a judgement and should say so rather than dressing
-//     the cap up as a verdict. "Worth a look" over three clean facts and "only 1
-//     month of history" reads as a model that has gone wrong.
-//   * there is only one month to go on, whichever way it points.
-//
-// Deliberately NOT extended to every thin history: with two months and no guard
-// the model has made an actual call, and burying it under "too early to say"
-// would throw away the only signal on the screen.
-function displayBand(risk) {
-  if (!risk) return null;
-  if (risk.guard) return 'UNPROVEN';
-  if ((risk.periodsObserved ?? 0) < MIN_PERIODS_FOR_A_VERDICT) return 'UNPROVEN';
-  return risk.band;
-}
-
-function RiskCell({ risk }) {
-  if (!risk) return <span className="muted small">not scored yet</span>;
-  const band = displayBand(risk);
   return (
-    <div className="risk-cell" data-testid={`risk-${band}`}>
-      <span className={`chip risk-chip risk-${band}`}>{RISK_BAND_LABEL[band] ?? band}</span>
-      <ul className="risk-reasons">
-        {(risk.reasons ?? []).map((reason) => (
-          <li key={reason}>{reason}</li>
+    <form className="detail-panel" onSubmit={save} aria-label={`Filing for ${supplier.tradeName}`} data-testid="scheme-form">
+      <label htmlFor={`${id}-scheme`} className="strong-line">
+        How {supplier.tradeName} files GSTR-1
+      </label>
+      <select id={`${id}-scheme`} className="select" value={value} onChange={(event) => setValue(event.target.value)}>
+        {SCHEMES.map((scheme) => (
+          <option key={scheme.value} value={scheme.value}>
+            {scheme.label}
+          </option>
         ))}
-      </ul>
-    </div>
+      </select>
+      <div className="caption">Their cut-off moves with it, in every month.</div>
+      <InlineError error={error} />
+      <div className="button-row">
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
-// Where the bands come from, stated on the screen that shows them.
-//
-// This is not a disclaimer bolted on for form. The model was fitted on fixtures
-// this repo generates from rules we wrote, so it has largely learned our own
-// generator — and a band presented without that context reads as experience of
-// real filings, which it is not.
-function ModelNote({ model }) {
-  if (!model) return null;
+const DOC_LABEL = { CREDIT_NOTE: 'Credit note', DEBIT_NOTE: 'Debit note' };
 
-  if (model.source !== 'MODEL') {
-    return (
-      <p className="model-note" data-testid="model-note">
-        Bands come from a hand-weighted score, not a trained model — no model file is
-        loaded.
-      </p>
-    );
-  }
-
-  const metrics = model.metrics ?? {};
-  // Collapsed to one line, expanded on demand. NOT shortened: every word below is
-  // the same text that used to sit open above the table. The caveat has to stay
-  // reachable and intact — it is the difference between a band a reader trusts
-  // and a band a reader knows the provenance of — but a five-line disclaimer
-  // permanently above the data reads as boilerplate and stops being read at all.
+// Why the supplier has its band, or for a New one, what they have done so far.
+// Documents of theirs not in the books come first: they are why it is High.
+function RiskReasons({ supplier }) {
+  const { risk } = supplier;
+  const standing = standingOf(risk);
+  const reasons = risk?.reasons ?? [];
+  const phantoms = risk?.phantoms ?? [];
+  const months = risk?.periodsObserved ?? 0;
   return (
-    <details className="model-note" data-testid="model-note">
-      <summary data-testid="model-note-summary">
-        Trained on synthetic data <span className="muted">· how this is scored</span>
-      </summary>
-      <p>
-        <strong>These bands come from a model trained on synthetic data.</strong> It is a
-        logistic regression fitted on {model.rows} supplier-months ({model.positives} of
-        them failures) across {model.suppliers} suppliers — all of it generated by this
-        repo&rsquo;s own fixture script from rules we wrote. It has largely learned that
-        generator. Nothing here has seen a real GST filing, and the figures below are not
-        evidence that it works on one.
-      </p>
-      <p className="muted small">
-        Held out {model.holdoutPeriod}, never trained on: ranking ROC AUC{' '}
-        {metrics.holdoutRocAuc} against {metrics.holdoutRocAucHeuristic} for the
-        hand-weighted score it replaced. Pooled leave-one-period-out:{' '}
-        {metrics.cvRocAuc} against {metrics.cvRocAucHeuristic}. Those are small samples —
-        one held-out period is about 40 suppliers.
-      </p>
-      {Object.keys(model.droppedFeatures ?? {}).length ? (
-        <p className="muted small">
-          Features dropped for carrying no signal in this corpus:{' '}
-          {Object.entries(model.droppedFeatures)
-            .map(([name, info]) => `${name} (${info.reason ?? info})`)
-            .join('; ')}
-          . A supplier whose behaviour differs on one of those is scored by the
-          hand-weighted fallback instead, because the model has no term for it.
+    <div className="detail-panel" data-testid="risk-reasons">
+      <div className="strong-line">
+        {standing === 'NEW' ? RISK_CHIP.NEW.label : `Why ${RISK_CHIP[standing]?.label.toLowerCase() ?? 'no'} risk`}
+      </div>
+      {standing === 'NEW' ? (
+        <p className="small muted">
+          A risk band needs 3 months of filing history; {months ? `${months} month${months === 1 ? '' : 's'}` : 'none'} so far.
         </p>
       ) : null}
-    </details>
+      {phantoms.length || reasons.length ? (
+        <ul className="reasons">
+          {phantoms.map((doc) => (
+            <li key={`${doc.taxPeriod}-${doc.invoiceNo}`}>
+              {DOC_LABEL[doc.docType] ?? 'Invoice'} {doc.invoiceNo} of {formatDate(doc.invoiceDate)} ({rupees(doc.totalTax)} tax)
+              is on the portal but not in your books
+            </li>
+          ))}
+          {reasons.map((reason) => (
+            <li key={reason}>{reason.charAt(0).toUpperCase() + reason.slice(1)}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="small muted">No filing history yet.</p>
+      )}
+    </div>
   );
 }
 
-function SupplierDetail({ gstin, onClose }) {
-  const [supplier, setSupplier] = useState(null);
+export function SuppliersScreen({ period, results, dataVersion, reloadPeriod, refresh }) {
+  const [body, setBody] = useState(null);
   const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [onlyIssues, setOnlyIssues] = useState(false);
+  const [open, setOpen] = useState(null); // { gstin, panel: 'risk' | 'contact' | 'scheme' }
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    let live = true;
-    setSupplier(null);
+    let cancelled = false;
     setError(null);
     api
-      .getSupplier(gstin)
-      .then((found) => live && setSupplier(found))
-      .catch((err) => live && setError(err));
+      .listSuppliers(period)
+      .then((next) => !cancelled && setBody(next))
+      .catch((err) => !cancelled && setError(err));
     return () => {
-      live = false;
+      cancelled = true;
     };
-  }, [gstin]);
+  }, [period, dataVersion, reload]);
 
-  return (
-    <section className="panel supplier-detail" data-testid="supplier-detail">
-      <header className="panel-head">
-        <div>
-          <h2>{supplier?.tradeName ?? gstin}</h2>
-          <p className="muted mono">{gstin}</p>
-        </div>
-        <button type="button" className="link" onClick={onClose}>
-          close
-        </button>
-      </header>
-
-      <ErrorBox error={error} title="Could not load this supplier" />
-
-      {!supplier && !error ? (
-        <Loading label="Loading filing history" rows={3} />
-      ) : supplier ? (
-        <>
-          <p className="muted small">
-            Treated as a <strong>{supplier.filingScheme}</strong> filer (
-            {String(supplier.filingSchemeConfidence ?? '').toLowerCase()} confidence) —{' '}
-            {supplier.filingSchemeReason}. That choice sets the cut-off every days-late
-            figure below is measured against.
-          </p>
-
-          {supplier.periods.length === 0 ? (
-            <Empty title="No periods recorded" testId="empty-supplier-periods">
-              Nothing of theirs has been observed on the portal yet.
-            </Empty>
-          ) : (
-            <div className="table-wrap">
-            <table className="table dense" data-testid="supplier-periods">
-              <thead>
-                <tr>
-                  <th>Period</th>
-                  <th className="num">Booked</th>
-                  <th className="num">Reported</th>
-                  <th>Reached</th>
-                  <th>GSTR-1 filed</th>
-                  <th>Cut-off</th>
-                  <th>Timing</th>
-                  <th className="num">Expected tax</th>
-                  <th className="num">Observed tax</th>
-                  <th className="num">Mismatches</th>
-                </tr>
-              </thead>
-              <tbody>
-                {supplier.periods.map((period) => {
-                  const late = lateness(period.daysLate);
-                  return (
-                    <tr key={period.taxPeriod} className={period.missed ? 'is-missed' : ''}>
-                      <td>{formatPeriod(period.taxPeriod)}</td>
-                      <td className="num mono">{period.expectedCount}</td>
-                      <td className="num mono">{period.invoiceCount}</td>
-                      <td>
-                        <span className={`pill ${period.appearedIn2b ? 'pill-ok' : 'pill-idle'}`}>
-                          2B
-                        </span>{' '}
-                        <span className={`pill ${period.appearedInIms ? 'pill-ok' : 'pill-idle'}`}>
-                          IMS
-                        </span>
-                      </td>
-                      <td>{formatDate(period.gstr1FiledOn)}</td>
-                      <td className="muted">{formatDate(period.cutOffDate)}</td>
-                      <td>
-                        <span className={`pill pill-${late.tone}`}>{late.label}</span>
-                      </td>
-                      <td className="num mono">{rupees(period.expectedTotalTax)}</td>
-                      <td className="num mono">{rupees(period.observedTotalTax)}</td>
-                      <td className="num mono">{period.mismatchCount || ''}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            </div>
-          )}
-        </>
-      ) : null}
-    </section>
+  const header = (count) => (
+    <PageHeader
+      title="Suppliers"
+      subtitle={count === null ? null : `${count} supplier${count === 1 ? '' : 's'} this period, riskiest first.`}
+    >
+      <label className="search-field">
+        <span className="visually-hidden">Search suppliers</span>
+        <input
+          type="search"
+          className="search"
+          placeholder="Search name or GSTIN"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </label>
+      <label className="checkbox">
+        <input type="checkbox" checked={onlyIssues} onChange={(event) => setOnlyIssues(event.target.checked)} />
+        Only with issues
+      </label>
+    </PageHeader>
   );
-}
 
-export function SuppliersScreen({ run = null }) {
-  const [suppliers, setSuppliers] = useState(null);
-  const [model, setModel] = useState(null);
-  const [error, setError] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [query, setQuery] = useState('');
-  const [onlyProblems, setOnlyProblems] = useState(false);
-
-  const taxPeriod = run?.taxPeriod ?? null;
-  const load = useCallback(() => {
-    setError(null);
-    setSuppliers(null);
-    api
-      .listSuppliers(taxPeriod)
-      .then((body) => {
-        setSuppliers(body.suppliers);
-        setModel(body.model ?? null);
-      })
-      .catch(setError);
-  }, [taxPeriod]);
-
-  useEffect(load, [load]);
-
-  const rows = useMemo(() => {
-    if (!suppliers) return [];
-    const needle = query.trim().toLowerCase();
-    const filtered = suppliers.filter((supplier) => {
-      const counts = rowCounts(supplier);
-      if (onlyProblems && !counts.lateCount && !counts.missedCount && !counts.mismatchCount) {
-        return false;
-      }
-      if (!needle) return true;
-      return [supplier.tradeName, supplier.legalName, supplier.gstin]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(needle));
-    });
-
-    // Risk band first, then the three counts the subtitle names — in that order.
-    //
-    // The order used to be late-count then average timing, with mismatches never
-    // entering it at all, under a subtitle promising all three. Deepak Sales Corp
-    // with zero mismatches outranked Trident Cables with four.
-    return [...filtered].sort((a, b) => {
-      const ca = rowCounts(a);
-      const cb = rowCounts(b);
-      return (
-        SORT_BAND_ORDER.indexOf(displayBand(a.risk)) - SORT_BAND_ORDER.indexOf(displayBand(b.risk)) ||
-        cb.lateCount - ca.lateCount ||
-        cb.missedCount - ca.missedCount ||
-        cb.mismatchCount - ca.mismatchCount ||
-        String(a.tradeName ?? a.gstin).localeCompare(String(b.tradeName ?? b.gstin))
-      );
-    });
-  }, [suppliers, query, onlyProblems]);
-
-  if (error) return <ErrorBox error={error} onRetry={load} title="Could not load suppliers" />;
-  if (!suppliers) return <Loading label="Loading suppliers" rows={6} />;
-
-  if (suppliers.length === 0) {
+  if (error) {
     return (
-      <Empty title="No suppliers yet" testId="empty-suppliers">
-        Suppliers are derived from what appears on the portal. Load an IMS or GSTR-2B file
-        and they will show up here with their filing history.
-      </Empty>
+      <>
+        {header(null)}
+        <ErrorBox error={error} title="Cannot load suppliers" />
+      </>
+    );
+  }
+  if (!body) {
+    return (
+      <>
+        {header(null)}
+        <Loading rows={6} />
+      </>
     );
   }
 
+  const all = supplierRows(body.suppliers, results);
+  const rows = all.filter((row) => matchesSearch(row, search) && (!onlyIssues || row.hasIssue));
+  const isOpen = (row, panel) => open?.gstin === row.supplier.gstin && (!panel || open.panel === panel);
+  const toggle = (row, panel) => setOpen(isOpen(row, panel) ? null : { gstin: row.supplier.gstin, panel });
+
+  // A new contact changes the messages on every screen; a new scheme moves the
+  // cut-off in every month, which the API has already re-run.
+  const contactSaved = async () => {
+    setOpen(null);
+    setReload((value) => value + 1);
+    await reloadPeriod();
+  };
+  const schemeSaved = async () => {
+    setOpen(null);
+    await refresh();
+  };
+
   return (
-    <div className="screen screen-suppliers">
-      <section className="panel">
-        <header className="panel-head">
-          <div>
-            <h2>Suppliers</h2>
-            <p className="muted">
-              Ranked by risk band, then by how often each supplier filed late, missed a
-              period entirely, and sent amounts that did not match your books — the same
-              counts the band was built from, over the same months.
-            </p>
-            <ModelNote model={model} />
-          </div>
-          <div className="filters">
-            <input
-              type="search"
-              className="search"
-              placeholder="Filter by name or GSTIN"
-              value={query}
-              data-testid="suppliers-search"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <label className="checkline">
-              <input
-                type="checkbox"
-                checked={onlyProblems}
-                data-testid="only-problems"
-                onChange={(event) => setOnlyProblems(event.target.checked)}
-              />
-              only ones with a problem
-            </label>
-          </div>
-        </header>
-
-        {rows.length === 0 ? (
-          <Empty title="No supplier matches that" testId="empty-supplier-filter">
-            Clear the filter to see all {suppliers.length}.
-          </Empty>
-        ) : (
-          <div className="table-wrap">
-          <table className="table suppliers-table" data-testid="suppliers-table">
-            <thead>
-              <tr>
-                {SUPPLIER_COLUMNS.map((column) => (
-                  <th key={column.label} className={column.num ? 'num' : undefined}>
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((supplier) => {
-                const counts = rowCounts(supplier);
-                const avg =
-                  counts.avgDaysLate === null ? null : Math.round(counts.avgDaysLate);
-                const late = lateness(avg);
-                const isOpen = selected === supplier.gstin;
-                return (
-                  <Fragment key={supplier.gstin}>
-                  <tr
-                    className={`is-clickable ${isOpen ? 'is-selected' : ''}`}
-                    data-testid={`supplier-${supplier.gstin}`}
-                    aria-expanded={isOpen}
-                    onClick={() =>
-                      setSelected((current) => (current === supplier.gstin ? null : supplier.gstin))
-                    }
+    <>
+      {header(all.length)}
+      <section className="card card-table" aria-label="Suppliers">
+        {rows.length ? (
+          <DataTable
+            label="Suppliers"
+            testId="suppliers-table"
+            minWidth={1040}
+            rows={rows}
+            rowKey={(row) => row.supplier.gstin}
+            isExpanded={(row) => isOpen(row)}
+            renderDetail={(row) =>
+              open.panel === 'contact' ? (
+                <ContactForm supplier={row.supplier} onSaved={contactSaved} onCancel={() => setOpen(null)} />
+              ) : open.panel === 'scheme' ? (
+                <SchemeForm supplier={row.supplier} onSaved={schemeSaved} onCancel={() => setOpen(null)} />
+              ) : (
+                <RiskReasons supplier={row.supplier} />
+              )
+            }
+            columns={[
+              {
+                key: 'supplier',
+                header: 'Supplier',
+                render: ({ supplier }) => (
+                  <>
+                    <div className="cell-main">{supplier.tradeName}</div>
+                    <div className="cell-gstin">{supplier.gstin}</div>
+                  </>
+                )
+              },
+              {
+                key: 'contact',
+                header: 'Contact',
+                render: (row) => {
+                  const { contact } = row.supplier;
+                  if (!contact) {
+                    return (
+                      <>
+                        <div className="small muted">{row.inRegister ? 'No contact on file' : 'Not in your purchase register'}</div>
+                        <button type="button" className="btn-link link-start" onClick={() => toggle(row, 'contact')} aria-expanded={isOpen(row, 'contact')}>
+                          Add contact
+                        </button>
+                      </>
+                    );
+                  }
+                  return (
+                    <div className="contact-cell">
+                      <div>
+                        <div>{[contact.person, contact.phone].filter(Boolean).join(' · ')}</div>
+                        {contact.email ? <div className="cell-sub">{contact.email}</div> : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="icon-button is-quiet"
+                        aria-label={`Edit contact for ${row.supplier.tradeName}`}
+                        aria-expanded={isOpen(row, 'contact')}
+                        onClick={() => toggle(row, 'contact')}
+                      >
+                        <Icon name="pencil" size={14} />
+                      </button>
+                    </div>
+                  );
+                }
+              },
+              {
+                key: 'filing',
+                header: 'Filing',
+                render: (row) => (
+                  <div className="contact-cell">
+                    <div>
+                      <div className="nowrap">{schemeLabel(row.supplier)}</div>
+                      {row.filing ? (
+                        <div className={`cell-sub${row.filing.tone ? ` ${row.filing.tone}-text` : ''}`}>{row.filing.text}</div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-button is-quiet"
+                      aria-label={`Change filing frequency for ${row.supplier.tradeName}`}
+                      aria-expanded={isOpen(row, 'scheme')}
+                      onClick={() => toggle(row, 'scheme')}
+                    >
+                      <Icon name="pencil" size={14} />
+                    </button>
+                  </div>
+                )
+              },
+              {
+                key: 'issue',
+                header: 'This period',
+                render: (row) => <span className={row.hasIssue ? undefined : 'muted'}>{row.issue}</span>
+              },
+              { key: 'tax', header: 'Tax', align: 'right', render: (row) => <span className="num">{rupees(row.itc)}</span> },
+              {
+                key: 'risk',
+                header: 'Risk',
+                nowrap: true,
+                render: (row) => {
+                  const chip = RISK_CHIP[standingOf(row.supplier.risk)];
+                  if (!chip) return <span className="muted">—</span>;
+                  const notInBooks = notInBooksText(row.supplier.risk);
+                  return (
+                    <>
+                      <Chip tone={chip.tone}>{chip.label}</Chip>
+                      {notInBooks ? <div className="cell-sub bad-text">{notInBooks}</div> : null}
+                    </>
+                  );
+                }
+              },
+              {
+                key: 'toggle',
+                header: 'Details',
+                hideHeader: true,
+                render: (row) => (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-expanded={isOpen(row, 'risk')}
+                    aria-label={`${isOpen(row, 'risk') ? 'Hide' : 'Show'} risk details for ${row.supplier.tradeName}`}
+                    onClick={() => toggle(row, 'risk')}
                   >
-                    <td>
-                      <div className="cell-strong">{supplier.tradeName ?? supplier.legalName}</div>
-                      <div className="mono muted small">{supplier.gstin}</div>
-                    </td>
-                    <td>
-                      <RiskCell risk={supplier.risk} />
-                    </td>
-                    <td>
-                      <span className="pill pill-idle" title={supplier.filingSchemeReason ?? ''}>
-                        {supplier.filingScheme}
-                        {supplier.filingSchemeConfidence === 'LOW' ? ' (assumed)' : ''}
-                      </span>
-                    </td>
-                    <td className="num mono">{counts.periodsObserved}</td>
-                    <td className="num mono">{supplier.stats.invoiceCount}</td>
-                    <td className={`num mono ${counts.lateCount ? 'bad' : 'muted'}`}>
-                      {counts.lateCount || '—'}
-                    </td>
-                    <td className={`num mono ${counts.missedCount ? 'bad' : 'muted'}`}>
-                      {counts.missedCount || '—'}
-                    </td>
-                    <td className={`num mono ${counts.mismatchCount ? 'warn-text' : 'muted'}`}>
-                      {counts.mismatchCount || '—'}
-                    </td>
-                    <td className="num">
-                      <span className={`pill pill-${late.tone}`}>{late.label}</span>
-                    </td>
-                    <td>
-                      <LateTrend periods={supplier.stats.trend} />
-                    </td>
-                    <td className="num mono">{rupees(supplier.stats.observedTotalTax)}</td>
-                  </tr>
-
-                  {/* Directly beneath the row it belongs to.
-                      It used to render after the whole table. On 64 suppliers
-                      that meant clicking a row appeared to do nothing at all,
-                      and the panel was a full page-scroll away from the name it
-                      described. Only one is ever open — `selected` holds a single
-                      gstin — so there is no question of which row it belongs to. */}
-                  {isOpen ? (
-                    <tr className="detail-row" data-testid={`supplier-detail-row-${supplier.gstin}`}>
-                      <td colSpan={SUPPLIER_COLUMNS.length}>
-                        <SupplierDetail
-                          gstin={supplier.gstin}
-                          onClose={() => setSelected(null)}
-                        />
-                      </td>
-                    </tr>
-                  ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-          </div>
+                    <Icon name={isOpen(row, 'risk') ? 'chevronUp' : 'chevronDown'} size={14} strokeWidth={2} />
+                  </button>
+                )
+              }
+            ]}
+          />
+        ) : (
+          <EmptyState title={all.length ? 'No supplier matches' : 'No suppliers yet'} testId="no-suppliers">
+            {all.length ? 'Try another name, or show every supplier.' : 'Suppliers appear once you upload your purchase register.'}
+          </EmptyState>
         )}
       </section>
-    </div>
+    </>
   );
 }

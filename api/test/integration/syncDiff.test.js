@@ -289,7 +289,9 @@ describe('sync diffing between two downloads of the same source', () => {
     // record that no longer exists in that form. IMS resets the action in exactly
     // this case; so does the rebuild.
     const now = byRecord.get(amended.id);
-    expect(now.bucket).toBe('MATCHED');
+    // Corrected to the books' figures but still only saved, on the 16th: past the
+    // cut-off a saved record that agrees is not filed rather than matched.
+    expect(now.bucket).toBe('MISSING_IN_PORTAL');
     expect(now.confirmed_action).toBeNull();
     expect(parseJson(now.flags)).toContain('CONFIRMATION_RESET');
 

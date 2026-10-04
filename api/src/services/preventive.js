@@ -30,8 +30,9 @@
 // the last 6 months" is something a trader can check against their own memory,
 // "risk 0.41" is not.
 //
-// NOTHING IS SENT from here. buildChaseMessage() RETURNS text. No email, no
-// WhatsApp, no integration — the trader copies it and sends it themselves.
+// NOTHING IS SENT from here. The chase messages (services/supplierMessages.js) are
+// RETURNED text. No email, no WhatsApp, no integration — the trader copies it and
+// sends it themselves.
 import { pool } from '../db/pool.js';
 import { BUCKETS, NON_IMS_SECTIONS } from '../matching/buckets.js';
 import {
@@ -46,8 +47,13 @@ import { addMonths, dateToIso } from '../matching/normalize.js';
 import { formatRupeesAscii } from '../matching/recommend.js';
 import { ServiceError } from './ingest.js';
 import { loadExpected, loadPortal } from './reconcile.js';
+import { supplierSchemeMap } from './supplierStats.js';
 import { itcSign } from './totals.js';
 import { loadModel, outOfDistribution, scoreSupplier } from '../risk/score.js';
+import { workspaceAsOf } from './workspaceClock.js';
+import { CONTACT_COLUMNS, contactView, whatsappLink } from './supplierContacts.js';
+import { buildChaseMessage, messageForAlertInvoice, traderNameOf } from './supplierMessages.js';
+import { readWorkspaceGstin } from './workspaceGstin.js';
 
 // How far back the risk model looks. Six months is what the fixtures carry and
 // what a trader can sanity-check from memory.
@@ -518,10 +524,37 @@ export function scoreSupplierRisk(periods = [], { scheme = FILING_SCHEMES.MONTHL
   };
 }
 
+// What the Suppliers screen shows for a supplier: a band, or NEW when there is
+// not yet one to give.
+//
+// A band is a claim about a filing PATTERN. Under MIN_PERIODS_FOR_HIGH months
+// there is none to speak of, and a provisional Medium or Low still reads as a
+// verdict, so the screen says New and lists the facts instead. One fact outranks
+// history either way: a document of theirs on the portal that is not in the books
+// (a phantom). That is not a prediction but something they did, and left alone
+// it is deemed accepted, so it is HIGH however long or short the record.
+export const STANDING = Object.freeze({ ...RISK_BANDS, NEW: 'NEW' });
+
+export const STANDING_REASON = Object.freeze({ NOT_IN_BOOKS: 'NOT_IN_BOOKS', NEW: 'NEW' });
+
+// supplierStanding(risk, { phantoms }) -> { standing, standingReason }
+// risk is scoreSupplierRisk's answer; phantoms the supplier's documents not in
+// the books over the same window.
+export function supplierStanding(risk, { phantoms = [] } = {}) {
+  if (phantoms.length) return { standing: STANDING.HIGH, standingReason: STANDING_REASON.NOT_IN_BOOKS };
+  if ((risk.features?.periodsObserved ?? 0) < MIN_PERIODS_FOR_HIGH) {
+    return { standing: STANDING.NEW, standingReason: STANDING_REASON.NEW };
+  }
+  return { standing: risk.band, standingReason: null };
+}
+
 // Plain words, in the order that would matter on a phone call. Never a bare
 // score — a sentence the trader can disagree with is worth more than a number
 // they can only accept.
-export function riskReasons(features) {
+//
+// provisional: false leaves out the "provisional read" caveat, for a supplier the
+// screen shows as New rather than with a band the caveat would qualify.
+export function riskReasons(features, { provisional = true } = {}) {
   const observed = features.periodsObserved;
   const window = `the last ${plural(observed, 'month')}`;
   const deadline = ordinal(features.cutOffDay);
@@ -561,7 +594,7 @@ export function riskReasons(features) {
 
   // Said last, and only when it applies: the reader has to know the sample is
   // thin before acting on anything above.
-  if (observed < MIN_PERIODS_FOR_HIGH) {
+  if (provisional && observed < MIN_PERIODS_FOR_HIGH) {
     reasons.push(
       `only ${plural(observed, 'month')} of history so far, so this is a provisional read`
     );
@@ -695,21 +728,25 @@ async function loadSupplierHistory(orgId, periods) {
 
 async function loadSupplierMaster(orgId) {
   const [rows] = await pool.query(
-    `SELECT gstin, trade_name, legal_name, filing_scheme, filing_scheme_confidence,
-            filing_scheme_reason, contact_phone
-       FROM suppliers WHERE org_id = ?`,
+    `SELECT s.gstin, s.trade_name, s.legal_name, s.filing_scheme, s.filing_scheme_confidence,
+            s.filing_scheme_reason, s.filing_scheme_source, ${CONTACT_COLUMNS}
+       FROM suppliers s
+       LEFT JOIN supplier_contacts sc ON sc.org_id = s.org_id AND sc.gstin = s.gstin
+      WHERE s.org_id = ?`,
     [orgId]
   );
   return new Map(rows.map((row) => [row.gstin, row]));
 }
 
+// gstin is the workspace's own, the one its files carry (services/workspaceGstin.js).
 async function loadOrg(orgId) {
   const [rows] = await pool.query(
     'SELECT id, gstin, legal_name, trade_name, filer_type FROM organizations WHERE id = ?',
     [orgId]
   );
   if (!rows.length) throw new ServiceError('organization not found', 404, 'not_found');
-  return rows[0];
+  const { gstin } = await readWorkspaceGstin(orgId);
+  return { ...rows[0], gstin };
 }
 
 // ---------------------------------------------------------------------------
@@ -718,10 +755,9 @@ async function loadOrg(orgId) {
 
 // preventiveAlerts(orgId, { taxPeriod, asOfDate }) -> alert set
 //
-// asOfDate is the clock the whole answer is measured against. It is a PARAMETER
-// rather than `new Date()` so the demo can walk through the month — the 5th, the
-// 10th, the 12th, the 16th — without touching the system clock, and so a test can
-// assert what the trader is told on each of those days.
+// asOfDate is the clock the whole answer is measured against: the workspace's date
+// unless the caller names another, which is how a test asserts what the trader is
+// told on the 5th, the 10th and the 12th.
 export async function preventiveAlerts(
   orgId,
   { taxPeriod, asOfDate = null, historyPeriods = HISTORY_PERIODS } = {}
@@ -732,21 +768,31 @@ export async function preventiveAlerts(
   if (asOfDate && !dateToIso(asOfDate)) {
     throw new ServiceError('asOf must be an ISO date, yyyy-mm-dd');
   }
-  const asOf = dateToIso(asOfDate) ?? new Date().toISOString().slice(0, 10);
+  const asOf = dateToIso(asOfDate) ?? (await workspaceAsOf(orgId));
 
   const org = await loadOrg(orgId);
   const priorPeriods = historyPeriodsFor(taxPeriod, historyPeriods);
 
-  const [expected, portal, master, history] = await Promise.all([
+  const [expected, portal, master, history, schemeMap] = await Promise.all([
     loadExpected(orgId, taxPeriod),
     loadPortal(orgId, taxPeriod),
     loadSupplierMaster(orgId),
-    loadSupplierHistory(orgId, priorPeriods)
+    loadSupplierHistory(orgId, priorPeriods),
+    supplierSchemeMap(orgId)
   ]);
+  // Each supplier's own cut-off, as on Summary: a QRMP supplier's saved record is
+  // still a free fix on the 12th.
+  const schemeFor = (gstin) => schemeMap.get(gstin) ?? null;
+
+  // THIS PERIOD'S RECORDS ONLY. loadPortal() reads nothing else now; the filter
+  // stays as the guard. A record filed for another period cannot reach THIS
+  // period's return: April's ineligible C/2654 used to pair with March's C/2650
+  // here and drop off the screen (audit P16).
+  const periodPortal = portal.filter((record) => record.taxPeriod === taxPeriod);
 
   // IMS ONLY. 2B does not exist before the 14th, and a record that has merely
   // been SAVED — exactly what this mode looks for — never appears in 2B at all.
-  const imsRecords = portal.filter((record) => record.source === 'IMS');
+  const imsRecords = periodPortal.filter((record) => record.source === 'IMS');
 
   // The 2B side is NOT matched against. It is read per invoice for one purpose:
   // to find out whether a document missing from IMS is missing because a supplier
@@ -758,9 +804,21 @@ export async function preventiveAlerts(
   // register cannot tell us this on its own — the GSTN v2.4 template has eleven
   // columns and carries neither a reverse-charge nor an ITC-eligibility one — so
   // the 2B record is the only place the fact exists.
-  const twoB = twoBPairs(expected, portal, { asOfDate: asOf, taxPeriod });
+  const twoB = twoBPairs(expected, periodPortal, { asOfDate: asOf, taxPeriod, schemeFor });
 
-  const results = reconcile(expected, imsRecords, { asOfDate: asOf, taxPeriod });
+  // Those documents never meet the IMS records at all. With no true partner in
+  // IMS, the matcher handed each the nearest unrelated record above 0.70 — April's
+  // reverse-charge 1582J took the phantom 1587J — and the screen then dropped them
+  // from both the list and "Left out" (audit P16). They are decided from the books
+  // row and its own 2B record instead, and reported as what they are: absent from
+  // IMS, for good.
+  const outsideIms = expected.filter((invoice) => neverEntersIms(invoice, twoB));
+  const imsBound = expected.filter((invoice) => !neverEntersIms(invoice, twoB));
+
+  const results = [
+    ...reconcile(imsBound, imsRecords, { asOfDate: asOf, taxPeriod, schemeFor }),
+    ...outsideIms.map(absentFromIms)
+  ];
 
   // This screen means one thing: credit the books expect that has not safely
   // reached IMS yet. A record that can never enter IMS is not unsafe, it is
@@ -818,10 +876,11 @@ export async function preventiveAlerts(
       gstin,
       tradeName: name,
       legalName: supplier?.legal_name ?? null,
-      contactPhone: supplier?.contact_phone ?? null,
+      contact: contactView(supplier),
       filingScheme: scheme,
       filingSchemeConfidence: supplier?.filing_scheme_confidence ?? null,
       filingSchemeReason: supplier?.filing_scheme_reason ?? null,
+      filingSchemeSource: supplier?.filing_scheme_source ?? null,
       cutOffDate: cutOff,
       daysToCutOff: daysRemaining,
       preCutOff,
@@ -849,6 +908,14 @@ export async function preventiveAlerts(
       })
     };
     entry.chaseMessage = buildChaseMessage({ org, supplier: entry, taxPeriod, asOf });
+    // One short message per document, for the row it is shown beside.
+    for (const invoice of invoices) {
+      invoice.message = messageForAlertInvoice({
+        traderName: traderNameOf(org), taxPeriod, supplier: entry, invoice
+      });
+    }
+    // The same text, ready to send: null without a mobile number to send it to.
+    entry.whatsappUrl = whatsappLink(entry.contact?.phone, entry.chaseMessage);
     suppliers.push(entry);
   }
 
@@ -927,14 +994,16 @@ function alertItemFor(result, twoB = null) {
   const { expected, portal, bucket } = result;
   if (!expected) return null;
 
+  // A saved record is "saved" before anything else: past the cut-off the engine
+  // calls one that agrees MISSING_IN_PORTAL (not filed), with the record beside it.
   let status = null;
-  if (bucket === BUCKETS.MISSING_IN_PORTAL) {
-    status = ALERT_STATUS.NOT_REPORTED;
-  } else if (portal && portal.filingStatus !== 'FILED') {
+  if (portal && portal.filingStatus !== 'FILED') {
     status =
       bucket === BUCKETS.VALUE_MISMATCH
         ? ALERT_STATUS.SAVED_VALUE_MISMATCH
         : ALERT_STATUS.SAVED_NOT_FILED;
+  } else if (bucket === BUCKETS.MISSING_IN_PORTAL) {
+    status = ALERT_STATUS.NOT_REPORTED;
   }
   if (!status) return null;
 
@@ -993,6 +1062,18 @@ function excludedReasonFor({ expected, portal, inTwoB }) {
   if (portal?.reverseCharge) return EXCLUDED_REASONS.REVERSE_CHARGE;
   if (portal?.itcAvailable === false) return EXCLUDED_REASONS.ITC_INELIGIBLE;
   return inTwoB ? neverEntersImsReason(inTwoB) : null;
+}
+
+// Whether a books row can never enter IMS, known before any IMS matching: the same
+// rule as above, read from the row and its own 2B record alone.
+function neverEntersIms(invoice, twoB) {
+  return excludedReasonFor({ expected: invoice, portal: null, inTwoB: lookupTwoB(twoB, invoice) }) !== null;
+}
+
+// A books row that was never matched against IMS, in the shape alertItemFor()
+// reads: not in IMS, which for these is the finished state.
+function absentFromIms(invoice) {
+  return { expected: invoice, portal: null, bucket: BUCKETS.MISSING_IN_PORTAL };
 }
 
 export const EXCLUDED_REASONS = Object.freeze({
@@ -1249,167 +1330,6 @@ function describeExposure(exposure) {
     `and ${formatRupeesAscii(Math.abs(creditNotes.itc))} you are still claiming on ` +
     `${creditNotes.count} unreported credit note${creditNotes.count === 1 ? '' : 's'}`
   );
-}
-
-// ---------------------------------------------------------------------------
-// Chase message
-// ---------------------------------------------------------------------------
-
-// Plain text, RETURNED — never sent. There is no email, WhatsApp or SMS
-// integration in this product and there is not meant to be one: the trader owns
-// the relationship, copies the text and sends it however they already talk to
-// this supplier.
-//
-// ASCII ONLY, "Rs." rather than the rupee sign, consistent with the IMS remarks
-// writer. This text gets pasted into WhatsApp, SMS gateways and ERP note fields,
-// any of which may mangle a non-Latin-1 byte, and a garbled invoice number in a
-// chase message is worse than no message at all.
-export function buildChaseMessage({ org, supplier, taxPeriod, asOf }) {
-  const traderName = ascii(org.trade_name ?? org.legal_name ?? '');
-  const lines = [];
-
-  lines.push(`To: ${ascii(supplier.tradeName)} (${supplier.gstin})`);
-  lines.push(`From: ${traderName} (${org.gstin})`);
-  lines.push(
-    `Subject: GSTR-1 for ${monthName(taxPeriod)} - ${supplier.invoiceCount} document(s) pending`
-  );
-  lines.push('');
-  lines.push('Hello,');
-  lines.push('');
-  // The header used to say nothing had reached IMS while the rows underneath it
-  // read "saved on the portal as taxable ... / tax ...". It now describes what is
-  // actually in the list.
-  lines.push(
-    `As of ${formatDate(asOf)}, the following ${monthName(taxPeriod)} document(s) from you ` +
-      `${openingClause(supplier.invoices)}:`
-  );
-  lines.push('');
-
-  supplier.invoices.forEach((invoice, index) => {
-    // The document type is spelled out because a credit note and an invoice ask
-    // the supplier for opposite things, and the two lines were identical.
-    const kind = DOC_TYPE_WORD[invoice.docType] ?? 'document';
-    lines.push(
-      `  ${index + 1}. ${kind} ${ascii(invoice.invoiceNo)}  ` +
-        `dated ${formatDate(invoice.invoiceDate)}  ` +
-        `taxable ${formatRupeesAscii(invoice.taxableValue)}  ` +
-        `tax ${formatRupeesAscii(invoice.totalTax)}`
-    );
-    lines.push(`     ${statusLine(invoice)}`);
-  });
-
-  lines.push('');
-  // Split, never netted. The two directions are different requests: an unreported
-  // INVOICE is credit the trader is owed and has not received; an unreported
-  // CREDIT NOTE is credit the trader is currently claiming and should not be —
-  // until the supplier reports it, the recipient's GSTR-3B overstates its ITC.
-  // Presenting them as one number asked Patel Systems to fix "Rs. 5,577.37",
-  // which was neither document.
-  for (const line of stakeLines(supplier)) lines.push(line);
-  lines.push('');
-
-  if (supplier.preCutOff === false) {
-    // "so the credit is not lost altogether" is an invoice's reason. For a credit
-    // note nothing is lost by delay — the recipient is over-claiming until it is
-    // reported, which is a correctness problem, not a cash-flow one.
-    const creditNotesOnly =
-      supplier.breakdown.creditNotes.count > 0 && supplier.breakdown.otherDocuments.count === 0;
-    lines.push(
-      `Your cut-off for this period was ${formatDate(supplier.cutOffDate)} and it has passed. ` +
-        'A correction now needs GSTR-1A, and it would only reach our GSTR-2B in ' +
-        `${monthName(addMonths(taxPeriod, 1))} - the next tax period, not ` +
-        `${monthName(taxPeriod)}. ` +
-        (creditNotesOnly
-          ? 'Please still report it - until you do, our return overstates the credit we ' +
-            'have taken on it.'
-          : 'Please still report it so the credit is not lost altogether.')
-    );
-  } else {
-    const days = supplier.daysToCutOff;
-    lines.push(
-      `Your GSTR-1 cut-off for this period is ${formatDate(supplier.cutOffDate)}` +
-        (days === 0 ? ' - that is today.' : ` - ${days} day(s) from now.`)
-    );
-    lines.push(
-      'If these are saved and filed by then, the credit reaches our GSTR-2B for ' +
-        `${monthName(taxPeriod)} at no cost to either of us. After that date the fix needs ` +
-        `GSTR-1A and the credit slips to ${monthName(addMonths(taxPeriod, 1))}.`
-    );
-  }
-
-  lines.push('');
-  lines.push('Please confirm once done. Thank you,');
-  lines.push(traderName);
-  lines.push(`GSTIN ${org.gstin}`);
-
-  return ascii(lines.join('\n'));
-}
-
-function statusLine(invoice) {
-  switch (invoice.status) {
-    case ALERT_STATUS.SAVED_VALUE_MISMATCH:
-      return (
-        `saved on the portal as taxable ${formatRupeesAscii(invoice.portalTaxableValue)} / ` +
-        `tax ${formatRupeesAscii(invoice.portalTotalTax)} - please check before filing`
-      );
-    case ALERT_STATUS.SAVED_NOT_FILED:
-      return 'saved but not filed yet - please file it';
-    default:
-      return 'not in the IMS data we have downloaded - please report it';
-  }
-}
-
-const DOC_TYPE_WORD = Object.freeze({
-  INVOICE: 'invoice',
-  DEBIT_NOTE: 'debit note',
-  CREDIT_NOTE: 'credit note'
-});
-
-// True of whatever is actually in the list, rather than of the commonest case.
-function openingClause(invoices) {
-  const unreported = invoices.filter(
-    (invoice) => invoice.status === ALERT_STATUS.NOT_REPORTED
-  ).length;
-  if (unreported === invoices.length) return 'have not yet reached our GST portal data (IMS)';
-  if (unreported === 0) {
-    return 'are saved in our GST portal data (IMS) but have not been filed';
-  }
-  return 'are not yet settled in our GST portal data (IMS) - each line says which';
-}
-
-function stakeLines(supplier) {
-  const { otherDocuments, creditNotes } = supplier.breakdown;
-  const lines = [];
-
-  if (otherDocuments.count) {
-    lines.push(
-      `Input tax credit we are waiting for: ${formatRupeesAscii(Math.abs(otherDocuments.itc))} ` +
-        `across ${otherDocuments.count} document(s).`
-    );
-  }
-  if (creditNotes.count) {
-    lines.push(
-      'Credit we are still claiming and should not be: ' +
-        `${formatRupeesAscii(Math.abs(creditNotes.itc))} across ${creditNotes.count} ` +
-        'credit note(s). Until these are settled our return overstates the input tax ' +
-        'credit we have taken, so please file them even though they reduce what we can claim.'
-    );
-  }
-  if (otherDocuments.count && creditNotes.count) {
-    lines.push(`Total unsettled: ${formatRupeesAscii(supplier.itcAtStake)}.`);
-  }
-  return lines;
-}
-
-// Anything outside printable ASCII is replaced rather than dropped, so a name
-// that was entirely non-Latin does not silently become an empty string.
-function ascii(text) {
-  return String(text ?? '')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[‐-―]/g, '-')
-    .replace(/₹/g, 'Rs.')
-    .replace(/[^\x20-\x7e\n]/g, '?');
 }
 
 // ---------------------------------------------------------------------------

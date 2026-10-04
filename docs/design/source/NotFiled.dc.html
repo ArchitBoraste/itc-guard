@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ITC Guard · Not filed yet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;color:#0F1B2D;font-size:14px;background:#F5F6F8}
+a{color:#2446C7}a:hover{color:#1A3599}
+button,select,input{font-family:inherit;font-size:14px}
+button{cursor:pointer}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-weight:500;font-size:12px;color:#5B6778;padding:10px 12px;border-bottom:1px solid #E2E6EC;white-space:nowrap}
+td{padding:14px 12px;border-bottom:1px solid #EEF1F4;vertical-align:middle}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 1000px; background: #F5F6F8">
+
+<nav aria-label="Main" style="flex: 0 0 232px; background: #0F1B2D; color: #C9D2DE; display: flex; flex-direction: column; gap: 2px; padding: 20px 14px; box-sizing: border-box">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px">
+<div style="width: 34px; height: 34px; border-radius: 8px; background: #2446C7; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px">IG</div>
+<div><div style="color: #FFFFFF; font-weight: 600; font-size: 15px">ITC Guard</div><div style="font-size: 12px; color: #93A1B5">GST credit reconciliation</div></div>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"></path></svg>Upload</a>
+<a href="Overview.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>Overview</a>
+<a href="Decisions.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"></path></svg>IMS decisions<span style="margin-left: auto; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: #B4540A; color: #FFFFFF">4</span></a>
+<a href="NotFiled.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #FFFFFF; background: #1E2D44; text-decoration: none; font-weight: 500"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Not filed yet<span style="margin-left: auto; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: #33445E; color: #FFFFFF">3</span></a>
+<a href="Corrections.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>Corrections</a>
+<a href="Suppliers.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"></path></svg>Suppliers</a>
+<div style="flex-grow: 1; min-height: 24px"></div>
+<a href="#help" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01"></path></svg>Help</a>
+<div style="border-top: 1px solid #24344D; margin-top: 10px; padding: 14px 8px 0; font-size: 12px; color: #93A1B5; display: flex; flex-direction: column; gap: 4px">
+<div style="color: #E6EBF2; font-weight: 500; font-size: 13px">Sharma Electronics Pvt Ltd</div>
+<div class="mono">27AABCS1080F1ZN</div>
+<button type="button" style="margin-top: 10px; align-self: flex-start; background: transparent; border: 1px solid #33445E; color: #C9D2DE; border-radius: 6px; padding: 6px 10px; font-size: 12px">Reset demo data</button>
+</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 14px 40px; background: #FFFFFF; border-bottom: 1px solid #E2E6EC">
+<label style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #5B6778">Tax period
+<select style="padding: 7px 10px; border: 1px solid #D5DBE3; border-radius: 6px; background: #FFFFFF; color: #0F1B2D; font-weight: 500"><option>April 2026</option><option>May 2026</option></select>
+</label>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #3D4B5F; background: #F1F3F6; padding: 6px 10px; border-radius: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>As of 16 May 2026</span>
+<span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: #8A3F05; background: #FDF1E3; padding: 6px 12px; border-radius: 6px">GSTR-3B due 20 May · 4 days left</span>
+</header>
+
+<div style="padding: 32px 40px 48px; max-width: 1240px; box-sizing: border-box; width: 100%; display: flex; flex-direction: column; gap: 20px">
+
+<div>
+<h1 style="margin: 0; font-size: 24px; font-weight: 600">Not filed yet</h1>
+<p style="margin: 6px 0 0; color: #3D4B5F">Invoices in your books that the supplier hasn't filed on the portal.</p>
+</div>
+
+<section style="display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 20px 24px">
+<div style="flex: 2 1 420px; display: flex; gap: 16px">
+<div style="flex: 0 0 44px; height: 44px; border-radius: 10px; background: #FDECEA; color: #A11E14; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">Supplier cut-off has passed</h2>
+<span style="font-size: 12px; font-weight: 500; color: #A11E14; background: #FDECEA; padding: 3px 8px; border-radius: 4px">Passed</span>
+</div>
+<div style="font-size: 13px; color: #5B6778">Monthly filers: 11 May · Quarterly filers: 13 May</div>
+<div style="font-size: 14px; color: #22303F; margin-top: 4px">Ask the supplier to add the invoice through <strong style="font-weight: 600">GSTR-1A</strong>. The credit will reach you in May.</div>
+</div>
+</div>
+<div style="flex: 1 1 300px; display: flex; align-items: center; gap: 40px; border-left: 1px solid #EEF1F4; padding-left: 28px">
+<div style="display: flex; flex-direction: column; gap: 4px"><div style="font-size: 13px; color: #5B6778">Invoices</div><div style="font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums">3</div></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><div style="font-size: 13px; color: #5B6778">Tax waiting</div><div style="font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums">₹9,360</div></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><div style="font-size: 13px; color: #5B6778">Suppliers</div><div style="font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums">3</div></div>
+</div>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 4px 8px; overflow-x: auto">
+<table style="min-width: 1000px">
+<thead><tr><th>Supplier</th><th>Invoice</th><th style="text-align: right">Taxable</th><th style="text-align: right">Tax</th><th>On the portal</th><th>Cut-off</th><th>Contact</th><th><span style="position: absolute; left: -9999px">Action</span></th></tr></thead>
+<tbody>
+<tr style="background: #F7F9FD">
+<td><div style="font-weight: 500">Patel Systems</div><div class="mono" style="font-size: 12px; color: #5B6778">24AALCP8842T1Z6</div><div style="font-size: 12px; color: #5B6778; margin-top: 2px">Monthly (assumed)</div></td>
+<td><div class="mono" style="font-size: 13px">PS-3301</div><div style="font-size: 12px; color: #5B6778">14 Apr 2026</div></td>
+<td class="num">₹18,000</td><td class="num" style="font-weight: 500">₹3,240</td>
+<td><span style="font-size: 12px; font-weight: 500; color: #2D4A73; background: #EAEFF6; padding: 3px 8px; border-radius: 4px">Not on portal</span></td>
+<td><div>11 May</div><div style="font-size: 12px; color: #A11E14">Passed</div></td>
+<td><div>Meena Patel</div><div class="num" style="font-size: 12px; color: #5B6778; text-align: left">+91 97654 22310</div></td>
+<td style="text-align: right"><button type="button" aria-pressed="true" style="background: #2446C7; color: #FFFFFF; border: 1px solid #2446C7; border-radius: 6px; padding: 7px 12px; font-size: 13px; font-weight: 500">Message</button></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Anand Electricals</div><div class="mono" style="font-size: 12px; color: #5B6778">27AAMFA3067U1Z1</div><div style="font-size: 12px; color: #5B6778; margin-top: 2px">Monthly (assumed)</div></td>
+<td><div class="mono" style="font-size: 13px">AE/77</div><div style="font-size: 12px; color: #5B6778">16 Apr 2026</div></td>
+<td class="num">₹22,000</td><td class="num" style="font-weight: 500">₹3,960</td>
+<td><span style="font-size: 12px; font-weight: 500; color: #8A3F05; background: #FDF1E3; padding: 3px 8px; border-radius: 4px">Saved, not filed</span></td>
+<td><div>11 May</div><div style="font-size: 12px; color: #A11E14">Passed</div></td>
+<td><div>Anil Deshmukh</div><div class="num" style="font-size: 12px; color: #5B6778; text-align: left">+91 98605 71136</div></td>
+<td style="text-align: right"><button type="button" style="background: #FFFFFF; color: #0F1B2D; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px; font-weight: 500">Message</button></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Krishna Enterprises</div><div class="mono" style="font-size: 12px; color: #5B6778">27AANPK9054V1Z8</div><div style="font-size: 12px; color: #5B6778; margin-top: 2px">Quarterly · set by you</div></td>
+<td><div class="mono" style="font-size: 13px">KE-12</div><div style="font-size: 12px; color: #5B6778">18 Apr 2026</div></td>
+<td class="num">₹12,000</td><td class="num" style="font-weight: 500">₹2,160</td>
+<td><span style="font-size: 12px; font-weight: 500; color: #2D4A73; background: #EAEFF6; padding: 3px 8px; border-radius: 4px">Not on portal</span></td>
+<td><div>13 May</div><div style="font-size: 12px; color: #A11E14">Passed</div></td>
+<td><div>Kiran Kulkarni</div><div class="num" style="font-size: 12px; color: #5B6778; text-align: left">+91 98500 39871</div></td>
+<td style="text-align: right"><button type="button" style="background: #FFFFFF; color: #0F1B2D; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px; font-weight: 500">Message</button></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+<section aria-label="Message to Patel Systems" style="background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; max-width: 760px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Message to Patel Systems</h2>
+<div style="font-size: 13px; color: #3D4B5F">Meena Patel · <span class="num">+91 97654 22310</span> · accounts@patelsystems.in</div>
+</div>
+<div style="background: #F7F8FA; border-radius: 6px; padding: 12px 14px; font-size: 14px; line-height: 1.6; color: #22303F">Hello Meena ji, our invoice PS-3301 dated 14 Apr 2026 (₹18,000 + ₹3,240 GST) is not on the GST portal yet. Please add it through GSTR-1A so we can claim the credit. Thank you, Sharma Electronics</div>
+<div style="display: flex; gap: 8px">
+<button type="button" style="background: #FFFFFF; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px">Copy</button>
+<button type="button" style="background: #FFFFFF; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px">WhatsApp</button>
+<button type="button" style="background: #FFFFFF; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px">Email</button>
+</div>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
