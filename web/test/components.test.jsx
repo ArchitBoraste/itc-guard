@@ -12,7 +12,7 @@ import { EmptyState } from '../src/components/EmptyState.jsx';
 import { ConfirmDialog } from '../src/components/ConfirmDialog.jsx';
 import { Sidebar } from '../src/components/Sidebar.jsx';
 import { TopBar } from '../src/components/TopBar.jsx';
-import { deadlineChip } from '../src/lib/calendar.js';
+import { deadlineChip, formatDate, formatUploadTime } from '../src/lib/calendar.js';
 
 const MESSAGE = {
   kind: 'PORTAL_HIGHER',
@@ -198,6 +198,17 @@ describe('Sidebar', () => {
   });
 });
 
+describe('dates', () => {
+  it('are shown one way everywhere: day, short month, year', () => {
+    expect(formatDate('2026-10-05')).toBe('5 Oct 2026');
+    expect(formatDate(null)).toBe('—');
+    // An upload stamp is UTC from MySQL, read in India.
+    const now = new Date('2026-10-05T06:00:00Z');
+    expect(formatUploadTime('2026-10-04 07:32:49', now)).toBe('4 Oct 2026, 1:02 pm');
+    expect(formatUploadTime('2026-10-05 05:00:00', now)).toBe('Today, 10:30 am');
+  });
+});
+
 describe('the deadline chip', () => {
   const calendar = (cut, due) => ({
     deadlines: [
@@ -207,10 +218,10 @@ describe('the deadline chip', () => {
   });
 
   it('names the supplier cut-off until it passes, then GSTR-3B, then says it is overdue', () => {
-    expect(deadlineChip(calendar(4, 13))).toEqual({ tone: 'info', text: 'Supplier cut-off 11 Sep · 4 days left' });
-    expect(deadlineChip(calendar(0, 9))).toEqual({ tone: 'info', text: 'Supplier cut-off 11 Sep · today' });
-    expect(deadlineChip(calendar(-3, 6))).toEqual({ tone: 'warn', text: 'GSTR-3B due 20 Sep · 6 days left' });
-    expect(deadlineChip(calendar(-20, -1))).toEqual({ tone: 'bad', text: 'GSTR-3B was due 20 Sep' });
+    expect(deadlineChip(calendar(4, 13))).toEqual({ tone: 'info', text: 'Supplier cut-off 11 Sep 2026 · 4 days left' });
+    expect(deadlineChip(calendar(0, 9))).toEqual({ tone: 'info', text: 'Supplier cut-off 11 Sep 2026 · today' });
+    expect(deadlineChip(calendar(-3, 6))).toEqual({ tone: 'warn', text: 'GSTR-3B due 20 Sep 2026 · 6 days left' });
+    expect(deadlineChip(calendar(-20, -1))).toEqual({ tone: 'bad', text: 'GSTR-3B was due 20 Sep 2026' });
   });
 });
 
@@ -229,6 +240,39 @@ describe('TopBar', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('shows the as-of date in the app format, on a button that opens the native picker', async () => {
+    render(<TopBar periods={['2026-08']} period="2026-08" onPeriodChange={vi.fn()} asOfDate="2026-10-05" onAsOfChange={vi.fn()} />);
+    const button = screen.getByRole('button', { name: 'As of 5 Oct 2026' });
+    expect(button.querySelector('svg')).not.toBeNull();
+    // The native input is there to be opened, never to be seen or tabbed to.
+    const input = screen.getByTestId('as-of');
+    expect(input).toHaveAttribute('aria-hidden', 'true');
+    expect(input).toHaveAttribute('tabindex', '-1');
+    expect(input).toHaveClass('date-picker-input');
+
+    input.showPicker = vi.fn();
+    await userEvent.click(button);
+    expect(input.showPicker).toHaveBeenCalled();
+  });
+
+  it('falls back to focusing the input where showPicker is refused', async () => {
+    render(<TopBar periods={['2026-08']} period="2026-08" onPeriodChange={vi.fn()} asOfDate="2026-10-05" onAsOfChange={vi.fn()} />);
+    const input = screen.getByTestId('as-of');
+    input.showPicker = vi.fn(() => {
+      throw new DOMException('not allowed', 'NotAllowedError');
+    });
+    const clicked = vi.fn();
+    input.addEventListener('click', clicked);
+    await userEvent.click(screen.getByRole('button', { name: 'As of 5 Oct 2026' }));
+    expect(clicked).toHaveBeenCalled();
+  });
+
+  it('shows the picked date while it settles', () => {
+    render(<TopBar periods={['2026-08']} period="2026-08" onPeriodChange={vi.fn()} asOfDate="2026-09-11" onAsOfChange={vi.fn()} />);
+    fireEvent.change(screen.getByTestId('as-of'), { target: { value: '2026-09-14' } });
+    expect(screen.getByRole('button', { name: 'As of 14 Sep 2026' })).toBeInTheDocument();
   });
 
   it('offers Re-run when the results are out of date', async () => {

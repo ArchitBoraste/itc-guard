@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon.jsx';
 import { ImsDownloadButton } from '../components/ImsDownload.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { StatTile } from '../components/StatTile.jsx';
-import { deadlineOf, formatDay, formatPeriod, monthOf } from '../lib/calendar.js';
+import { deadlineOf, formatDate, formatPeriod, monthOf } from '../lib/calendar.js';
 import { issueOf } from '../lib/issues.js';
 import { rupees } from '../lib/money.js';
 import {
@@ -205,7 +205,7 @@ export function OverviewScreen({ period, inventory, run, results, corrections, c
       <div className="split">
         <section className="card todo" aria-labelledby="todo-title">
           <h2 className="card-title" id="todo-title">
-            {due ? `Before ${formatDay(due.date)}` : 'To do'}
+            {due ? `Before ${formatDate(due.date)}` : 'To do'}
           </h2>
           {steps.length ? (
             <ol className="plain-list" data-testid="todo">

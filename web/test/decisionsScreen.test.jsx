@@ -182,7 +182,7 @@ describe('the IMS file', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     renderDecisions();
     expect(screen.getByTestId('decisions-footer')).toHaveTextContent('4 records not decided yet');
-    expect(screen.getByTestId('decisions-footer')).toHaveTextContent('accepted automatically on 20 Sep');
+    expect(screen.getByTestId('decisions-footer')).toHaveTextContent('accepted automatically on 20 Sep 2026');
 
     await userEvent.click(screen.getByTestId('download-ims'));
     const dialog = await screen.findByRole('dialog', { name: '4 records not decided yet' });

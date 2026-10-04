@@ -31,7 +31,7 @@ describe('before the cut-off, 11 Sep', () => {
     expect(card).toHaveAttribute('data-tone', 'info');
     expect(card).toHaveTextContent('Suppliers can still fix this for free');
     expect(card).toHaveTextContent('Last day');
-    expect(card).toHaveTextContent('Monthly filers: 11 Sep · Quarterly filers: 13 Sep');
+    expect(card).toHaveTextContent('Monthly filers: 11 Sep 2026 · Quarterly filers: 13 Sep 2026');
     expect(card).toHaveTextContent("Ask the supplier to include the invoice in August's GSTR-1 or IFF. You claim the credit in August.");
     expect(screen.getByTestId('stat-invoices')).toHaveTextContent('Invoices3');
     expect(screen.getByTestId('stat-tax-waiting')).toHaveTextContent('Tax waiting₹9,360');
@@ -43,12 +43,12 @@ describe('before the cut-off, 11 Sep', () => {
     const table = screen.getByTestId('notfiled-table');
     const krishna = within(table).getByText('KE-112').closest('tr');
     expect(krishna).toHaveTextContent('Quarterly · set by you');
-    expect(krishna).toHaveTextContent('13 Sep2 days left');
+    expect(krishna).toHaveTextContent('13 Sep 20262 days left');
     expect(krishna).toHaveTextContent('Not on portal');
     const anand = within(table).getByText('AE/177').closest('tr');
     expect(anand).toHaveTextContent('Monthly (assumed)');
     expect(anand).toHaveTextContent('Saved, not filed');
-    expect(anand).toHaveTextContent('11 SepToday');
+    expect(anand).toHaveTextContent('11 Sep 2026Today');
   });
 
   it('shows the message for the row chosen', async () => {
@@ -69,7 +69,7 @@ describe('after the cut-off, 14 Sep', () => {
     expect(card).toHaveTextContent('Passed');
     expect(card).toHaveTextContent('Ask the supplier to add the invoice through GSTR-1A. The credit will reach you in September.');
     const patel = within(screen.getByTestId('notfiled-table')).getByText('PS-3401').closest('tr');
-    expect(patel).toHaveTextContent('11 SepPassed');
+    expect(patel).toHaveTextContent('11 Sep 2026Passed');
   });
 });
 
@@ -82,7 +82,7 @@ describe('when only some cut-offs have passed', () => {
     const state = cutoffState(rows, '2026-08');
     expect(state.title).toBe('Some suppliers can still fix this for free');
     expect(state.chip).toBe('1 day left');
-    expect(state.dates).toBe('Monthly filers: 11 Sep · Quarterly filers: 13 Sep');
+    expect(state.dates).toBe('Monthly filers: 11 Sep 2026 · Quarterly filers: 13 Sep 2026');
   });
 });
 

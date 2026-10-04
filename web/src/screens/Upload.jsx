@@ -9,7 +9,7 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { InlineError, Loading } from '../components/States.jsx';
 import {
   deadlineOf,
-  formatDay,
+  formatDate,
   formatPeriod,
   formatPeriodShort,
   formatUploadTime,
@@ -119,7 +119,7 @@ function FileCard({ kind, period, loaded, upload, state, locked, onFile, onDismi
         </div>
         {locked ? (
           <Chip tone="muted" pill icon="lock" testId={`lock-${kind}`}>
-            Opens {formatDay(locked.opensOn)}
+            Opens {formatDate(locked.opensOn)}
           </Chip>
         ) : loaded ? (
           <Chip tone="ok" pill icon="check">
@@ -132,7 +132,7 @@ function FileCard({ kind, period, loaded, upload, state, locked, onFile, onDismi
         <div className="file-card-body">
           <div className="figure-value secondary">{plural(locked.daysLeft, 'day')}</div>
           <div className="small muted">
-            The portal generates {monthOf(period)}&apos;s GSTR-2B on {formatDay(locked.opensOn)}. Until then we
+            The portal generates {monthOf(period)}&apos;s GSTR-2B on {formatDate(locked.opensOn)}. Until then we
             check your books against IMS.
           </div>
         </div>
@@ -509,7 +509,7 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
             [ims.suppliers, ims.suppliers === 1 ? 'supplier' : 'suppliers']
           ],
           line: [
-            imsUpload?.snapshot_date ? `Downloaded ${formatDay(imsUpload.snapshot_date)}` : null,
+            imsUpload?.snapshot_date ? `Downloaded ${formatDate(imsUpload.snapshot_date)}` : null,
             `${ims.filed} filed`,
             ims.saved ? `${ims.saved} saved, not filed` : null
           ]
@@ -532,7 +532,7 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
   const hasPortal = Boolean(inventory?.hasPortal);
   const step = run ? 3 : hasBooks && hasPortal ? 2 : 1;
   const against = [
-    imsUpload?.snapshot_date ? `IMS as of ${formatDay(imsUpload.snapshot_date)}` : ims?.records ? 'IMS' : null,
+    imsUpload?.snapshot_date ? `IMS as of ${formatDate(imsUpload.snapshot_date)}` : ims?.records ? 'IMS' : null,
     twoB?.records ? 'GSTR-2B' : null
   ]
     .filter(Boolean)
@@ -546,12 +546,12 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
   const history = (uploads ?? []).filter((upload) => upload.committed_at).sort((a, b) => b.id - a.id);
   const byId = new Map(history.map((upload) => [upload.id, upload]));
   const typeOf = (upload) => {
-    if (upload.kind === 'IMS') return `IMS${upload.snapshot_date ? ` · as of ${formatDay(upload.snapshot_date)}` : ''}`;
+    if (upload.kind === 'IMS') return `IMS${upload.snapshot_date ? ` · as of ${formatDate(upload.snapshot_date)}` : ''}`;
     return upload.kind === 'GSTR2B' ? 'GSTR-2B' : 'Purchase register';
   };
   const replacedText = (upload) => {
     const by = byId.get(upload.replaced_by_upload_id);
-    return by?.kind === 'IMS' && by.snapshot_date ? `Replaced by ${formatDay(by.snapshot_date)}` : 'Replaced by a newer file';
+    return by?.kind === 'IMS' && by.snapshot_date ? `Replaced by ${formatDate(by.snapshot_date)}` : 'Replaced by a newer file';
   };
 
   return (

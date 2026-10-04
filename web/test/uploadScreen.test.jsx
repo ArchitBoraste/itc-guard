@@ -97,16 +97,16 @@ describe('the cards on 7 Sep', () => {
     expect(await within(register).findByText('purchase_register_aug26.xlsx')).toBeInTheDocument();
 
     const ims = screen.getByTestId('card-IMS');
-    expect(ims).toHaveTextContent('Downloaded 7 Sep · 3 filed · 2 saved, not filed');
+    expect(ims).toHaveTextContent('Downloaded 7 Sep 2026 · 3 filed · 2 saved, not filed');
     expect(within(ims).getByRole('button', { name: 'Upload newer download' })).toBeInTheDocument();
   });
 
   it('lock GSTR-2B until the 14th, saying how long', () => {
     renderUpload();
     const twoB = screen.getByTestId('card-GSTR2B');
-    expect(screen.getByTestId('lock-GSTR2B')).toHaveTextContent('Opens 14 Sep');
+    expect(screen.getByTestId('lock-GSTR2B')).toHaveTextContent('Opens 14 Sep 2026');
     expect(twoB).toHaveTextContent('7 days');
-    expect(twoB).toHaveTextContent("The portal generates August's GSTR-2B on 14 Sep.");
+    expect(twoB).toHaveTextContent("The portal generates August's GSTR-2B on 14 Sep 2026.");
     expect(within(twoB).getByRole('button', { name: 'Choose file' })).toBeDisabled();
   });
 
@@ -203,7 +203,7 @@ describe('reconciling', () => {
     expect(screen.queryByTestId('reconcile')).toBeNull();
     expect(screen.getByTestId('see-results')).toHaveTextContent('See results');
     await waitFor(() =>
-      expect(screen.getByTestId('reconcile-bar')).toHaveTextContent('Purchase register against IMS as of 11 Sep')
+      expect(screen.getByTestId('reconcile-bar')).toHaveTextContent('Purchase register against IMS as of 11 Sep 2026')
     );
   });
 });
@@ -214,8 +214,8 @@ describe('upload history', () => {
     const table = await screen.findByTestId('upload-history');
     const replaced = within(table).getByText('ims_aug26_as_of_05sep.json').closest('tr');
     expect(replaced).toHaveClass('is-muted');
-    expect(replaced).toHaveTextContent('Replaced by 7 Sep');
-    expect(within(table).getByText('ims_aug26_as_of_07sep.json').closest('tr')).toHaveTextContent('IMS · as of 7 Sep');
+    expect(replaced).toHaveTextContent('Replaced by 7 Sep 2026');
+    expect(within(table).getByText('ims_aug26_as_of_07sep.json').closest('tr')).toHaveTextContent('IMS · as of 7 Sep 2026');
   });
 
   it('removes a file only after confirming', async () => {

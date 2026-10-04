@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { formatDay } from '../lib/calendar.js';
+import { formatDate } from '../lib/calendar.js';
 import { ConfirmDialog } from './ConfirmDialog.jsx';
 
 function save({ blob, filename }) {
@@ -73,7 +73,7 @@ export function ImsDownloadButton({ run, dueDate = null, className = 'btn btn-pr
       >
         <p>
           They go to the portal as Not decided, which is accepted automatically
-          {dueDate ? ` on ${formatDay(dueDate)}` : ' when GSTR-3B is filed'}.
+          {dueDate ? ` on ${formatDate(dueDate)}` : ' when GSTR-3B is filed'}.
         </p>
         {lines.length ? (
           <ul data-testid="open-decision-counts">

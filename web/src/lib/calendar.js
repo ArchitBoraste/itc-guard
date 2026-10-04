@@ -38,20 +38,13 @@ export function daysBetween(from, to) {
   return Math.round((utc(to) - utc(from)) / 86400000);
 }
 
-// '2026-05-16' -> '16 May 2026'
+// '2026-05-16' -> '16 May 2026'. The one way a date is shown, everywhere: the
+// API's messages use the same (workspaceClock.displayDate).
 export function formatDate(iso) {
   if (!iso) return '—';
   const [year, month, day] = String(iso).slice(0, 10).split('-').map(Number);
   if (!year || !month || !day) return String(iso);
   return `${day} ${MONTHS[month - 1].slice(0, 3)} ${year}`;
-}
-
-// '2026-05-16' -> '16 May', for chips and tight cells.
-export function formatDay(iso) {
-  if (!iso) return '—';
-  const [, month, day] = String(iso).slice(0, 10).split('-').map(Number);
-  if (!month || !day) return String(iso);
-  return `${day} ${MONTHS[month - 1].slice(0, 3)}`;
 }
 
 // '2026-04' -> 'April 2026'
@@ -83,7 +76,7 @@ export function daysLeftText(days) {
 }
 
 // An upload's timestamp ('2026-10-04 07:32:49', UTC from MySQL) as the trader
-// reads it, in India: "Today, 1:02 pm", or "4 Oct, 1:02 pm".
+// reads it, in India: "Today, 1:02 pm", or "4 Oct 2026, 1:02 pm".
 export function formatUploadTime(stamp, now = new Date()) {
   if (!stamp) return '—';
   const when = new Date(`${String(stamp).replace(' ', 'T')}Z`);
@@ -94,7 +87,7 @@ export function formatUploadTime(stamp, now = new Date()) {
     .toLocaleTimeString('en-IN', { ...zone, hour: 'numeric', minute: '2-digit', hour12: true })
     .replace(/\s?([ap])\.?m\.?/i, (_, half) => ` ${half.toLowerCase()}m`);
   if (day(when) === day(now)) return `Today, ${time}`;
-  return `${formatDay(day(when))}, ${time}`;
+  return `${formatDate(day(when))}, ${time}`;
 }
 
 // The calendar entry the API returns for a period (GET /workspace/clock), by key.
@@ -110,7 +103,7 @@ export function deadlineChip(calendar) {
   const due = deadlineOf(calendar, 'GSTR3B_DUE');
   if (!cut || !due) return null;
   const left = (days) => (days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} left`);
-  if (cut.daysLeft >= 0) return { tone: 'info', text: `Supplier cut-off ${formatDay(cut.date)} · ${left(cut.daysLeft)}` };
-  if (due.daysLeft >= 0) return { tone: 'warn', text: `GSTR-3B due ${formatDay(due.date)} · ${left(due.daysLeft)}` };
-  return { tone: 'bad', text: `GSTR-3B was due ${formatDay(due.date)}` };
+  if (cut.daysLeft >= 0) return { tone: 'info', text: `Supplier cut-off ${formatDate(cut.date)} · ${left(cut.daysLeft)}` };
+  if (due.daysLeft >= 0) return { tone: 'warn', text: `GSTR-3B due ${formatDate(due.date)} · ${left(due.daysLeft)}` };
+  return { tone: 'bad', text: `GSTR-3B was due ${formatDate(due.date)}` };
 }

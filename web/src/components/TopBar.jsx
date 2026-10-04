@@ -1,9 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
-import { deadlineChip, formatPeriod } from '../lib/calendar.js';
+import { useEffect, useId, useRef, useState } from 'react';
+import { deadlineChip, formatDate, formatPeriod } from '../lib/calendar.js';
+import { Icon } from './Icon.jsx';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-// Typing a date fires a change per segment; only the settled value moves the clock.
+// A picker can fire a change per keystroke as it moves; only the settled value
+// moves the clock, which re-runs every period.
 const SETTLE_MS = 500;
+
+// The native picker, opened from the date button. The input itself is never seen,
+// so the browser's own mm/dd/yyyy never shows. Without showPicker (or where the
+// browser refuses it) focusing and clicking the input is the fallback.
+function openPicker(input) {
+  if (!input) return;
+  try {
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+  } catch {
+    // fall through
+  }
+  input.focus();
+  input.click();
+}
 
 // Tax period, the workspace's As of date, the next deadline, and a quiet notice
 // when the period's results are out of date.
@@ -22,6 +41,8 @@ export function TopBar({
 }) {
   const [draft, setDraft] = useState(asOfDate ?? '');
   const timer = useRef(null);
+  const picker = useRef(null);
+  const labelId = useId();
 
   useEffect(() => setDraft(asOfDate ?? ''), [asOfDate]);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -60,18 +81,35 @@ export function TopBar({
         </select>
       </label>
 
-      <label className="topbar-field">
-        As of
-        <input
-          type="date"
-          className="input input-date"
-          value={draft}
-          onChange={(event) => changeDate(event.target.value)}
-          disabled={clockBusy}
-          aria-describedby={clockError ? 'clock-error' : undefined}
-          data-testid="as-of"
-        />
-      </label>
+      <div className="topbar-field">
+        <span id={labelId}>As of</span>
+        <span className="date-field">
+          <button
+            type="button"
+            className="btn date-button"
+            onClick={() => openPicker(picker.current)}
+            disabled={clockBusy}
+            aria-labelledby={`${labelId} ${labelId}-value`}
+            aria-describedby={clockError ? 'clock-error' : undefined}
+            aria-haspopup="dialog"
+            data-testid="as-of-button"
+          >
+            <Icon name="calendar" size={15} />
+            <span id={`${labelId}-value`}>{ISO_DATE.test(draft) ? formatDate(draft) : 'Today'}</span>
+          </button>
+          <input
+            ref={picker}
+            type="date"
+            className="date-picker-input"
+            value={draft}
+            onChange={(event) => changeDate(event.target.value)}
+            disabled={clockBusy}
+            tabIndex={-1}
+            aria-hidden="true"
+            data-testid="as-of"
+          />
+        </span>
+      </div>
       {clockError ? (
         <span id="clock-error" className="inline-error" role="alert">
           {clockError.message}

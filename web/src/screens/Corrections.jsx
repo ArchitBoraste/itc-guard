@@ -5,7 +5,7 @@ import { EmptyState } from '../components/EmptyState.jsx';
 import { MessagePanel } from '../components/MessagePanel.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { StatTile } from '../components/StatTile.jsx';
-import { formatDate, formatDay, monthOf } from '../lib/calendar.js';
+import { formatDate, monthOf } from '../lib/calendar.js';
 import { rupees } from '../lib/money.js';
 
 const shortMonth = (taxPeriod) => monthOf(taxPeriod).slice(0, 3);
@@ -29,7 +29,7 @@ export function foundIn(item, period) {
     const where = [
       ...new Set(
         (arrival.seenIn ?? []).map((entry) =>
-          entry.source === 'GSTR2B' ? `${shortMonth(period)} 2B` : `IMS ${entry.snapshotDate ? formatDay(entry.snapshotDate) : ''}`.trim()
+          entry.source === 'GSTR2B' ? `${shortMonth(period)} 2B` : `IMS ${entry.snapshotDate ? formatDate(entry.snapshotDate) : ''}`.trim()
         )
       )
     ];
@@ -91,7 +91,7 @@ export function CorrectionsScreen({ period, corrections }) {
           card
           label="Still waiting"
           value={`${corrections.counts.waiting} · ${rupees(corrections.waitingItc)}`}
-          sub={nextChance ? `next chance ${formatDay(nextChance)}` : 'nothing waiting'}
+          sub={nextChance ? `next chance ${formatDate(nextChance)}` : 'nothing waiting'}
           tone="warn"
           testId="waiting"
         />

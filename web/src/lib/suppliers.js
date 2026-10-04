@@ -1,5 +1,5 @@
 // What each supplier did this period, read from the run's own results. Pure.
-import { formatDay } from './calendar.js';
+import { formatDate } from './calendar.js';
 import { issueOf } from './issues.js';
 import { rupeesExact } from './money.js';
 
@@ -60,7 +60,7 @@ function lastFiling(rows, filedOn) {
   const filed = rows.filter((result) => result.portal?.filingStatus === 'FILED');
   if (filed.length) {
     const date = [filedOn, ...filed.map((result) => result.portal.supplierFiledOn)].filter(Boolean).sort().at(-1);
-    return { text: date ? `Filed ${formatDay(date)}` : 'Filed', tone: null };
+    return { text: date ? `Filed ${formatDate(date)}` : 'Filed', tone: null };
   }
   if (rows.some((result) => result.portal?.filingStatus === 'SAVED')) return { text: 'Saved, not filed', tone: 'warn' };
   if (rows.some((result) => result.books)) return { text: 'Not filed', tone: 'bad' };

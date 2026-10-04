@@ -15,14 +15,14 @@ describe('5 Oct', () => {
     expect(screen.getByTestId('asked')).toHaveTextContent('Asked for5from the August review');
     // August accepted ₹6,300 of MS-878, so its amendment brings ₹900; PS-3401 ₹3,240.
     expect(screen.getByTestId('arrived')).toHaveTextContent('Arrived2 · ₹4,140claimable in September');
-    expect(screen.getByTestId('waiting')).toHaveTextContent('Still waiting3 · ₹10,620next chance 11 Oct');
+    expect(screen.getByTestId('waiting')).toHaveTextContent('Still waiting3 · ₹10,620next chance 11 Oct 2026');
   });
 
   it('says what each supplier was asked for, and where an arrival was found', () => {
     render(<CorrectionsScreen period="2026-09" corrections={sep05.corrections} />);
     expect(rowFor('MS-878')).toHaveTextContent('Report the ₹900 tax difference');
     expect(rowFor('MS-878')).toHaveTextContent('Arrived');
-    expect(rowFor('MS-878')).toHaveTextContent('GSTR-1A amendment · IMS 5 Oct');
+    expect(rowFor('MS-878')).toHaveTextContent('GSTR-1A amendment · IMS 5 Oct 2026');
     expect(rowFor('MS-878')).toHaveTextContent('+₹900');
     expect(rowFor('PS-3401')).toHaveTextContent('Added through GSTR-1A');
     expect(rowFor('NS-612')).toHaveTextContent('Correct tax to ₹4,500');

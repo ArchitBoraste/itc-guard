@@ -11,7 +11,7 @@ import { MessagePanel } from '../components/MessagePanel.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { SegmentedDecision } from '../components/SegmentedDecision.jsx';
 import { InlineError } from '../components/States.jsx';
-import { deadlineOf, formatDate, formatDay } from '../lib/calendar.js';
+import { deadlineOf, formatDate } from '../lib/calendar.js';
 import {
   TABS,
   acceptAllIds,
@@ -354,7 +354,7 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
             </div>
             <div className="small muted">
               {counts.needs
-                ? `They go to the portal as Not decided, which is accepted automatically${due ? ` on ${formatDay(due.date)}` : ''}.`
+                ? `They go to the portal as Not decided, which is accepted automatically${due ? ` on ${formatDate(due.date)}` : ''}.`
                 : 'Download the IMS file and upload it in IMS on the GST portal.'}
             </div>
           </div>

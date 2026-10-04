@@ -57,7 +57,7 @@ describe('14 Sep, GSTR-2B in', () => {
 
   it('lists the steps before GSTR-3B, each with one button', () => {
     renderOverview(aug14, '2026-08');
-    expect(screen.getByRole('heading', { name: 'Before 20 Sep' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Before 20 Sep 2026' })).toBeInTheDocument();
     const steps = within(screen.getByTestId('todo')).getAllByRole('listitem');
     expect(steps.map((step) => step.querySelector('.todo-title').textContent)).toEqual([
       'Decide 4 IMS records',

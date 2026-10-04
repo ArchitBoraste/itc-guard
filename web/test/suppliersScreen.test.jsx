@@ -56,7 +56,7 @@ describe('the list', () => {
       )
     };
     await renderSuppliers(dated);
-    expect(rowFor('Orbit Distributors')).toHaveTextContent('Filed 4 Sep');
+    expect(rowFor('Orbit Distributors')).toHaveTextContent('Filed 4 Sep 2026');
   });
 
   it('never mentions the GSTIN checksum', async () => {

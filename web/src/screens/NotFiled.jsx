@@ -8,7 +8,7 @@ import { MessagePanel } from '../components/MessagePanel.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { StatTile } from '../components/StatTile.jsx';
 import { ErrorBox, Loading } from '../components/States.jsx';
-import { cutOffDate, daysLeftText, formatDate, formatDay, monthOf, nextPeriod } from '../lib/calendar.js';
+import { cutOffDate, daysLeftText, formatDate, monthOf, nextPeriod } from '../lib/calendar.js';
 import { NOT_FILED_STATUS, schemeLabel } from '../lib/issues.js';
 import { rupees } from '../lib/money.js';
 
@@ -22,8 +22,8 @@ export function cutoffState(rows, period) {
   const passed = suppliers.filter((supplier) => supplier.preCutOff === false);
   const schemes = new Set(suppliers.map((supplier) => supplier.filingScheme));
   const dates = [
-    schemes.has('MONTHLY') || !schemes.size ? `Monthly filers: ${formatDay(cutOffDate(period, 'MONTHLY'))}` : null,
-    schemes.has('QRMP') ? `Quarterly filers: ${formatDay(cutOffDate(period, 'QRMP'))}` : null
+    schemes.has('MONTHLY') || !schemes.size ? `Monthly filers: ${formatDate(cutOffDate(period, 'MONTHLY'))}` : null,
+    schemes.has('QRMP') ? `Quarterly filers: ${formatDate(cutOffDate(period, 'QRMP'))}` : null
   ].filter(Boolean).join(' · ');
   const month = monthOf(period);
   const next = monthOf(nextPeriod(period));
@@ -228,7 +228,7 @@ export function NotFiledScreen({ period, dataVersion }) {
               nowrap: true,
               render: ({ supplier }) => (
                 <>
-                  <div>{formatDay(supplier.cutOffDate)}</div>
+                  <div>{formatDate(supplier.cutOffDate)}</div>
                   <div className={`cell-sub${supplier.preCutOff === false ? ' bad-text' : ''}`}>
                     {supplier.preCutOff === false ? 'Passed' : daysLeftText(supplier.daysToCutOff)}
                   </div>

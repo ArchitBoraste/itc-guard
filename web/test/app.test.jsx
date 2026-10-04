@@ -91,7 +91,7 @@ describe('August on 14 Sep', () => {
     expect(screen.getByTestId('tile-decision')).toHaveTextContent('4 records');
     expect(screen.getByTestId('badge-notfiled')).toHaveTextContent('3');
     expect(screen.getByTestId('tile-notfiled')).toHaveTextContent('3 invoices');
-    expect(screen.getByTestId('deadline')).toHaveTextContent('GSTR-3B due 20 Sep · 6 days left');
+    expect(screen.getByTestId('deadline')).toHaveTextContent('GSTR-3B due 20 Sep 2026 · 6 days left');
     expect(screen.getByTestId('trader')).toHaveTextContent('Sharma Electronics Pvt Ltd27AABCS1080F1ZN');
 
     await userEvent.click(screen.getByTestId('nav-decisions'));

@@ -27,7 +27,8 @@ components, not the data. Screen 5 (Corrections) was drawn for May; in the demo 
 4. **Money:** ₹ with Indian grouping, whole rupees on screen, formatted from integer paise
    (`web/src/lib/money.js`). Never "₹1.08 L" next to "₹1,07,639". No negative headline figures.
    A credit note shows as −₹900 only inside a row.
-5. **Dates:** `16 May 2026` in text, `16 May` in chips. Never ISO dates on screen.
+5. **Dates:** `16 May 2026`, everywhere: text, chips and cells alike. Never ISO dates, and never
+   the browser's own mm/dd/yyyy, on screen.
 6. **No engine codes** (`VALUE_MISMATCH`, `NON_IMS`, …) and no portal field names on screen.
 7. **Colour carries status; text says it too.** Never colour alone.
 
@@ -59,9 +60,10 @@ Chips: 12/500, padding 3px 8px, radius 4px. Buttons: radius 6–8px, height ≥ 
 - Left sidebar 232px (navy) with: logo, nav (Upload, Overview, IMS decisions [count badge],
   Not filed yet [count badge], Corrections [count badge], Suppliers), Help at the bottom, then the
   trader's name + GSTIN. "Clear all data" lives on the Upload screen, not in the sidebar.
-- Top bar (white): Tax period select · **As of** date picker (the workspace clock) · deadline chip on
-  the right (before the supplier cut-off: "Supplier cut-off 11 Sep · 4 days left" in info colours;
-  after it: "GSTR-3B due 20 Sep · 9 days left" in warn colours; overdue: bad colours).
+- Top bar (white): Tax period select · **As of** date (the workspace clock: a button with a calendar
+  icon reading "5 Oct 2026" that opens the native date picker) · deadline chip on
+  the right (before the supplier cut-off: "Supplier cut-off 11 Sep 2026 · 4 days left" in info colours;
+  after it: "GSTR-3B due 20 Sep 2026 · 9 days left" in warn colours; overdue: bad colours).
 - Content max-width 1240px.
 - Below 900px: sidebar becomes a top bar with a menu button; stat grids drop to 2 columns, then 1;
   wide tables scroll inside their card (`overflow-x: auto`). No horizontal page scroll at 390px.
@@ -69,9 +71,9 @@ Chips: 12/500, padding 3px 8px, radius 4px. Buttons: radius 6–8px, height ≥ 
 ## Screens
 
 1. **Upload** (`Main`): 3 file cards (register, IMS, GSTR-2B). Locked 2B card (dashed border,
-   lock chip "Opens 14 Sep", "N days" + one line). IMS card names the snapshot date and offers
+   lock chip "Opens 14 Sep 2026", "N days" + one line). IMS card names the snapshot date and offers
    "Upload newer download". Then the Reconcile bar, upload history (Remove per row; replaced
-   uploads greyed with "Replaced by 7 Sep"), accepted formats, Clear all data. Keep table cells on
+   uploads greyed with "Replaced by 7 Sep 2026"), accepted formats, Clear all data. Keep table cells on
    one line (`white-space: nowrap`) for type, period and time.
 2. **Overview**: 4 stat tiles + a segmented bar; "Before <deadline>" to-do list (numbered steps,
    each with one button; hide steps with nothing to do); "What we found" table of every
