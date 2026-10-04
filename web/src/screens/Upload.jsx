@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { InlineError, Loading } from '../components/States.jsx';
+import { uploadView } from '../lib/uploads.js';
 import {
   deadlineOf,
   formatDate,
@@ -67,18 +68,6 @@ const SUPPLIER_FIELDS = ['contactPerson', 'contactPhone', 'contactEmail', 'filin
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const isUnset = (value) => value === '' || value === undefined || value === null;
-
-// The latest file of a kind for the period: the one whose data is in use.
-function latestUpload(uploads, kind, period) {
-  return (
-    (uploads ?? [])
-      .filter(
-        (upload) =>
-          upload.kind === kind && upload.tax_period === period && upload.committed_at && !upload.replaced_by_upload_id
-      )
-      .sort((a, b) => b.id - a.id)[0] ?? null
-  );
-}
 
 // --- one file card -------------------------------------------------------------
 
@@ -475,71 +464,15 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
 
   // --- what each card shows for the period in view --------------------------------
 
-  const register = inventory?.register;
-  const ims = inventory?.imsRecords;
-  const twoB = inventory?.twoB;
-  const imsUpload = latestUpload(uploads, 'IMS', period);
+  const view = uploadView({ uploads, inventory, period, run });
   const generated = deadlineOf(calendar, 'GSTR2B_GENERATED');
   const locked =
     period && generated && generated.daysLeft > 0
       ? { opensOn: generated.date ?? twoBGenerationDate(period), daysLeft: generated.daysLeft }
       : null;
-
-  const loaded = {
-    PURCHASE_REGISTER: register?.documents
-      ? {
-          figures: [
-            [register.documents, register.documents === 1 ? 'document' : 'documents'],
-            [register.suppliers, register.suppliers === 1 ? 'supplier' : 'suppliers']
-          ],
-          line: [
-            register.invoices ? plural(register.invoices, 'invoice') : null,
-            register.creditNotes ? plural(register.creditNotes, 'credit note') : null,
-            register.debitNotes ? plural(register.debitNotes, 'debit note') : null,
-            register.contacts ? `contacts for ${plural(register.contacts, 'supplier')}` : 'no supplier contacts'
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        }
-      : null,
-    IMS: ims?.records
-      ? {
-          figures: [
-            [ims.records, ims.records === 1 ? 'record' : 'records'],
-            [ims.suppliers, ims.suppliers === 1 ? 'supplier' : 'suppliers']
-          ],
-          line: [
-            imsUpload?.snapshot_date ? `Downloaded ${formatDate(imsUpload.snapshot_date)}` : null,
-            `${ims.filed} filed`,
-            ims.saved ? `${ims.saved} saved, not filed` : null
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        }
-      : null,
-    GSTR2B: twoB?.records
-      ? {
-          figures: [
-            [twoB.records, twoB.records === 1 ? 'record' : 'records'],
-            [twoB.suppliers, twoB.suppliers === 1 ? 'supplier' : 'suppliers']
-          ],
-          line: 'Filed records only'
-        }
-      : null
-  };
-
-  const hasBooks = Boolean(inventory?.hasBooks);
-  const hasPortal = Boolean(inventory?.hasPortal);
-  const step = run ? 3 : hasBooks && hasPortal ? 2 : 1;
-  const against = [
-    imsUpload?.snapshot_date ? `IMS as of ${formatDate(imsUpload.snapshot_date)}` : ims?.records ? 'IMS' : null,
-    twoB?.records ? 'GSTR-2B' : null
-  ]
-    .filter(Boolean)
-    .join(' and ');
-  const stillNeeded = [!hasBooks ? 'your purchase register' : null, !hasPortal ? 'an IMS download' : null]
-    .filter(Boolean)
-    .join(' and ');
+  const { step, against, stillNeeded } = view;
+  // Results are ready only beside cards that show the files they came from.
+  const results = Boolean(run) && view.ready;
 
   // --- upload history ---------------------------------------------------------------
 
@@ -586,8 +519,8 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
             key={kind}
             kind={kind}
             period={period}
-            loaded={loaded[kind]}
-            upload={latestUpload(uploads, kind, period)}
+            loaded={view.cards[kind]}
+            upload={view.cards[kind]?.upload ?? null}
             state={cards[kind]}
             locked={kind === 'GSTR2B' ? locked : null}
             onFile={handleFile}
@@ -619,18 +552,18 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
       <section className="card reconcile-bar" aria-label="Reconcile" data-testid="reconcile-bar">
         <div>
           <div className="strong-line">
-            {run ? 'Results are ready' : hasBooks && hasPortal ? 'Ready to reconcile' : 'Nothing to reconcile yet'}
+            {results ? 'Results are ready' : view.ready ? 'Ready to reconcile' : 'Nothing to reconcile yet'}
           </div>
           <div className="small muted">
-            {run
-              ? `Purchase register against ${against || 'the portal'}. A newer upload updates them straight away.`
-              : hasBooks && hasPortal
+            {results
+              ? `Purchase register against ${against}. A newer upload updates them straight away.`
+              : view.ready
                 ? `Purchase register against ${against}. Upload a newer IMS any time to see what changed.`
                 : `Add ${stillNeeded} to reconcile.`}
           </div>
           <InlineError error={reconcileError} />
         </div>
-        {run ? (
+        {results ? (
           <a
             className="btn btn-primary btn-large"
             href="#/overview"
@@ -647,7 +580,7 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
           <button
             type="button"
             className="btn btn-primary btn-large"
-            disabled={!hasBooks || !hasPortal || reconciling}
+            disabled={!view.ready || reconciling}
             onClick={reconcile}
             data-testid="reconcile"
           >

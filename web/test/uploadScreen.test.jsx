@@ -117,6 +117,64 @@ describe('the cards on 7 Sep', () => {
   });
 });
 
+describe("the period's files, whatever the counts say", () => {
+  // July's three files are in the history, but the period's counts carry no
+  // per-file detail (an API from before it existed) and the IMS file no date.
+  const JULY = '2026-07';
+  const JULY_FILES = [
+    { id: 13, kind: 'GSTR2B', original_filename: 'gstr2b.json', tax_period: JULY, snapshot_date: null, row_count: 398, committed_at: '2026-09-01 11:18:46', created_at: '2026-09-01 11:18:46', replaced_by_upload_id: null },
+    { id: 12, kind: 'IMS', original_filename: 'ims.json', tax_period: JULY, snapshot_date: null, row_count: 368, committed_at: '2026-09-01 11:18:46', created_at: '2026-09-01 11:18:46', replaced_by_upload_id: null },
+    { id: 11, kind: 'PURCHASE_REGISTER', original_filename: 'purchase_register.xlsx', tax_period: JULY, snapshot_date: null, row_count: 420, committed_at: '2026-09-01 11:18:46', created_at: '2026-09-01 11:18:46', replaced_by_upload_id: null }
+  ];
+  const renderJuly = (props) =>
+    renderUpload({
+      period: JULY,
+      inventory: { taxPeriod: JULY, books: 394, ims: 368, gstr2b: 398, hasBooks: true, hasPortal: true, runId: 7 },
+      calendar: null,
+      run: { id: 7, taxPeriod: JULY },
+      ...props
+    });
+
+  beforeEach(() => api.listUploads.mockResolvedValue(JULY_FILES));
+
+  it('shows each current file on its card', async () => {
+    renderJuly();
+    for (const [kind, name] of [['PURCHASE_REGISTER', 'purchase_register.xlsx'], ['IMS', 'ims.json'], ['GSTR2B', 'gstr2b.json']]) {
+      const card = screen.getByTestId(`card-${kind}`);
+      expect(await within(card).findByText(name)).toBeInTheDocument();
+      expect(card).not.toHaveTextContent('Drop the file here');
+    }
+    expect(screen.getByTestId('card-IMS')).toHaveTextContent('368records');
+  });
+
+  it('names what the register is checked against, with no download date', async () => {
+    renderJuly();
+    await within(screen.getByTestId('card-IMS')).findByText('ims.json');
+    expect(screen.getByTestId('reconcile-bar')).toHaveTextContent(
+      'Purchase register against IMS and GSTR-2B. A newer upload updates them straight away.'
+    );
+    expect(screen.getByTestId('reconcile-bar')).not.toHaveTextContent('against .');
+  });
+
+  it('marks Upload done only while the cards show the files', async () => {
+    renderJuly();
+    await within(screen.getByTestId('card-IMS')).findByText('ims.json');
+    const steps = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem');
+    expect(steps.map((step) => step.className)).toEqual(['step is-done', 'step is-done', 'step is-current']);
+    expect(screen.getByTestId('see-results')).toBeInTheDocument();
+  });
+
+  it('starts at Upload for a period with nothing on its cards', async () => {
+    api.listUploads.mockResolvedValue([]);
+    renderJuly({ inventory: null, run: null });
+    expect(await screen.findByTestId('empty-history')).toBeInTheDocument();
+    const steps = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem');
+    expect(steps[0]).toHaveClass('is-current');
+    expect(screen.getByTestId('card-IMS')).toHaveTextContent('Drop the file here');
+    expect(screen.getByTestId('reconcile')).toBeDisabled();
+  });
+});
+
 describe('uploading', () => {
   it('reads the file, commits it, and follows it to its period', async () => {
     api.uploadFile.mockResolvedValue({ id: 9, detected_format: 'IMS_JSON', warnings: [] });
