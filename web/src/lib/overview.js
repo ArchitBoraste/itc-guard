@@ -68,7 +68,7 @@ export function barSegments(figures) {
 
 // "What we found": every row that is not a clean filed match, this period's and
 // the earlier ones arriving in it, most serious first.
-const ORDER = ['NOT_IN_BOOKS', 'HIGHER', 'LOWER', 'SAVED_DIFFERENT', 'INVOICE_NO_DIFFERS', 'NOT_ON_PORTAL', 'SAVED_NOT_FILED', 'ROUNDING'];
+const ORDER = ['LOWER', 'HIGHER', 'INVOICE_NO_DIFFERS', 'NOT_IN_BOOKS', 'SAVED_DIFFERENT', 'NOT_ON_PORTAL', 'SAVED_NOT_FILED', 'ROUNDING'];
 
 export function foundRows(results = [], issueKey) {
   return results
@@ -88,6 +88,12 @@ const rank = (issue) => {
 
 export function exactMatchCount(results = []) {
   return own(results).filter((result) => !needsMention(result) && !isOutsideIms(result)).length;
+}
+
+// Documents the portal shows for the period: one per record, however many of
+// IMS and GSTR-2B carry it.
+export function portalDocumentCount(results = []) {
+  return own(results).filter((result) => result.portal).length;
 }
 
 export function outsideImsRows(results = []) {
