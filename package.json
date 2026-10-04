@@ -12,6 +12,7 @@
     "demo:reset": "node tools/demo-reset.js",
     "ml:export": "node tools/export-training-data.js --seed",
     "verify:answer-key": "node tools/verify-answer-key.js",
-    "verify:demo": "node tools/verify-demo.js"
+    "verify:demo": "node tools/verify-demo.js",
+    "mail:selftest": "node tools/mail-selftest.js"
   }
 }
