@@ -67,17 +67,13 @@ Then it writes **`ims-actions.json`** — the exact upload format GSTN's own IMS
 utility produces, so the trader's decisions go back to the portal as a file rather than
 as four hundred clicks.
 
-And before any of that, the **Still fixable** screen: from the 1st of the month it lists
+And before any of that, the **Not filed yet** screen: from the 1st of the month it lists
 the purchases the supplier has not filed yet — not on the portal at all, or sitting there
-as a draft they can still change — ranked by which suppliers historically fail to file,
-with a pre-written chase message per supplier. Nothing on it is final, so a phone call
-still fixes it for free; once the supplier files, correcting it needs a GSTR-1A amendment
-and the credit slips a month, so it leaves that screen for Actions. The suppliers never
-need an account, a login, or to know the tool exists.
-
-The name is deliberate. It was called "Before cut-off", which read as a date filter —
-but records stay on it after the cut-off passes. What the cut-off changes is the urgency,
-not the membership.
+as a draft they can still change — against each supplier's own cut-off, with a short
+message to send them. Before the cut-off a phone call fixes it for free; after it,
+correcting it needs a GSTR-1A amendment and the credit slips a month, and **Corrections**
+follows it into the next month until it arrives. The suppliers never need an account, a
+login, or to know the tool exists.
 
 ## Why the government's own tool cannot do this
 
@@ -143,7 +139,7 @@ all six into `fixtures/`, which is gitignored. `samples/` is not: the `fixtures/
 rule matches a directory of that name, not this one.
 
 The data is synthetic end to end. No real GSTIN, invoice or filing appears in any of it —
-see **Limitations** below and the About screen in the app.
+see **Limitations** below.
 
 ## Architecture
 
@@ -169,9 +165,9 @@ GSTR-2B download ──┘   (the only     (ExpectedInvoice   (pure: no db,     
   supplier statistics, the IMS action writer.
 - **`api/src/risk/`** — serves a logistic regression fitted offline in Python. `ml/train.py`
   writes `ml/model.json`, that file is committed, and Node reads it. No Python at runtime.
-- **`web/src/screens/`** — Upload, Summary, Still fixable, Actions, Suppliers, About,
-  How to use.
-  React 18, one stylesheet, no component library.
+- **`web/src/screens/`** — Upload, Overview, IMS decisions, Not filed yet, Corrections,
+  Suppliers, Help. React 18, design tokens as CSS variables, IBM Plex self-hosted, no
+  component library.
 - **MySQL 8**, raw SQL, no ORM. Money is `BIGINT` integer paise end to end.
 
 Plain JavaScript throughout, ESM only. Node 20 · Express 4 · React 18 + Vite · MySQL 8 ·
@@ -266,7 +262,7 @@ correct alert. The trader sees it; the number does not move under them.
 requires three or more observed periods — one late month is not a pattern — so the
 demo tops out at MEDIUM. That is the guard working, not a bug, but it means the risk
 screen shows a narrower range than the model can produce. Seeding 6–12 periods of filing
-history is deferred work and is what the Still fixable screen needs to show its full range.
+history is deferred work and is what the Suppliers screen needs to show its full range.
 
 **Also not built, deliberately:** no login (every request is one stubbed trader), no
 multi-user or roles, no GSP/portal API integration (files move by hand, which is what
@@ -308,13 +304,16 @@ api/                       Express API (ESM, plain JS)
 web/                       React 18 + Vite front end (plain JS, one stylesheet)
   src/App.jsx              shell, hash routing, run + results state
   src/api.js               fetch wrapper; ApiError carries status + code
-  src/index.css            the whole stylesheet — no component library
+  src/styles/              tokens.css (design tokens) and app.css — no component library
   src/lib/money.js         integer paise -> Indian-grouped rupees
-  src/lib/vocab.js         bucket/action codes -> plain English; action gating
+  src/lib/issues.js        engine codes -> the one name for each issue and recommendation
+  src/lib/decisionTabs.js  which IMS decisions tab a record is in
+  src/lib/overview.js      Overview's four figures and "What we found"
   src/lib/calendar.js      cut-off, 2B generation and GSTR-3B dates
-  src/components/          banners, side-by-side compare, score popover, states
+  src/components/          Sidebar, TopBar, StatTile, Chip, DataTable, SegmentedDecision,
+                           MessagePanel, ConfirmDialog, ...
                            ErrorBoundary.jsx — the app's only class component
-  src/screens/             Upload, Summary, Alerts, Actions, Suppliers, About
+  src/screens/             Upload, Overview, Decisions, NotFiled, Corrections, Suppliers, Help
   test/                    vitest + jsdom + @testing-library/react
 tools/                     dev tooling
   demo.js                  `npm run demo` — compose up, migrate, demo:reset, print URL
@@ -463,9 +462,9 @@ first time anyone runs `gen:fixtures`.
 
 ### Re-running a period
 
-Every period with a run carries a persistent **Re-run reconciliation** button on
-Summary. The stale banner on Actions offers the same rebuild, but only once a run
-has NOTICED it is out of date — which covers new portal data and nothing else.
+Every period with a run carries a persistent **Re-run** button on Overview. The top
+bar offers the same rebuild, but only once a run has NOTICED it is out of date —
+which covers new portal data and nothing else.
 After an engine or wording change there is nothing to notice, and uploading a file
 to see your own change is a strange requirement. Either path keeps the run's own
 mode, as-of date and filing scheme: those decide whether a mismatch is a free
@@ -672,85 +671,54 @@ forbid (e.g. `PENDING` where `ispendactblocked` is `Y`).
 the `/api` prefix is passed through rather than stripped, because the API mounts
 its router at `/api`.
 
-Five working screens plus an About page, and one banner that never leaves the top of the
-page.
+Seven screens in a navy sidebar, built from one set of tokens (`web/src/styles/tokens.css`)
+and a small set of shared components (Sidebar, TopBar, PageHeader, StatTile, Chip,
+DataTable, SegmentedDecision, MessagePanel, EmptyState). The design handoff is
+`docs/design/README.md`; screenshots of the built app are in `docs/design/after/`.
 
-**Upload** — three drop zones. Each shows the detected format and row count once
-committed. The column-mapping step appears **only** when detection fails, and only
-for CSV: a CSV header is row 1 by definition, whereas an arbitrary `.xlsx` puts its
-header at an unknown row and guessing wrong would read a data row as the titles.
-With nothing loaded, a **Load sample data** button seeds a fixture period through
-the real upload path, so the app is never a dead empty screen.
+**Top bar** — the tax period, the workspace's **As of** date (it moves the workspace clock,
+`PUT /api/workspace/clock`, and every period is re-run against it) and the next deadline:
+the supplier cut-off until it passes, then GSTR-3B. A run that is out of date shows a
+quiet **Re-run** there, not a banner.
 
-The mapping form arrives pre-filled. `describeColumns` returns two things: `mapped`,
-which is exact and comes from the template alias table, and `suggested`, which
-matches the trader's own column titles against a synonym table (`Party GSTIN`,
-`Bill No`, `Bill Date`, `Net Amount`) after normalising away case, spacing and
-punctuation. Pairs are assigned one-to-one by score, so `Bill Date` goes to the
-document date rather than being stolen by the document number. Suggestions are
-labelled **guessed** in the form and the label clears when the user changes the
-field. Anything the matcher is not confident about is left unset rather than filled
-with a plausible wrong answer, because a mis-mapped column silently corrupts every
-row in the file. The two tables are kept apart deliberately: `detectFormat` reads
-only the exact one, so a fuzzy hit can never make an unrecognised file be parsed as
-a GSTN template.
+**Upload** — the default screen, and where an empty workspace lands. Three cards: the
+purchase register (documents, suppliers, note types, contacts on file), IMS (records,
+the download's date, filed against saved) and GSTR-2B, locked until the 14th. A refused
+file says why on its card. An unrecognised register opens the column mapper, pre-filled
+from the trader's own column titles (guesses are labelled as such), with the optional
+contact and filing-frequency columns. Reconcile once; after that every upload rebuilds
+the period and the button reads "See results". Upload history with Remove, the demo
+files, and **Clear all data**.
 
-**Summary** — expected / claimable / at risk / deferred, plus a card per bucket.
+**Overview** — Credit in your books, Ready to claim, Needs your decision and Not filed by
+suppliers, which add up to the books total, with a bar showing the split. "Before 20 Sep"
+lists only the steps with something to do. "What we found" lists every item that is not a
+clean filed match, an earlier month's late arrival marked "From August".
 
-A total whose net HIDES its components leads with the components instead. 2026-04's
-deferred total nets to −₹5,577 out of an unreported credit note of −₹28,428 and an
-unreported invoice of +₹22,850; shown as one small negative number it reads like a
-rounding artefact and the trader misses two real problems worth ₹51,278 between
-them. The split takes over when the net has gone negative or collapsed to less than
-half the larger side — not merely whenever credit notes exist, or every card would
-cry wolf.
+**IMS decisions** — Ready to accept / Needs a decision / Decided / Overridden. Accept,
+Reject or Pending per record (Pending never offered where the portal blocks it), "Accept
+all" for the clean matches, and each row opens to books against portal, one line of why,
+and a message to the supplier with Copy, WhatsApp and Email. The IMS file downloads from
+the footer; while records are not decided the API answers 409 and the screen says how
+many, by kind, before handing it over.
 
-**Actions** — the core screen. Grouped by recommended action, with both sides of
-every document side by side and the differing fields marked. The score breakdown is
-a click away in a popover. Every row can be overridden, and an overridden row says
-so; rows left as recommended say that too.
+**Not filed yet** — documents the supplier has not filed, or only saved, under a cut-off
+card that reads each supplier's own cut-off (the 11th monthly, the 13th quarterly):
+still free to fix, passed (ask for GSTR-1A), or both.
 
-Controls are gated so the API's 409s are unreachable: `PENDING` is disabled where
-the portal blocks it (with the reason on hover), and a record that never entered
-IMS — reverse charge, ISD, imports — gets no action buttons at all, because there
-is nothing there to accept or reject. Rejecting a whole group takes a second click.
+**Corrections** — what last month asked suppliers to fix, and whether it has arrived:
+where it was found and the credit it brings, or how long it has waited and the
+supplier's next chance, with a reminder to send.
 
-**Still fixable** — purchases the supplier has not filed yet, so they can still put
-them right themselves. Grouped by how reliably each supplier files rather than by
-amount: on the 5th, a missing invoice from a reliable supplier is normal, and a screen
-that shouts about all forty is a screen nobody opens on the 12th.
+**Suppliers** — contact (or "Not in your purchase register" and Add contact), filing
+scheme with "(assumed)" or "set by you" and an edit control, this period's issue, tax and
+risk; a row opens to the reasons for its risk.
 
-Amounts are added by size, never netted. This is an exposure screen — an unreported
-invoice and an unreported credit note are two problems pulling opposite ways, and
-cancelling them understated April by 42% and gave Fortune Hardware a card headlined
-−₹17,128.92. The two directions are split wherever the figure appears, including the
-chase message, which asks for opposite things: an unreported invoice is credit the
-trader is owed, an unreported credit note is credit they are still claiming and
-should not be.
+**Help** — one line per screen, the monthly calendar, and that each visitor's workspace
+is private.
 
-Everything schema-level — that it reads IMS rather than GSTR-2B, that reverse charge,
-imports, ISD and blocked credit never appear on it, that its totals are not part of
-Summary's — is folded into a **Why these numbers differ from Summary** disclosure,
-collapsed by default. The screen itself opens with three sentences in a shopkeeper's
-words.
-
-**Suppliers** — filing history per supplier with a days-late sparkline, drawn
-against *that supplier's* own cut-off (the 11th monthly, the 13th for QRMP).
-
-**About** — where each portal schema was recovered from, that every figure in the app is
-synthetic, and what the test suites verify. It is checked ahead of the boot state and
-ahead of the API error, so it renders when nothing else in the app can load, and its nav
-entry stays enabled with no data loaded. A caveat that only appears on a healthy, seeded
-machine is not a caveat. `TEST_COUNTS` in `screens/About.jsx` is the one place the counts
-live; a test asserts the rendered text matches it.
-
-**The deemed-acceptance banner** is sticky on every screen. It shows days to
-GSTR-3B and two numbers that are deliberately not merged: everything unactioned in
-IMS (what deemed acceptance will actually claim) and the slice of it the engine does
-not recommend accepting (the real exposure). One number alone is either alarmist or
-complacent. A second banner appears when migration 003 has dropped a confirmation
-because the supplier amended the record it was about — a decision the trader made
-has been invalidated, and that is not a row-level detail.
+Every message to a supplier is built on the server (`api/src/services/supplierMessages.js`)
+and only ever copied or opened in the trader's own app: nothing is sent from ITC Guard.
 
 **Error boundaries.** React unmounts the entire tree when a render throws, so one
 bad property access takes the whole page to white — and the nav bar with it, which

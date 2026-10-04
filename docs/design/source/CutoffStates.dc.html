@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cut-off card states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1200px; height: 360px; box-sizing: border-box; padding: 32px; background: #F5F6F8; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #0F1B2D; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; font-weight: 500; color: #5B6778; letter-spacing: 0.04em">BEFORE THE CUT-OFF · AS OF 8 MAY</div>
+<section style="flex: 1 1 auto; background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 20px 22px; display: flex; gap: 16px">
+<div style="flex: 0 0 44px; height: 44px; border-radius: 10px; background: #EAF2FB; color: #1D4F8C; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">Suppliers can still fix this for free</h2>
+<span style="font-size: 12px; font-weight: 500; color: #1D4F8C; background: #EAF2FB; padding: 3px 8px; border-radius: 4px">3 days left</span>
+</div>
+<div style="font-size: 13px; color: #5B6778">Monthly filers: 11 May · Quarterly filers: 13 May</div>
+<div style="font-size: 14px; color: #22303F; margin-top: 4px; line-height: 1.5">Ask the supplier to include the invoice in April's GSTR-1. You claim the credit in April.</div>
+</div>
+</section>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; font-weight: 500; color: #5B6778; letter-spacing: 0.04em">AFTER THE CUT-OFF · AS OF 16 MAY</div>
+<section style="flex: 1 1 auto; background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 20px 22px; display: flex; gap: 16px">
+<div style="flex: 0 0 44px; height: 44px; border-radius: 10px; background: #FDECEA; color: #A11E14; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">Supplier cut-off has passed</h2>
+<span style="font-size: 12px; font-weight: 500; color: #A11E14; background: #FDECEA; padding: 3px 8px; border-radius: 4px">Passed</span>
+</div>
+<div style="font-size: 13px; color: #5B6778">Monthly filers: 11 May · Quarterly filers: 13 May</div>
+<div style="font-size: 14px; color: #22303F; margin-top: 4px; line-height: 1.5">Ask the supplier to add the invoice through GSTR-1A. The credit will reach you in May.</div>
+</div>
+</section>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":360}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

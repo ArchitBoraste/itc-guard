@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ITC Guard · IMS decisions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;color:#0F1B2D;font-size:14px;background:#F5F6F8}
+a{color:#2446C7}a:hover{color:#1A3599}
+button,select,input{font-family:inherit;font-size:14px}
+button{cursor:pointer}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 1280px; background: #F5F6F8">
+
+<nav aria-label="Main" style="flex: 0 0 232px; background: #0F1B2D; color: #C9D2DE; display: flex; flex-direction: column; gap: 2px; padding: 20px 14px; box-sizing: border-box">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px">
+<div style="width: 34px; height: 34px; border-radius: 8px; background: #2446C7; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px">IG</div>
+<div><div style="color: #FFFFFF; font-weight: 600; font-size: 15px">ITC Guard</div><div style="font-size: 12px; color: #93A1B5">GST credit reconciliation</div></div>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"></path></svg>Upload</a>
+<a href="Overview.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>Overview</a>
+<a href="Decisions.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #FFFFFF; background: #1E2D44; text-decoration: none; font-weight: 500"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"></path></svg>IMS decisions<span style="margin-left: auto; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: #B4540A; color: #FFFFFF">{{counts.needs}}</span></a>
+<a href="NotFiled.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Not filed yet<span style="margin-left: auto; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: #33445E; color: #FFFFFF">3</span></a>
+<a href="Corrections.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>Corrections</a>
+<a href="Suppliers.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"></path></svg>Suppliers</a>
+<div style="flex-grow: 1; min-height: 24px"></div>
+<a href="#help" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01"></path></svg>Help</a>
+<div style="border-top: 1px solid #24344D; margin-top: 10px; padding: 14px 8px 0; font-size: 12px; color: #93A1B5; display: flex; flex-direction: column; gap: 4px">
+<div style="color: #E6EBF2; font-weight: 500; font-size: 13px">Sharma Electronics Pvt Ltd</div>
+<div class="mono">27AABCS1080F1ZN</div>
+<button type="button" style="margin-top: 10px; align-self: flex-start; background: transparent; border: 1px solid #33445E; color: #C9D2DE; border-radius: 6px; padding: 6px 10px; font-size: 12px">Reset demo data</button>
+</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 14px 40px; background: #FFFFFF; border-bottom: 1px solid #E2E6EC">
+<label style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #5B6778">Tax period
+<select style="padding: 7px 10px; border: 1px solid #D5DBE3; border-radius: 6px; background: #FFFFFF; color: #0F1B2D; font-weight: 500"><option>April 2026</option><option>May 2026</option></select>
+</label>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #3D4B5F; background: #F1F3F6; padding: 6px 10px; border-radius: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>As of 16 May 2026</span>
+<span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: #8A3F05; background: #FDF1E3; padding: 6px 12px; border-radius: 6px">GSTR-3B due 20 May · 4 days left</span>
+</header>
+
+<div style="padding: 32px 40px 48px; max-width: 1240px; box-sizing: border-box; width: 100%; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+<div>
+<h1 style="margin: 0; font-size: 24px; font-weight: 600">IMS decisions</h1>
+<p style="margin: 6px 0 0; color: #3D4B5F">Your choices go into the IMS file. Uploading that file on the portal applies them.</p>
+</div>
+<ol aria-label="How decisions reach the portal" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; list-style: none; margin: 0; padding: 0; font-size: 13px; color: #3D4B5F">
+<li style="padding: 6px 10px; border-radius: 6px; background: #E9EDFB; color: #1A3599; font-weight: 500">1 · Decide here</li>
+<li aria-hidden="true" style="color: #93A1B5">→</li>
+<li style="padding: 6px 10px; border-radius: 6px; background: #EEF1F5">2 · Download IMS file</li>
+<li aria-hidden="true" style="color: #93A1B5">→</li>
+<li style="padding: 6px 10px; border-radius: 6px; background: #EEF1F5">3 · Upload it in IMS on the portal</li>
+</ol>
+</div>
+
+<div role="tablist" aria-label="Filter records" style="display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid #E2E6EC">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+<button type="button" role="tab" aria-selected="{{t.selected}}" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}<span style="{{t.countStyle}}">{{t.count}}</span></button>
+</sc-for>
+</div>
+
+<section style="background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; overflow-x: auto">
+<div style="min-width: 1040px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid #E2E6EC">
+<div style="font-size: 13px; color: #3D4B5F">{{tabHint}}</div>
+<sc-if value="{{showAcceptAll}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{acceptAll}}" style="background: #2446C7; color: #FFFFFF; border: none; border-radius: 6px; padding: 8px 14px; font-weight: 500">Accept all {{counts.ready}}</button>
+</sc-if>
+</div>
+<div style="display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 240px 40px; gap: 12px; padding: 10px 20px; font-size: 12px; font-weight: 500; color: #5B6778; border-bottom: 1px solid #E2E6EC">
+<div>Supplier</div><div>Invoice</div><div>Issue</div><div style="text-align: right">Books tax</div><div style="text-align: right">Portal tax</div><div>Recommended</div><div>Your decision</div><div></div>
+</div>
+<sc-if value="{{isEmpty}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 40px 20px; text-align: center; color: #5B6778">{{emptyText}}</div>
+</sc-if>
+<sc-for list="{{visible}}" as="r" hint-placeholder-count="4">
+<div style="border-bottom: 1px solid #EEF1F4">
+<div style="display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 240px 40px; gap: 12px; align-items: center; padding: 14px 20px">
+<div><div style="font-weight: 500">{{r.supplier}}</div><div class="mono" style="font-size: 12px; color: #5B6778">{{r.gstin}}</div></div>
+<div><div class="mono" style="font-size: 13px">{{r.inv}}</div><div style="font-size: 12px; color: #5B6778">{{r.date}}</div></div>
+<div><span style="{{r.issueStyle}}">{{r.issue}}</span></div>
+<div class="num" style="text-align: right">{{r.booksTax}}</div>
+<div class="num" style="text-align: right">{{r.portalTax}}</div>
+<div><span style="{{r.recStyle}}">{{r.recLabel}}</span><sc-if value="{{r.isOverridden}}" hint-placeholder-val="{{ false }}"><div style="font-size: 12px; color: #5B6778; margin-top: 4px">You chose {{r.decLabel}}</div></sc-if></div>
+<div role="group" aria-label="Decision" style="display: flex; gap: 6px">
+<button type="button" onClick="{{r.pickA}}" aria-pressed="{{r.isA}}" style="{{r.aStyle}}">Accept</button>
+<button type="button" onClick="{{r.pickR}}" aria-pressed="{{r.isR}}" style="{{r.rStyle}}">Reject</button>
+<button type="button" onClick="{{r.pickP}}" aria-pressed="{{r.isP}}" style="{{r.pStyle}}">Pending</button>
+</div>
+<button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.isOpen}}" aria-label="Show details" style="width: 32px; height: 32px; border: 1px solid #D5DBE3; background: #FFFFFF; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #3D4B5F"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{r.chevron}}"></path></svg></button>
+</div>
+<sc-if value="{{r.isOpen}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px; padding: 4px 20px 20px">
+<div style="flex: 1 1 340px; background: #F7F8FA; border-radius: 8px; padding: 14px 16px; font-size: 13px">
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px">
+<div></div><div style="color: #5B6778; font-size: 12px">Your books</div><div style="color: #5B6778; font-size: 12px">Portal</div>
+<div style="color: #5B6778">Invoice no.</div><div class="mono">{{r.inv}}</div><div class="mono">{{r.portalInv}}</div>
+<div style="color: #5B6778">Taxable</div><div class="num">{{r.booksTaxable}}</div><div class="num">{{r.portalTaxable}}</div>
+<div style="color: #5B6778">Tax</div><div class="num">{{r.booksTax}}</div><div class="num">{{r.portalTax}}</div>
+</div>
+<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #E2E6EC; color: #3D4B5F">{{r.why}}</div>
+</div>
+<sc-if value="{{r.hasMsg}}" hint-placeholder-val="{{ true }}">
+<div style="flex: 1.3 1 420px; border: 1px solid #E2E6EC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline">
+<div style="font-weight: 600; font-size: 13px">Message to supplier</div>
+<sc-if value="{{r.hasContact}}" hint-placeholder-val="{{ true }}"><div style="font-size: 13px; color: #3D4B5F">{{r.contactName}} · <span class="num">{{r.phone}}</span> · {{r.email}}</div></sc-if>
+<sc-if value="{{r.noContact}}" hint-placeholder-val="{{ false }}"><div style="font-size: 13px; color: #A11E14">No contact on file: not in your purchase register</div></sc-if>
+</div>
+<div style="background: #F7F8FA; border-radius: 6px; padding: 12px; font-size: 13px; line-height: 1.55; color: #22303F">{{r.msg}}</div>
+<div style="display: flex; gap: 8px">
+<button type="button" style="background: #FFFFFF; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px">Copy</button>
+<button type="button" style="background: #FFFFFF; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px">WhatsApp</button>
+<button type="button" style="background: #FFFFFF; border: 1px solid #D5DBE3; border-radius: 6px; padding: 7px 12px; font-size: 13px">Email</button>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 16px 20px">
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="{{footerDot}}"></span>
+<div><div style="font-weight: 500">{{footerTitle}}</div><div style="font-size: 13px; color: #5B6778">{{footerText}}</div></div>
+</div>
+<button type="button" style="background: #2446C7; color: #FFFFFF; border: none; border-radius: 8px; padding: 11px 18px; font-weight: 500">Download IMS file</button>
+</div>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1280}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'needs', open: 'national', dec: {} };
+  }
+  renderVals() {
+    const s = this.state;
+    const chip = {
+      ok: 'font-size:12px;font-weight:500;color:#11724A;background:#E8F5EE;padding:3px 8px;border-radius:4px',
+      warn: 'font-size:12px;font-weight:500;color:#8A3F05;background:#FDF1E3;padding:3px 8px;border-radius:4px',
+      bad: 'font-size:12px;font-weight:500;color:#A11E14;background:#FDECEA;padding:3px 8px;border-radius:4px',
+      info: 'font-size:12px;font-weight:500;color:#1D4F8C;background:#EAF2FB;padding:3px 8px;border-radius:4px'
+    };
+    const base = [
+      { id: 'mahavir', supplier: 'Mahavir Sales', gstin: '24AAHFM6631Q1Z2', inv: 'MS-778', portalInv: 'MS-778', date: '08 Apr 2026', issue: 'Lower on portal', kind: 'warn', booksTaxable: '₹40,000', portalTaxable: '₹35,000', booksTax: '₹7,200', portalTax: '₹6,300', rec: 'A', recLabel: 'Accept ₹6,300', recKind: 'ok', needs: true, why: 'The portal shows less than your bill. Accept what is there now and ask the supplier for the ₹900 difference.', contactName: 'Suresh Mehta', phone: '+91 98250 77413', email: 'accounts@mahavirsales.in', msg: 'Hello Suresh ji, invoice MS-778 (08 Apr 2026) shows ₹35,000 taxable on the GST portal, but our bill is ₹40,000. We have accepted ₹6,300 tax for now. Please report the remaining ₹5,000 taxable (₹900 tax) through GSTR-1A. Thank you, Sharma Electronics' },
+      { id: 'national', supplier: 'National Supply Co', gstin: '27AAICN5590R1Z7', inv: 'NS-512', portalInv: 'NS-512', date: '10 Apr 2026', issue: 'Higher on portal', kind: 'warn', booksTaxable: '₹25,000', portalTaxable: '₹28,000', booksTax: '₹4,500', portalTax: '₹5,040', rec: 'R', recLabel: 'Reject', recKind: 'bad', needs: true, why: 'The portal shows more than your bill. Accepting would claim credit you are not owed, so reject and ask for a correction.', contactName: 'Rakesh Jain', phone: '+91 98220 41587', email: 'rakesh@nationalsupply.co.in', msg: 'Hello Rakesh ji, invoice NS-512 (10 Apr 2026) shows ₹28,000 taxable and ₹5,040 tax on the GST portal, but our books show ₹25,000 and ₹4,500. We have rejected it in IMS. Please correct it through GSTR-1A so we can accept it. Thank you, Sharma Electronics' },
+      { id: 'balaji', supplier: 'Balaji Agencies', gstin: '33AAKFB1123S1Z4', inv: 'BA/19', portalInv: 'BA/91', date: '12 Apr 2026', issue: 'Invoice no. differs', kind: 'warn', booksTaxable: '₹15,000', portalTaxable: '₹15,000', booksTax: '₹2,700', portalTax: '₹2,700', rec: 'A', recLabel: 'Accept if same bill', recKind: 'info', needs: true, why: 'Same supplier, date and amount, but the number is BA/91 on the portal. Check your bill; if it is the same one, accept.', contactName: 'K. Balaji', phone: '+91 94440 18265', email: 'accounts@balajiagencies.in', msg: 'Hello, invoice BA/19 (12 Apr 2026) appears on the GST portal as BA/91. Please confirm it is the same bill and correct the number in GSTR-1A. Thank you, Sharma Electronics' },
+      { id: 'reliable', supplier: 'Reliable Traders', gstin: '27AARFR4408Y1Z2', inv: '—', portalInv: 'RT-660', date: '25 Apr 2026', issue: 'Not in your books', kind: 'bad', booksTaxable: '—', portalTaxable: '₹30,000', booksTax: '—', portalTax: '₹5,400', rec: 'R', recLabel: 'Reject', recKind: 'bad', needs: true, why: 'This invoice is on the portal but not in your purchase register. If no goods came in, reject it, or it will be accepted on 20 May.', contactName: '', phone: '', email: '', msg: 'Hello, invoice RT-660 (25 Apr 2026, ₹5,400 tax) is on the GST portal under our GSTIN, but we have no purchase against it. We have rejected it in IMS. Please check and remove it. Sharma Electronics' },
+      { id: 'orbit', supplier: 'Orbit Distributors', gstin: '27AAECO4512K1Z3', inv: 'INV-101', portalInv: 'INV-101', date: '03 Apr 2026', issue: 'Matches', kind: 'ok', booksTaxable: '₹50,000', portalTaxable: '₹50,000', booksTax: '₹9,000', portalTax: '₹9,000', rec: 'A', recLabel: 'Accept', recKind: 'ok', needs: false, why: 'Supplier, number, date and amounts all match.', contactName: 'Vikas Shah', phone: '+91 98230 11842', email: 'vikas@orbitdist.in', msg: '' },
+      { id: 'ganesh', supplier: 'Ganesh Traders', gstin: '27ABFPG7781M1Z9', inv: 'GT/0045', portalInv: 'GT/0045', date: '05 Apr 2026', issue: 'Matches', kind: 'ok', booksTaxable: '₹20,000', portalTaxable: '₹20,000', booksTax: '₹3,600', portalTax: '₹3,600', rec: 'A', recLabel: 'Accept', recKind: 'ok', needs: false, why: 'Supplier, number, date and amounts all match.', contactName: 'Ganesh Kale', phone: '+91 98904 55120', email: 'ganesh@ganeshtraders.in', msg: '' },
+      { id: 'laxmi', supplier: 'Laxmi Components', gstin: '29AAFCL2210P1Z5', inv: 'LC-221', portalInv: 'LC-221', date: '07 Apr 2026', issue: 'Matches', kind: 'ok', booksTaxable: '₹30,000', portalTaxable: '₹30,000', booksTax: '₹5,400', portalTax: '₹5,400', rec: 'A', recLabel: 'Accept', recKind: 'ok', needs: false, why: 'Supplier, number, date and amounts all match.', contactName: 'Priya Rao', phone: '+91 99450 32671', email: 'priya@laxmicomponents.in', msg: '' },
+      { id: 'unity', supplier: 'Unity Distributors', gstin: '07AAPCU2219W1Z0', inv: 'UD-905', portalInv: 'UD-905', date: '20 Apr 2026', issue: '₹0.60 rounding', kind: 'ok', booksTaxable: '₹10,000', portalTaxable: '₹10,000', booksTax: '₹1,800.00', portalTax: '₹1,800.60', rec: 'A', recLabel: 'Accept', recKind: 'ok', needs: false, why: 'Tax differs by ₹0.60, inside the ₹1 tolerance. Claim ₹1,800.00, the lower figure.', contactName: 'Amit Gupta', phone: '+91 98110 64209', email: 'amit@unitydist.in', msg: '' },
+      { id: 'crystal', supplier: 'Crystal Enterprises', gstin: '27AAQFC6672X1Z5', inv: 'CE-CN-04', portalInv: 'CE-CN-04', date: '22 Apr 2026 · credit note', issue: 'Matches', kind: 'ok', booksTaxable: '−₹5,000', portalTaxable: '−₹5,000', booksTax: '−₹900', portalTax: '−₹900', rec: 'A', recLabel: 'Accept', recKind: 'ok', needs: false, why: 'Credit note matches. Accepting it reduces your credit by ₹900, as your books expect.', contactName: 'Neha Joshi', phone: '+91 97663 20984', email: 'neha@crystalent.in', msg: '' }
+    ];
+    const names = { A: 'Accept', R: 'Reject', P: 'Pending' };
+    const selStyle = {
+      A: 'background:#11724A;color:#FFFFFF;border:1px solid #11724A',
+      R: 'background:#B42318;color:#FFFFFF;border:1px solid #B42318',
+      P: 'background:#B4540A;color:#FFFFFF;border:1px solid #B4540A'
+    };
+    const btnBase = 'border-radius:6px;padding:7px 10px;font-size:13px;font-weight:500;flex:1 1 0;';
+    const offStyle = 'background:#FFFFFF;color:#0F1B2D;border:1px solid #D5DBE3';
+    const set = (id, v) => {
+      const dec = Object.assign({}, this.state.dec);
+      if (dec[id] === v) { delete dec[id]; } else { dec[id] = v; }
+      this.setState({ dec: dec });
+    };
+    const rows = base.map((r) => {
+      const d = s.dec[r.id];
+      const status = d ? (d !== r.rec ? 'overridden' : 'decided') : (r.needs ? 'needs' : 'ready');
+      const isOpen = s.open === r.id;
+      return Object.assign({}, r, {
+        status: status,
+        isOverridden: status === 'overridden',
+        decLabel: d ? names[d] : '',
+        issueStyle: chip[r.kind],
+        recStyle: chip[r.recKind],
+        isA: d === 'A', isR: d === 'R', isP: d === 'P',
+        aStyle: btnBase + (d === 'A' ? selStyle.A : offStyle),
+        rStyle: btnBase + (d === 'R' ? selStyle.R : offStyle),
+        pStyle: btnBase + (d === 'P' ? selStyle.P : offStyle),
+        pickA: () => set(r.id, 'A'),
+        pickR: () => set(r.id, 'R'),
+        pickP: () => set(r.id, 'P'),
+        isOpen: isOpen,
+        chevron: isOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6',
+        toggle: () => this.setState({ open: this.state.open === r.id ? null : r.id }),
+        hasMsg: r.msg !== '',
+        hasContact: r.contactName !== '',
+        noContact: r.contactName === ''
+      });
+    });
+    const counts = {
+      ready: rows.filter((r) => r.status === 'ready').length,
+      needs: rows.filter((r) => r.status === 'needs').length,
+      decided: rows.filter((r) => r.status === 'decided' || r.status === 'overridden').length,
+      overridden: rows.filter((r) => r.status === 'overridden').length
+    };
+    const tabDefs = [
+      { key: 'ready', label: 'Ready to accept', hint: 'These match your books. Accept them in one go.', empty: 'Nothing left to accept.' },
+      { key: 'needs', label: 'Needs a decision', hint: 'These differ from your books. Open a row to see why.', empty: 'All caught up. Nothing needs a decision.' },
+      { key: 'decided', label: 'Decided', hint: 'Everything you have decided. It all goes into the IMS file.', empty: 'Nothing decided yet.' },
+      { key: 'overridden', label: 'Overridden', hint: 'Decisions that differ from what we recommended.', empty: 'No overrides. You followed every recommendation.' }
+    ];
+    const tabs = tabDefs.map((t) => {
+      const sel = s.tab === t.key;
+      return {
+        label: t.label,
+        count: counts[t.key],
+        selected: sel,
+        pick: () => this.setState({ tab: t.key }),
+        style: 'display:flex;align-items:center;gap:8px;background:none;border:none;border-bottom:2px solid ' + (sel ? '#2446C7' : 'transparent') + ';margin-bottom:-1px;padding:10px 14px;font-weight:' + (sel ? '600' : '500') + ';color:' + (sel ? '#0F1B2D' : '#3D4B5F'),
+        countStyle: 'font-size:12px;padding:1px 8px;border-radius:999px;background:' + (sel ? '#E9EDFB' : '#EEF1F5') + ';color:' + (sel ? '#1A3599' : '#3D4B5F')
+      };
+    });
+    const current = tabDefs.find((t) => t.key === s.tab);
+    const visible = rows.filter((r) => s.tab === 'decided' ? (r.status === 'decided' || r.status === 'overridden') : r.status === s.tab);
+    const undecided = counts.ready + counts.needs;
+    return {
+      counts: counts,
+      tabs: tabs,
+      visible: visible,
+      tabHint: current.hint,
+      isEmpty: visible.length === 0,
+      emptyText: current.empty,
+      showAcceptAll: s.tab === 'ready' && counts.ready > 0,
+      acceptAll: () => {
+        const dec = Object.assign({}, this.state.dec);
+        rows.filter((r) => r.status === 'ready').forEach((r) => { dec[r.id] = 'A'; });
+        this.setState({ dec: dec });
+      },
+      footerTitle: undecided === 0 ? 'Everything is decided' : undecided + ' records not decided yet',
+      footerText: undecided === 0 ? 'Download the IMS file and upload it in IMS on the GST portal.' : 'Undecided records go to the portal as No action and are accepted automatically on 20 May.',
+      footerDot: 'flex:0 0 10px;height:10px;border-radius:50%;background:' + (undecided === 0 ? '#1F8A5B' : '#D9822B')
+    };
+  }
+}
+</script>
+</body>
+</html>

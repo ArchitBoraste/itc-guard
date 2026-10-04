@@ -1,0 +1,166 @@
+
+<helmet style="display: none;">
+
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;color:#0F1B2D;font-size:14px;background:#F5F6F8}
+a{color:#2446C7}a:hover{color:#1A3599}
+button,select,input{font-family:inherit;font-size:14px}
+button{cursor:pointer}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-weight:500;font-size:12px;color:#5B6778;padding:10px 12px;border-bottom:1px solid #E2E6EC;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EEF1F4;vertical-align:middle}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 1100px; background: #F5F6F8">
+
+<nav aria-label="Main" style="flex: 0 0 232px; background: #0F1B2D; color: #C9D2DE; display: flex; flex-direction: column; gap: 2px; padding: 20px 14px; box-sizing: border-box">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px">
+<div style="width: 34px; height: 34px; border-radius: 8px; background: #2446C7; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px">IG</div>
+<div><div style="color: #FFFFFF; font-weight: 600; font-size: 15px">ITC Guard</div><div style="font-size: 12px; color: #93A1B5">GST credit reconciliation</div></div>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"></path></svg>Upload</a>
+<a href="Overview.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>Overview</a>
+<a href="Decisions.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"></path></svg>IMS decisions<span style="margin-left: auto; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: #B4540A; color: #FFFFFF">4</span></a>
+<a href="NotFiled.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Not filed yet<span style="margin-left: auto; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: #33445E; color: #FFFFFF">3</span></a>
+<a href="Corrections.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>Corrections</a>
+<a href="Suppliers.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #FFFFFF; background: #1E2D44; text-decoration: none; font-weight: 500"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"></path></svg>Suppliers</a>
+<div style="flex-grow: 1; min-height: 24px"></div>
+<a href="#help" style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; color: #C9D2DE; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01"></path></svg>Help</a>
+<div style="border-top: 1px solid #24344D; margin-top: 10px; padding: 14px 8px 0; font-size: 12px; color: #93A1B5; display: flex; flex-direction: column; gap: 4px">
+<div style="color: #E6EBF2; font-weight: 500; font-size: 13px">Sharma Electronics Pvt Ltd</div>
+<div class="mono">27AABCS1080F1ZN</div>
+<button type="button" style="margin-top: 10px; align-self: flex-start; background: transparent; border: 1px solid #33445E; color: #C9D2DE; border-radius: 6px; padding: 6px 10px; font-size: 12px">Reset demo data</button>
+</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 14px 40px; background: #FFFFFF; border-bottom: 1px solid #E2E6EC">
+<label style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #5B6778">Tax period
+<select style="padding: 7px 10px; border: 1px solid #D5DBE3; border-radius: 6px; background: #FFFFFF; color: #0F1B2D; font-weight: 500"><option>April 2026</option><option>May 2026</option></select>
+</label>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #3D4B5F; background: #F1F3F6; padding: 6px 10px; border-radius: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>As of 16 May 2026</span>
+<span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: #8A3F05; background: #FDF1E3; padding: 6px 12px; border-radius: 6px">GSTR-3B due 20 May · 4 days left</span>
+</header>
+
+<div style="padding: 32px 40px 48px; max-width: 1240px; box-sizing: border-box; width: 100%; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+<div>
+<h1 style="margin: 0; font-size: 24px; font-weight: 600">Suppliers</h1>
+<p style="margin: 6px 0 0; color: #3D4B5F">12 suppliers this period, riskiest first.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
+<label style="position: relative; display: block"><span style="position: absolute; left: -9999px">Search suppliers</span><input type="search" placeholder="Search name or GSTIN" style="width: 260px; padding: 9px 12px; border: 1px solid rgb(213, 219, 227); border-radius: 6px; background: rgb(255, 255, 255);"></label>
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #3D4B5F"><input type="checkbox" style="width: 16px; height: 16px;">Only with issues</label>
+</div>
+</div>
+
+<section style="background: #FFFFFF; border: 1px solid #E2E6EC; border-radius: 10px; padding: 4px 8px; overflow-x: auto">
+<table style="min-width: 1040px">
+<thead><tr><th>Supplier</th><th>Contact</th><th>Filing</th><th>This period</th><th style="text-align: right">Tax</th><th>Risk</th></tr></thead>
+<tbody>
+<tr>
+<td><div style="font-weight: 500">Reliable Traders</div><div class="mono" style="font-size: 12px; color: #5B6778">27AARFR4408Y1Z2</div></td>
+<td style="color: #5B6778; font-size: 13px">Not in your purchase register</td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 9 May</div></td>
+<td>1 invoice not in your books</td>
+<td class="num">₹5,400</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #FFFFFF; background: #B42318; padding: 3px 9px; border-radius: 4px">High</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">National Supply Co</div><div class="mono" style="font-size: 12px; color: #5B6778">27AAICN5590R1Z7</div></td>
+<td><div>Rakesh Jain · <span class="num">+91 98220 41587</span></div><div style="font-size: 12px; color: #5B6778">rakesh@nationalsupply.co.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 10 May</div></td>
+<td>Amount higher than your bill</td>
+<td class="num">₹4,500</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #8A3F05; background: #FDF1E3; padding: 3px 9px; border-radius: 4px">Medium</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Patel Systems</div><div class="mono" style="font-size: 12px; color: #5B6778">24AALCP8842T1Z6</div></td>
+<td><div>Meena Patel · <span class="num">+91 97654 22310</span></div><div style="font-size: 12px; color: #5B6778">accounts@patelsystems.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #A11E14">Not filed</div></td>
+<td>1 invoice missing</td>
+<td class="num">₹3,240</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #8A3F05; background: #FDF1E3; padding: 3px 9px; border-radius: 4px">Medium</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Krishna Enterprises</div><div class="mono" style="font-size: 12px; color: #5B6778">27AANPK9054V1Z8</div></td>
+<td><div>Kiran Kulkarni · <span class="num">+91 98500 39871</span></div><div style="font-size: 12px; color: #5B6778">kiran@krishnaent.in</div></td>
+<td><div style="display: flex; align-items: center; gap: 6px">Quarterly · set by you<button type="button" aria-label="Change filing scheme" style="background: none; border: none; padding: 2px; color: #2446C7; display: flex"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button></div><div style="font-size: 12px; color: #A11E14">Not filed</div></td>
+<td>1 invoice missing</td>
+<td class="num">₹2,160</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #8A3F05; background: #FDF1E3; padding: 3px 9px; border-radius: 4px">Medium</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Anand Electricals</div><div class="mono" style="font-size: 12px; color: #5B6778">27AAMFA3067U1Z1</div></td>
+<td><div>Anil Deshmukh · <span class="num">+91 98605 71136</span></div><div style="font-size: 12px; color: #5B6778">anil@anandelectricals.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #8A3F05">Saved, not filed</div></td>
+<td>1 invoice not filed</td>
+<td class="num">₹3,960</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #8A3F05; background: #FDF1E3; padding: 3px 9px; border-radius: 4px">Medium</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Mahavir Sales</div><div class="mono" style="font-size: 12px; color: #5B6778">24AAHFM6631Q1Z2</div></td>
+<td><div>Suresh Mehta · <span class="num">+91 98250 77413</span></div><div style="font-size: 12px; color: #5B6778">accounts@mahavirsales.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 8 May</div></td>
+<td>Amount lower than your bill</td>
+<td class="num">₹7,200</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Balaji Agencies</div><div class="mono" style="font-size: 12px; color: #5B6778">33AAKFB1123S1Z4</div></td>
+<td><div>K. Balaji · <span class="num">+91 94440 18265</span></div><div style="font-size: 12px; color: #5B6778">accounts@balajiagencies.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 9 May</div></td>
+<td>Invoice number differs</td>
+<td class="num">₹2,700</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Orbit Distributors</div><div class="mono" style="font-size: 12px; color: #5B6778">27AAECO4512K1Z3</div></td>
+<td><div>Vikas Shah · <span class="num">+91 98230 11842</span></div><div style="font-size: 12px; color: #5B6778">vikas@orbitdist.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 6 May</div></td>
+<td style="color: #5B6778">No issues</td>
+<td class="num">₹9,000</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Laxmi Components</div><div class="mono" style="font-size: 12px; color: #5B6778">29AAFCL2210P1Z5</div></td>
+<td><div>Priya Rao · <span class="num">+91 99450 32671</span></div><div style="font-size: 12px; color: #5B6778">priya@laxmicomponents.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 9 May</div></td>
+<td style="color: #5B6778">No issues</td>
+<td class="num">₹5,400</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Ganesh Traders</div><div class="mono" style="font-size: 12px; color: #5B6778">27ABFPG7781M1Z9</div></td>
+<td><div>Ganesh Kale · <span class="num">+91 98904 55120</span></div><div style="font-size: 12px; color: #5B6778">ganesh@ganeshtraders.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 7 May</div></td>
+<td style="color: #5B6778">No issues</td>
+<td class="num">₹3,600</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Unity Distributors</div><div class="mono" style="font-size: 12px; color: #5B6778">07AAPCU2219W1Z0</div></td>
+<td><div>Amit Gupta · <span class="num">+91 98110 64209</span></div><div style="font-size: 12px; color: #5B6778">amit@unitydist.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 8 May</div></td>
+<td style="color: #5B6778">₹0.60 rounding, accepted</td>
+<td class="num">₹1,800</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+<tr>
+<td><div style="font-weight: 500">Crystal Enterprises</div><div class="mono" style="font-size: 12px; color: #5B6778">27AAQFC6672X1Z5</div></td>
+<td><div>Neha Joshi · <span class="num">+91 97663 20984</span></div><div style="font-size: 12px; color: #5B6778">neha@crystalent.in</div></td>
+<td><div>Monthly (assumed)</div><div style="font-size: 12px; color: #5B6778">Filed 10 May</div></td>
+<td style="color: #5B6778">No issues</td>
+<td class="num">−₹900</td>
+<td><span style="font-size: 12px; font-weight: 600; color: #11724A; background: #E8F5EE; padding: 3px 9px; border-radius: 4px">Low</span></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+</div>
+</main>
+</div>
