@@ -312,6 +312,7 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
   const [clearError, setClearError] = useState(null);
   const [demoFiles, setDemoFiles] = useState(null);
   const [demoOpen, setDemoOpen] = useState(false);
+  const [allPeriods, setAllPeriods] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -476,8 +477,13 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
 
   // --- upload history ---------------------------------------------------------------
 
-  const history = (uploads ?? []).filter((upload) => upload.committed_at).sort((a, b) => b.id - a.id);
-  const byId = new Map(history.map((upload) => [upload.id, upload]));
+  // The period in view, unless the trader asks for every period.
+  const allUploads = (uploads ?? []).filter((upload) => upload.committed_at).sort((a, b) => b.id - a.id);
+  const inPeriod = allUploads.filter((upload) => upload.tax_period === period);
+  const otherPeriods = allUploads.length - inPeriod.length;
+  const everyPeriod = allPeriods || !period;
+  const history = everyPeriod ? allUploads : inPeriod;
+  const byId = new Map(allUploads.map((upload) => [upload.id, upload]));
   const typeOf = (upload) => {
     if (upload.kind === 'IMS') return `IMS${upload.snapshot_date ? ` · as of ${formatDate(upload.snapshot_date)}` : ''}`;
     return upload.kind === 'GSTR2B' ? 'GSTR-2B' : 'Purchase register';
@@ -593,9 +599,27 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
       <div className="split">
         <section className="card card-table history" aria-labelledby="history-title">
           <div className="card-head">
-            <h2 className="card-title is-small" id="history-title">
-              Upload history
-            </h2>
+            <div>
+              <h2 className="card-title is-small" id="history-title">
+                Upload history
+              </h2>
+              {period ? (
+                <div className="caption" data-testid="history-scope">
+                  {everyPeriod ? 'All periods' : formatPeriod(period)}
+                </div>
+              ) : null}
+            </div>
+            {period && otherPeriods > 0 ? (
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={allPeriods}
+                  onChange={(event) => setAllPeriods(event.target.checked)}
+                  data-testid="history-all-periods"
+                />
+                Show all periods
+              </label>
+            ) : null}
           </div>
           {uploads === null ? (
             <Loading label="Reading upload history" rows={2} />
@@ -610,7 +634,10 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
               columns={[
                 { key: 'file', header: 'File', className: 'cell-mono', render: (upload) => upload.original_filename },
                 { key: 'type', header: 'Type', nowrap: true, render: typeOf },
-                { key: 'period', header: 'Period', nowrap: true, render: (upload) => formatPeriodShort(upload.tax_period) },
+                // One period's list needs no Period column.
+                ...(everyPeriod
+                  ? [{ key: 'period', header: 'Period', nowrap: true, render: (upload) => formatPeriodShort(upload.tax_period) }]
+                  : []),
                 {
                   key: 'rows',
                   header: 'Rows',
@@ -649,6 +676,10 @@ export function UploadScreen({ period, inventory, calendar, run, perVisitor, dat
                 }
               ]}
             />
+          ) : allUploads.length ? (
+            <EmptyState title={`No files for ${formatPeriod(period)}`} testId="empty-history">
+              Files for other periods show under Show all periods.
+            </EmptyState>
           ) : (
             <EmptyState title="No files yet" testId="empty-history">
               Files you upload appear here.

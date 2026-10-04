@@ -707,7 +707,8 @@ the download's date, filed against saved) and GSTR-2B, locked until the 14th. A 
 file says why on its card. An unrecognised register opens the column mapper, pre-filled
 from the trader's own column titles (guesses are labelled as such), with the optional
 contact and filing-frequency columns. Reconcile once; after that every upload rebuilds
-the period and the button reads "See results". Upload history with Remove, the demo
+the period and the button reads "See results". Upload history for the period in view
+(**Show all periods** for the rest) with Remove, the demo
 files, and **Clear all data** under Accepted formats, behind a confirm dialog.
 
 **Overview** — Credit in your books, Ready to claim, Needs your decision and Not filed by

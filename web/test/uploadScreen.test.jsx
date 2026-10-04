@@ -290,6 +290,48 @@ describe('upload history', () => {
   });
 });
 
+describe('upload history', () => {
+  const JULY_REGISTER = {
+    id: 0, kind: 'PURCHASE_REGISTER', original_filename: 'purchase_register_jul26.xlsx', tax_period: '2026-07',
+    snapshot_date: null, row_count: 9, committed_at: '2026-08-07 04:35:00', created_at: '2026-08-07 04:35:00',
+    replaced_by_upload_id: null
+  };
+  const rows = () => within(screen.getByTestId('upload-history')).getAllByRole('row').slice(1);
+
+  it("lists the selected period's files only, until asked for every period", async () => {
+    api.listUploads.mockResolvedValue([...UPLOADS_7SEP, JULY_REGISTER]);
+    renderUpload();
+    await screen.findByTestId('upload-history');
+    expect(screen.getByTestId('history-scope')).toHaveTextContent('August 2026');
+    expect(rows()).toHaveLength(3);
+    expect(within(screen.getByTestId('upload-history')).queryByText('purchase_register_jul26.xlsx')).toBeNull();
+    expect(within(screen.getByTestId('upload-history')).queryByRole('columnheader', { name: 'Period' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show all periods' }));
+    expect(screen.getByTestId('history-scope')).toHaveTextContent('All periods');
+    expect(rows()).toHaveLength(4);
+    expect(within(screen.getByTestId('upload-history')).getByRole('columnheader', { name: 'Period' })).toBeInTheDocument();
+    expect(rows()[3]).toHaveTextContent('Jul 2026');
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show all periods' }));
+    expect(rows()).toHaveLength(3);
+  });
+
+  it('offers no toggle when every file is for the period in view', async () => {
+    renderUpload();
+    await screen.findByTestId('upload-history');
+    expect(screen.queryByRole('checkbox', { name: 'Show all periods' })).toBeNull();
+  });
+
+  it('says when the period has no files of its own', async () => {
+    api.listUploads.mockResolvedValue([JULY_REGISTER]);
+    renderUpload({ inventory: null });
+    expect(await screen.findByTestId('empty-history')).toHaveTextContent('No files for August 2026');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show all periods' }));
+    expect(within(screen.getByTestId('upload-history')).getByText('purchase_register_jul26.xlsx')).toBeInTheDocument();
+  });
+});
+
 describe('Clear all data', () => {
   it('asks first, then empties the workspace', async () => {
     api.clearWorkspace.mockResolvedValue({});
