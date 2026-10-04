@@ -67,13 +67,12 @@ dc ps
 sleep 20
 curl -s https://itcguard.duckdns.org/health; echo
 dc logs api --since 2m | grep -E 'listening|\[mail\]'
-dc exec api node /app/tools/mail-selftest.js
+dc exec api node /app/tools/mail-selftest.js <an allowlisted address>
 ```
 
 Check: `/health` is `{"ok":true,"db":true}`; the log says `[mail] polling the inbox every
 30 s` and no `poll failed`; the self-test prints `ok` for SMTP, IMAP and Gemini and sends
-one `[ITC Guard #…] Self-test` mail to MAIL_SELFTEST_TO (it must be on the
-allowlist; pass another allowlisted address as an argument otherwise). Then in a browser:
+one `[ITC Guard #…] Self-test` mail to that address. Then in a browser:
 upload the demo-local August register and IMS (as of 11 Sep), IMS decisions → NS-612 →
 Email opens a dialog, not your mail app.
 

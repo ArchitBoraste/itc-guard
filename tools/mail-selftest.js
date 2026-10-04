@@ -1,11 +1,11 @@
 // mail-selftest.js — checks supplier email end to end, without the database.
 //
 //   npm run mail:selftest [-- someone@example.com]
-//   (in the prod container: node /app/tools/mail-selftest.js)
+//   (in the prod container: node /app/tools/mail-selftest.js someone@example.com)
 //
-// 1. SMTP: logs in and sends one tagged mail to the address (default
-//    MAIL_SELFTEST_TO), which must be on EMAIL_ALLOWLIST. Prints the
-//    thread ref it carries.
+// 1. SMTP: logs in and sends one tagged mail to the address given, else to
+//    MAIL_SELFTEST_TO (set in the gitignored .env, so no real address lives in
+//    the repo). It must be on EMAIL_ALLOWLIST. Prints the thread ref it carries.
 // 2. IMAP: logs in and counts unread mail in INBOX.
 // 3. Gemini: checks a sample reply, when GEMINI_API_KEY is set.
 //
@@ -24,7 +24,6 @@ const apiRequire = createRequire(join(REPO_ROOT, 'api', 'package.json'));
 const nodemailer = apiRequire('nodemailer');
 const { ImapFlow } = apiRequire('imapflow');
 
-const DEFAULT_TO = process.env.MAIL_SELFTEST_TO ?? "";
 const REF_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const ok = (text) => console.log(`  ok    ${text}`);
@@ -103,8 +102,13 @@ async function gemini(mail) {
 
 async function main() {
   const mail = config.mail;
-  const to = (process.argv[2] ?? DEFAULT_TO).trim().toLowerCase();
+  const to = (process.argv[2] ?? process.env.MAIL_SELFTEST_TO ?? '').trim().toLowerCase();
   console.log('ITC Guard mail self-test');
+  if (!to) {
+    bad('no address: npm run mail:selftest -- someone@example.com, or set MAIL_SELFTEST_TO');
+    process.exitCode = 1;
+    return;
+  }
   if (!mail.enabled) {
     bad('SMTP_HOST, SMTP_USER and SMTP_PASS must all be set');
     process.exit(1);
