@@ -39,6 +39,8 @@ FROM deps AS fixtures
 WORKDIR /app
 COPY tools ./tools
 RUN node tools/generate-fixtures.js
+# The live demo's files are committed, not generated; the Upload screen offers them.
+COPY fixtures/demo ./fixtures/demo
 
 # ---- runtime --------------------------------------------------------------
 FROM node:20-alpine AS runtime

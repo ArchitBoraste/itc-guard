@@ -30,8 +30,9 @@
 // the last 6 months" is something a trader can check against their own memory,
 // "risk 0.41" is not.
 //
-// NOTHING IS SENT from here. buildChaseMessage() RETURNS text. No email, no
-// WhatsApp, no integration — the trader copies it and sends it themselves.
+// NOTHING IS SENT from here. The chase messages (services/supplierMessages.js) are
+// RETURNED text. No email, no WhatsApp, no integration — the trader copies it and
+// sends it themselves.
 import { pool } from '../db/pool.js';
 import { BUCKETS, NON_IMS_SECTIONS } from '../matching/buckets.js';
 import {
@@ -51,6 +52,8 @@ import { itcSign } from './totals.js';
 import { loadModel, outOfDistribution, scoreSupplier } from '../risk/score.js';
 import { workspaceAsOf } from './workspaceClock.js';
 import { CONTACT_COLUMNS, contactView, whatsappLink } from './supplierContacts.js';
+import { buildChaseMessage, messageForAlertInvoice, traderNameOf } from './supplierMessages.js';
+import { readWorkspaceGstin } from './workspaceGstin.js';
 
 // How far back the risk model looks. Six months is what the fixtures carry and
 // what a trader can sanity-check from memory.
@@ -699,7 +702,7 @@ async function loadSupplierHistory(orgId, periods) {
 async function loadSupplierMaster(orgId) {
   const [rows] = await pool.query(
     `SELECT s.gstin, s.trade_name, s.legal_name, s.filing_scheme, s.filing_scheme_confidence,
-            s.filing_scheme_reason, ${CONTACT_COLUMNS}
+            s.filing_scheme_reason, s.filing_scheme_source, ${CONTACT_COLUMNS}
        FROM suppliers s
        LEFT JOIN supplier_contacts sc ON sc.org_id = s.org_id AND sc.gstin = s.gstin
       WHERE s.org_id = ?`,
@@ -708,13 +711,15 @@ async function loadSupplierMaster(orgId) {
   return new Map(rows.map((row) => [row.gstin, row]));
 }
 
+// gstin is the workspace's own, the one its files carry (services/workspaceGstin.js).
 async function loadOrg(orgId) {
   const [rows] = await pool.query(
     'SELECT id, gstin, legal_name, trade_name, filer_type FROM organizations WHERE id = ?',
     [orgId]
   );
   if (!rows.length) throw new ServiceError('organization not found', 404, 'not_found');
-  return rows[0];
+  const { gstin } = await readWorkspaceGstin(orgId);
+  return { ...rows[0], gstin };
 }
 
 // ---------------------------------------------------------------------------
@@ -848,6 +853,7 @@ export async function preventiveAlerts(
       filingScheme: scheme,
       filingSchemeConfidence: supplier?.filing_scheme_confidence ?? null,
       filingSchemeReason: supplier?.filing_scheme_reason ?? null,
+      filingSchemeSource: supplier?.filing_scheme_source ?? null,
       cutOffDate: cutOff,
       daysToCutOff: daysRemaining,
       preCutOff,
@@ -875,6 +881,12 @@ export async function preventiveAlerts(
       })
     };
     entry.chaseMessage = buildChaseMessage({ org, supplier: entry, taxPeriod, asOf });
+    // One short message per document, for the row it is shown beside.
+    for (const invoice of invoices) {
+      invoice.message = messageForAlertInvoice({
+        traderName: traderNameOf(org), taxPeriod, supplier: entry, invoice
+      });
+    }
     // The same text, ready to send: null without a mobile number to send it to.
     entry.whatsappUrl = whatsappLink(entry.contact?.phone, entry.chaseMessage);
     suppliers.push(entry);
@@ -1291,167 +1303,6 @@ function describeExposure(exposure) {
     `and ${formatRupeesAscii(Math.abs(creditNotes.itc))} you are still claiming on ` +
     `${creditNotes.count} unreported credit note${creditNotes.count === 1 ? '' : 's'}`
   );
-}
-
-// ---------------------------------------------------------------------------
-// Chase message
-// ---------------------------------------------------------------------------
-
-// Plain text, RETURNED — never sent. There is no email, WhatsApp or SMS
-// integration in this product and there is not meant to be one: the trader owns
-// the relationship, copies the text and sends it however they already talk to
-// this supplier.
-//
-// ASCII ONLY, "Rs." rather than the rupee sign, consistent with the IMS remarks
-// writer. This text gets pasted into WhatsApp, SMS gateways and ERP note fields,
-// any of which may mangle a non-Latin-1 byte, and a garbled invoice number in a
-// chase message is worse than no message at all.
-export function buildChaseMessage({ org, supplier, taxPeriod, asOf }) {
-  const traderName = ascii(org.trade_name ?? org.legal_name ?? '');
-  const lines = [];
-
-  lines.push(`To: ${ascii(supplier.tradeName)} (${supplier.gstin})`);
-  lines.push(`From: ${traderName} (${org.gstin})`);
-  lines.push(
-    `Subject: GSTR-1 for ${monthName(taxPeriod)} - ${supplier.invoiceCount} document(s) pending`
-  );
-  lines.push('');
-  lines.push('Hello,');
-  lines.push('');
-  // The header used to say nothing had reached IMS while the rows underneath it
-  // read "saved on the portal as taxable ... / tax ...". It now describes what is
-  // actually in the list.
-  lines.push(
-    `As of ${formatDate(asOf)}, the following ${monthName(taxPeriod)} document(s) from you ` +
-      `${openingClause(supplier.invoices)}:`
-  );
-  lines.push('');
-
-  supplier.invoices.forEach((invoice, index) => {
-    // The document type is spelled out because a credit note and an invoice ask
-    // the supplier for opposite things, and the two lines were identical.
-    const kind = DOC_TYPE_WORD[invoice.docType] ?? 'document';
-    lines.push(
-      `  ${index + 1}. ${kind} ${ascii(invoice.invoiceNo)}  ` +
-        `dated ${formatDate(invoice.invoiceDate)}  ` +
-        `taxable ${formatRupeesAscii(invoice.taxableValue)}  ` +
-        `tax ${formatRupeesAscii(invoice.totalTax)}`
-    );
-    lines.push(`     ${statusLine(invoice)}`);
-  });
-
-  lines.push('');
-  // Split, never netted. The two directions are different requests: an unreported
-  // INVOICE is credit the trader is owed and has not received; an unreported
-  // CREDIT NOTE is credit the trader is currently claiming and should not be —
-  // until the supplier reports it, the recipient's GSTR-3B overstates its ITC.
-  // Presenting them as one number asked Patel Systems to fix "Rs. 5,577.37",
-  // which was neither document.
-  for (const line of stakeLines(supplier)) lines.push(line);
-  lines.push('');
-
-  if (supplier.preCutOff === false) {
-    // "so the credit is not lost altogether" is an invoice's reason. For a credit
-    // note nothing is lost by delay — the recipient is over-claiming until it is
-    // reported, which is a correctness problem, not a cash-flow one.
-    const creditNotesOnly =
-      supplier.breakdown.creditNotes.count > 0 && supplier.breakdown.otherDocuments.count === 0;
-    lines.push(
-      `Your cut-off for this period was ${formatDate(supplier.cutOffDate)} and it has passed. ` +
-        'A correction now needs GSTR-1A, and it would only reach our GSTR-2B in ' +
-        `${monthName(addMonths(taxPeriod, 1))} - the next tax period, not ` +
-        `${monthName(taxPeriod)}. ` +
-        (creditNotesOnly
-          ? 'Please still report it - until you do, our return overstates the credit we ' +
-            'have taken on it.'
-          : 'Please still report it so the credit is not lost altogether.')
-    );
-  } else {
-    const days = supplier.daysToCutOff;
-    lines.push(
-      `Your GSTR-1 cut-off for this period is ${formatDate(supplier.cutOffDate)}` +
-        (days === 0 ? ' - that is today.' : ` - ${days} day(s) from now.`)
-    );
-    lines.push(
-      'If these are saved and filed by then, the credit reaches our GSTR-2B for ' +
-        `${monthName(taxPeriod)} at no cost to either of us. After that date the fix needs ` +
-        `GSTR-1A and the credit slips to ${monthName(addMonths(taxPeriod, 1))}.`
-    );
-  }
-
-  lines.push('');
-  lines.push('Please confirm once done. Thank you,');
-  lines.push(traderName);
-  lines.push(`GSTIN ${org.gstin}`);
-
-  return ascii(lines.join('\n'));
-}
-
-function statusLine(invoice) {
-  switch (invoice.status) {
-    case ALERT_STATUS.SAVED_VALUE_MISMATCH:
-      return (
-        `saved on the portal as taxable ${formatRupeesAscii(invoice.portalTaxableValue)} / ` +
-        `tax ${formatRupeesAscii(invoice.portalTotalTax)} - please check before filing`
-      );
-    case ALERT_STATUS.SAVED_NOT_FILED:
-      return 'saved but not filed yet - please file it';
-    default:
-      return 'not in the IMS data we have downloaded - please report it';
-  }
-}
-
-const DOC_TYPE_WORD = Object.freeze({
-  INVOICE: 'invoice',
-  DEBIT_NOTE: 'debit note',
-  CREDIT_NOTE: 'credit note'
-});
-
-// True of whatever is actually in the list, rather than of the commonest case.
-function openingClause(invoices) {
-  const unreported = invoices.filter(
-    (invoice) => invoice.status === ALERT_STATUS.NOT_REPORTED
-  ).length;
-  if (unreported === invoices.length) return 'have not yet reached our GST portal data (IMS)';
-  if (unreported === 0) {
-    return 'are saved in our GST portal data (IMS) but have not been filed';
-  }
-  return 'are not yet settled in our GST portal data (IMS) - each line says which';
-}
-
-function stakeLines(supplier) {
-  const { otherDocuments, creditNotes } = supplier.breakdown;
-  const lines = [];
-
-  if (otherDocuments.count) {
-    lines.push(
-      `Input tax credit we are waiting for: ${formatRupeesAscii(Math.abs(otherDocuments.itc))} ` +
-        `across ${otherDocuments.count} document(s).`
-    );
-  }
-  if (creditNotes.count) {
-    lines.push(
-      'Credit we are still claiming and should not be: ' +
-        `${formatRupeesAscii(Math.abs(creditNotes.itc))} across ${creditNotes.count} ` +
-        'credit note(s). Until these are settled our return overstates the input tax ' +
-        'credit we have taken, so please file them even though they reduce what we can claim.'
-    );
-  }
-  if (otherDocuments.count && creditNotes.count) {
-    lines.push(`Total unsettled: ${formatRupeesAscii(supplier.itcAtStake)}.`);
-  }
-  return lines;
-}
-
-// Anything outside printable ASCII is replaced rather than dropped, so a name
-// that was entirely non-Latin does not silently become an empty string.
-function ascii(text) {
-  return String(text ?? '')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[‐-―]/g, '-')
-    .replace(/₹/g, 'Rs.')
-    .replace(/[^\x20-\x7e\n]/g, '?');
 }
 
 // ---------------------------------------------------------------------------

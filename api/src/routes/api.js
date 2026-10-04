@@ -1,3 +1,5 @@
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import {
@@ -191,6 +193,37 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
         rows: upload.parsed
       }))
     });
+  }));
+
+  // The demo's sample files (fixtures/demo, or demo-local with real contacts when
+  // the presenter generated it), so a visitor can download what the demo uploads.
+  router.get('/demo/files', wrap(async (req, res) => {
+    const dir = demoFilesDir();
+    const files = dir
+      ? DEMO_FOLDERS.flatMap((folder) =>
+          existsSync(join(dir, folder))
+            ? readdirSync(join(dir, folder))
+                .filter((name) => DEMO_FILE_NAME.test(name))
+                .sort()
+                .map((name) => ({
+                  folder,
+                  name,
+                  bytes: statSync(join(dir, folder, name)).size,
+                  url: `/api/demo/files/${folder}/${encodeURIComponent(name)}`
+                }))
+            : []
+        )
+      : [];
+    res.json({ files });
+  }));
+
+  router.get('/demo/files/:folder/:name', wrap(async (req, res) => {
+    const dir = demoFilesDir();
+    const { folder, name } = req.params;
+    if (!dir || !DEMO_FOLDERS.includes(folder) || !DEMO_FILE_NAME.test(name) || !existsSync(join(dir, folder, name))) {
+      throw new ServiceError('demo file not found', 404, 'not_found');
+    }
+    res.download(join(dir, folder, name), name);
   }));
 
   // --- uploads -------------------------------------------------------------
@@ -468,6 +501,14 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   }));
 
   return router;
+}
+
+const DEMO_FOLDERS = ['aug', 'sep'];
+const DEMO_FILE_NAME = /^[A-Za-z0-9_.-]+\.(json|xlsx)$/;
+
+function demoFilesDir() {
+  if (!config.fixturesDir) return null;
+  return ['demo-local', 'demo'].map((name) => join(config.fixturesDir, name)).find((path) => existsSync(path)) ?? null;
 }
 
 // A period's deadlines against the workspace date, for the trader's own filer

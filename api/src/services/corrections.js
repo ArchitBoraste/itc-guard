@@ -21,6 +21,7 @@ import { NEEDED, earlierItems, hasArrived } from './carryOver.js';
 import { ServiceError } from './ingest.js';
 import { loadEarlierRows } from './reconcile.js';
 import { contactsByGstin } from './supplierContacts.js';
+import { messageForCorrection, traderNameOf } from './supplierMessages.js';
 import { supplierSchemeMap } from './supplierStats.js';
 import { itcSign } from './totals.js';
 import { displayDate, displayPeriod, workspaceAsOf } from './workspaceClock.js';
@@ -123,13 +124,15 @@ export async function listCorrections(orgId, { taxPeriod }) {
   if (!/^\d{4}-\d{2}$/.test(String(taxPeriod ?? ''))) {
     throw new ServiceError('taxPeriod is required (YYYY-MM)');
   }
-  const [asOf, rows, schemeMap, contacts, [runs]] = await Promise.all([
+  const [asOf, rows, schemeMap, contacts, [runs], [orgs]] = await Promise.all([
     workspaceAsOf(orgId),
     loadEarlierRows(orgId, taxPeriod),
     supplierSchemeMap(orgId),
     contactsByGstin(orgId),
-    pool.query('SELECT id FROM runs WHERE org_id = ? AND tax_period = ?', [orgId, taxPeriod])
+    pool.query('SELECT id FROM runs WHERE org_id = ? AND tax_period = ?', [orgId, taxPeriod]),
+    pool.query('SELECT trade_name, legal_name FROM organizations WHERE id = ?', [orgId])
   ]);
+  const traderName = traderNameOf(orgs[0]);
 
   const open = earlierItems(rows, taxPeriod, {
     materialityTolerancePaise: config.matching.materialityTolerancePaise
@@ -203,6 +206,8 @@ export async function listCorrections(orgId, { taxPeriod }) {
         nextChance: { ...chance, text: chanceText(chance, needed, name) }
       };
     }
+    // A reminder for what is still waiting; nothing to send once it has arrived.
+    view.message = messageForCorrection({ traderName, item: view });
     return view;
   });
 

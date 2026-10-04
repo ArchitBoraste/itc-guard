@@ -42,6 +42,7 @@ import { earlierItems } from './carryOver.js';
 import { rebuildSupplierStats } from './supplierRisk.js';
 import { workspaceAsOf } from './workspaceClock.js';
 import { CONTACT_COLUMNS, contactView } from './supplierContacts.js';
+import { messageForResult } from './supplierMessages.js';
 
 export const RUN_MODES = Object.freeze(['PREVENTIVE', 'REACTIVE']);
 
@@ -575,13 +576,25 @@ export async function reevaluateRuns(orgId) {
 // The normal case is a trader re-downloading IMS weekly into a period whose
 // purchase register was committed weeks ago; treating one dropped file as the
 // whole picture disables the button on exactly that case.
+//
+// `register`, `imsRecords` and `twoB` describe each source the way the Upload
+// screen's cards do: documents, suppliers, note types and contacts on file for
+// the books; filed against saved for IMS.
 export async function listPeriodInventory(orgId) {
   const [books] = await pool.query(
-    'SELECT tax_period, COUNT(*) AS n FROM expected_invoices WHERE org_id = ? GROUP BY tax_period',
+    `SELECT ei.tax_period, COUNT(*) AS n, COUNT(DISTINCT ei.supplier_gstin) AS suppliers,
+            SUM(ei.doc_type = 'INVOICE') AS invoices, SUM(ei.doc_type = 'CREDIT_NOTE') AS credit_notes,
+            SUM(ei.doc_type = 'DEBIT_NOTE') AS debit_notes,
+            COUNT(DISTINCT CASE WHEN sc.gstin IS NOT NULL THEN ei.supplier_gstin END) AS contacts
+       FROM expected_invoices ei
+       LEFT JOIN supplier_contacts sc ON sc.org_id = ei.org_id AND sc.gstin = ei.supplier_gstin
+      WHERE ei.org_id = ?
+      GROUP BY ei.tax_period`,
     [orgId]
   );
   const [portal] = await pool.query(
-    `SELECT tax_period, source, COUNT(*) AS n
+    `SELECT tax_period, source, COUNT(*) AS n, COUNT(DISTINCT supplier_gstin) AS suppliers,
+            SUM(filing_status = 'FILED') AS filed, SUM(filing_status = 'SAVED') AS saved
        FROM portal_records WHERE org_id = ? AND absent_since IS NULL
       GROUP BY tax_period, source`,
     [orgId]
@@ -592,7 +605,8 @@ export async function listPeriodInventory(orgId) {
   const entry = (taxPeriod) => {
     if (!periods.has(taxPeriod)) {
       periods.set(taxPeriod, {
-        taxPeriod, books: 0, ims: 0, gstr2b: 0, hasBooks: false, hasPortal: false, runId: null
+        taxPeriod, books: 0, ims: 0, gstr2b: 0, hasBooks: false, hasPortal: false, runId: null,
+        register: null, imsRecords: null, twoB: null
       });
     }
     return periods.get(taxPeriod);
@@ -602,11 +616,29 @@ export async function listPeriodInventory(orgId) {
     const period = entry(row.tax_period);
     period.books = Number(row.n);
     period.hasBooks = period.books > 0;
+    period.register = {
+      documents: Number(row.n),
+      suppliers: Number(row.suppliers),
+      invoices: Number(row.invoices ?? 0),
+      creditNotes: Number(row.credit_notes ?? 0),
+      debitNotes: Number(row.debit_notes ?? 0),
+      contacts: Number(row.contacts ?? 0)
+    };
   }
   for (const row of portal) {
     const period = entry(row.tax_period);
-    if (row.source === 'IMS') period.ims = Number(row.n);
-    else period.gstr2b = Number(row.n);
+    if (row.source === 'IMS') {
+      period.ims = Number(row.n);
+      period.imsRecords = {
+        records: Number(row.n),
+        suppliers: Number(row.suppliers),
+        filed: Number(row.filed ?? 0),
+        saved: Number(row.saved ?? 0)
+      };
+    } else {
+      period.gstr2b = Number(row.n);
+      period.twoB = { records: Number(row.n), suppliers: Number(row.suppliers) };
+    }
     period.hasPortal = period.ims > 0 || period.gstr2b > 0;
   }
   for (const row of runs) entry(row.tax_period).runId = row.id;
@@ -918,7 +950,12 @@ export async function getRunByPeriod(orgId, taxPeriod) {
 export async function listResults(orgId, runId, { bucket = null, page = 1, pageSize = 50 } = {}) {
   // Another org's run is not found, as GET /runs/:id says — not an empty page
   // (audit P26).
-  const [runs] = await pool.query('SELECT id FROM runs WHERE org_id = ? AND id = ?', [orgId, runId]);
+  const [runs] = await pool.query(
+    `SELECT r.id, r.tax_period, o.trade_name, o.legal_name
+       FROM runs r JOIN organizations o ON o.id = r.org_id
+      WHERE r.org_id = ? AND r.id = ?`,
+    [orgId, runId]
+  );
   if (!runs.length) throw new ServiceError('run not found', 404, 'not_found');
 
   const limit = Math.min(Math.max(Number(pageSize) || 50, 1), 500);
@@ -980,11 +1017,26 @@ export async function listResults(orgId, runId, { bucket = null, page = 1, pageS
     [...params, limit, offset]
   );
 
+  // What to send the supplier about each row, against its own cut-off.
+  const schemes = await supplierSchemeMap(orgId);
+  const messageContext = (result) => {
+    const gstin = result.books?.supplierGstin ?? result.portal?.supplierGstin;
+    return {
+      traderName: runs[0].trade_name ?? runs[0].legal_name ?? '',
+      taxPeriod: runs[0].tax_period,
+      scheme: schemes.get(gstin) ?? FILING_SCHEMES.MONTHLY,
+      materialityTolerancePaise: config.matching.materialityTolerancePaise
+    };
+  };
+
   return {
     total: Number(countRows[0].n),
     page: Math.max(Number(page) || 1, 1),
     pageSize: limit,
-    results: rows.map(toResultView)
+    results: rows.map(toResultView).map((result) => ({
+      ...result,
+      message: messageForResult(result, messageContext(result))
+    }))
   };
 }
 
