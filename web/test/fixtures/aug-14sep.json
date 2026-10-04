@@ -1,0 +1,2525 @@
+{
+ "run": {
+  "id": 8097,
+  "taxPeriod": "2026-08",
+  "mode": "REACTIVE",
+  "asOfDate": "2026-09-14",
+  "filingScheme": "MONTHLY",
+  "cutOffDate": "2026-09-11",
+  "status": "COMPLETED",
+  "engineVersion": "1.3.0",
+  "startedAt": "2026-10-04 08:02:39",
+  "finishedAt": "2026-10-04 08:02:39",
+  "createdAt": "2026-10-04 08:02:39",
+  "bucketCounts": {
+   "MATCHED": 5,
+   "MISSING_IN_PORTAL": 3,
+   "SUGGESTED": 1,
+   "VALUE_MISMATCH": 2,
+   "MISSING_IN_BOOKS": 1
+  },
+  "bucketItc": {
+   "MATCHED": 1890000,
+   "MISSING_IN_PORTAL": 936000,
+   "SUGGESTED": 270000,
+   "VALUE_MISMATCH": 1170000,
+   "MISSING_IN_BOOKS": 540000
+  },
+  "totals": {
+   "expectedTotalItc": 4806000,
+   "claimableItc": 1890000,
+   "atRiskItc": 1980000,
+   "deferredItc": 936000,
+   "ineligibleItc": 0,
+   "nonImsItc": 0,
+   "grandTotalItc": 4806000
+  },
+  "totalsBreakdown": {
+   "CLAIMABLE": {
+    "itc": 1890000,
+    "count": 5,
+    "creditNotes": {
+     "itc": -90000,
+     "count": 1
+    },
+    "otherDocuments": {
+     "itc": 1980000,
+     "count": 4
+    },
+    "byDocType": {
+     "INVOICE": {
+      "itc": 1980000,
+      "count": 4
+     },
+     "CREDIT_NOTE": {
+      "itc": -90000,
+      "count": 1
+     }
+    }
+   },
+   "DEFERRED": {
+    "itc": 936000,
+    "count": 3,
+    "creditNotes": {
+     "itc": 0,
+     "count": 0
+    },
+    "otherDocuments": {
+     "itc": 936000,
+     "count": 3
+    },
+    "byDocType": {
+     "INVOICE": {
+      "itc": 936000,
+      "count": 3
+     }
+    }
+   },
+   "AT_RISK": {
+    "itc": 1980000,
+    "count": 4,
+    "creditNotes": {
+     "itc": 0,
+     "count": 0
+    },
+    "otherDocuments": {
+     "itc": 1980000,
+     "count": 4
+    },
+    "byDocType": {
+     "INVOICE": {
+      "itc": 1980000,
+      "count": 4
+     }
+    }
+   }
+  },
+  "carriedIn": {
+   "count": 0,
+   "itc": 0,
+   "claimableItc": 0,
+   "atRiskItc": 0,
+   "deferredItc": 0,
+   "byPeriod": {}
+  },
+  "calendar": {
+   "taxPeriod": "2026-08",
+   "asOfDate": "2026-09-14",
+   "window": "REACTIVE",
+   "deadlines": [
+    {
+     "key": "CUTOFF_MONTHLY",
+     "date": "2026-09-11",
+     "daysLeft": -3
+    },
+    {
+     "key": "CUTOFF_QRMP",
+     "date": "2026-09-13",
+     "daysLeft": -1
+    },
+    {
+     "key": "GSTR2B_GENERATED",
+     "date": "2026-09-14",
+     "daysLeft": 0
+    },
+    {
+     "key": "GSTR3B_DUE",
+     "date": "2026-09-20",
+     "daysLeft": 6
+    }
+   ]
+  },
+  "staleness": {
+   "staleResults": 0,
+   "unverifiedResults": 0,
+   "withdrawnResults": 0,
+   "unseenRecords": 0,
+   "inputsChangedAt": null,
+   "inputCountsKnown": true,
+   "isStale": false
+  },
+  "openDecisions": {
+   "count": 4,
+   "itc": 1980000,
+   "byCategory": {
+    "phantom": {
+     "count": 1,
+     "itc": 540000
+    },
+    "verify": {
+     "count": 1,
+     "itc": 270000
+    },
+    "other": {
+     "count": 2,
+     "itc": 1170000
+    }
+   }
+  },
+  "summary": {
+   "inputCounts": {
+    "portal": 19,
+    "expected": 11,
+    "periodPortal": 19
+   },
+   "totalCounts": {
+    "AT_RISK": 4,
+    "NON_IMS": 0,
+    "DEFERRED": 3,
+    "CLAIMABLE": 5,
+    "INELIGIBLE": 0
+   },
+   "bucketCounts": {
+    "MATCHED": 5,
+    "NON_IMS": 0,
+    "SUGGESTED": 1,
+    "INELIGIBLE": 0,
+    "VALUE_MISMATCH": 2,
+    "MISSING_IN_BOOKS": 1,
+    "MISSING_IN_PORTAL": 3
+   }
+  }
+ },
+ "results": [
+  {
+   "id": 3039467,
+   "bucket": "VALUE_MISMATCH",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 0.9625,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "ACCEPT",
+   "recommendationReason": "On this invoice the portal's taxable value is ₹5,000.00 lower and tax is ₹900.00 lower than your books. Accept the portal's ₹6,300.00 now and chase the supplier for the ₹900.00 difference. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": -500000,
+   "deltaTotalTax": -90000,
+   "itcImpact": 90000,
+   "signedItc": 720000,
+   "totalBucket": "AT_RISK",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": true,
+   "decisionCategory": "other",
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 04",
+    "phone": "+91 00000 00004",
+    "email": "supplier4@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "MS-878",
+    "invoiceDate": "2026-08-11",
+    "supplierGstin": "24AAKFM5120D1ZR",
+    "supplierName": "Mahavir Sales",
+    "docType": "INVOICE",
+    "taxableValue": 4000000,
+    "totalTax": 720000
+   },
+   "portal": {
+    "invoiceNo": "MS-878",
+    "invoiceDate": "2026-08-11",
+    "supplierGstin": "24AAKFM5120D1ZR",
+    "supplierName": "Mahavir Sales",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 3500000,
+    "totalTax": 630000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": {
+    "kind": "PORTAL_LOWER",
+    "subject": "Invoice MS-878 dated 11 Aug 2026",
+    "text": "Hello, invoice MS-878 (11 Aug 2026) shows ₹35,000 taxable and ₹6,300 tax on the GST portal, but our books show ₹40,000 and ₹7,200. Please report the remaining ₹5,000 taxable (₹900 tax) through GSTR-1A. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039466,
+   "bucket": "VALUE_MISMATCH",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 0.9679,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "REJECT",
+   "recommendationReason": "On this invoice the portal's taxable value is ₹3,000.00 higher and tax is ₹540.00 higher than your books. Reject: accepting would claim ₹540.00 more credit than the invoice carries. Ask the supplier to correct it via GSTR-1A; the corrected credit arrives next period. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": "Invoice mismatch, portal vs our books: taxable value Rs. 28,000.00 vs Rs. 25,000.00 (Rs. 3,000.00 higher); tax Rs. 5,040.00 vs Rs. 4,500.00 (Rs. 540.00 higher). Please correct via GSTR-1A.",
+   "deltaTaxableValue": 300000,
+   "deltaTotalTax": 54000,
+   "itcImpact": 54000,
+   "signedItc": 450000,
+   "totalBucket": "AT_RISK",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": true,
+   "decisionCategory": "other",
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 05",
+    "phone": "+91 00000 00005",
+    "email": "supplier5@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "NS-612",
+    "invoiceDate": "2026-08-13",
+    "supplierGstin": "27AABCN7782E1Z9",
+    "supplierName": "National Supply Co",
+    "docType": "INVOICE",
+    "taxableValue": 2500000,
+    "totalTax": 450000
+   },
+   "portal": {
+    "invoiceNo": "NS-612",
+    "invoiceDate": "2026-08-13",
+    "supplierGstin": "27AABCN7782E1Z9",
+    "supplierName": "National Supply Co",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 2800000,
+    "totalTax": 504000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": {
+    "kind": "PORTAL_HIGHER",
+    "subject": "Invoice NS-612 dated 13 Aug 2026",
+    "text": "Hello, invoice NS-612 (13 Aug 2026) shows ₹28,000 taxable and ₹5,040 tax on the GST portal, but our books show ₹25,000 and ₹4,500. Please correct it through GSTR-1A so we can accept it. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039470,
+   "bucket": "MISSING_IN_BOOKS",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": null,
+   "matchedVia": null,
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "REJECT",
+   "recommendationReason": "On the portal but not in the purchase register. Verify no goods or invoice were received, then reject — left unactioned it is deemed accepted. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": "Not in our purchase register: no goods or document received against this record.",
+   "deltaTaxableValue": null,
+   "deltaTotalTax": null,
+   "itcImpact": 540000,
+   "signedItc": 540000,
+   "totalBucket": "AT_RISK",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": true,
+   "decisionCategory": "phantom",
+   "linkedFrom": null,
+   "supplierContact": null,
+   "books": null,
+   "portal": {
+    "invoiceNo": "RT-760",
+    "invoiceDate": "2026-08-27",
+    "supplierGstin": "27AAJFR9162G1ZT",
+    "supplierName": "Reliable Traders",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 3000000,
+    "totalTax": 540000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": {
+    "kind": "NOT_IN_BOOKS",
+    "subject": "Invoice RT-760 dated 27 Aug 2026",
+    "text": "Hello, invoice RT-760 (27 Aug 2026, ₹5,400 tax) is on the GST portal under our GSTIN, but we have no purchase against it. Please check and remove it. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039465,
+   "bucket": "SUGGESTED",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 0.9837,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "FUZZY_INV_NO",
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "VERIFY",
+   "recommendationReason": "Likely the same invoice, but the number still differs after normalisation. Confirm before accepting. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 0,
+   "itcImpact": 270000,
+   "signedItc": 270000,
+   "totalBucket": "AT_RISK",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": true,
+   "decisionCategory": "verify",
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 06",
+    "phone": "+91 00000 00006",
+    "email": "supplier6@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "BA/219",
+    "invoiceDate": "2026-08-17",
+    "supplierGstin": "33AAGFB1455H1ZT",
+    "supplierName": "Balaji Agencies",
+    "docType": "INVOICE",
+    "taxableValue": 1500000,
+    "totalTax": 270000
+   },
+   "portal": {
+    "invoiceNo": "BA/291",
+    "invoiceDate": "2026-08-17",
+    "supplierGstin": "33AAGFB1455H1ZT",
+    "supplierName": "Balaji Agencies",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 1500000,
+    "totalTax": 270000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": {
+    "kind": "INVOICE_NO_DIFFERS",
+    "subject": "Invoice BA/219 dated 17 Aug 2026",
+    "text": "Hello, invoice BA/219 (17 Aug 2026) appears on the GST portal as BA/291. Please confirm it is the same bill and correct the number through GSTR-1A. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039462,
+   "bucket": "MISSING_IN_PORTAL",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 1,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "SUPPLIER_UNFILED",
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "DEFERRED",
+   "recommendationReason": "Saved by the supplier but not filed by their cut-off, so it cannot reach this period's GSTR-2B. The fix now is a late filing or a GSTR-1A, and the credit lands in a later period. Nothing to decide in IMS for this period. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 0,
+   "itcImpact": 396000,
+   "signedItc": 396000,
+   "totalBucket": "DEFERRED",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 08",
+    "phone": "+91 00000 00008",
+    "email": "supplier8@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "AE/177",
+    "invoiceDate": "2026-08-21",
+    "supplierGstin": "27ADQPA4410C1Z3",
+    "supplierName": "Anand Electricals",
+    "docType": "INVOICE",
+    "taxableValue": 2200000,
+    "totalTax": 396000
+   },
+   "portal": {
+    "invoiceNo": "AE/177",
+    "invoiceDate": "2026-08-21",
+    "supplierGstin": "27ADQPA4410C1Z3",
+    "supplierName": "Anand Electricals",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 2200000,
+    "totalTax": 396000,
+    "filingStatus": "SAVED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": {
+    "kind": "SAVED_NOT_FILED_AFTER_CUTOFF",
+    "subject": "Invoice AE/177 dated 21 Aug 2026",
+    "text": "Hello, our invoice AE/177 dated 21 Aug 2026 (₹22,000 + ₹3,960 GST) was saved on the GST portal but not filed by 11 Sep 2026. Please file it with your next GSTR-1 so we can claim the credit. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039468,
+   "bucket": "MISSING_IN_PORTAL",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": null,
+   "matchedVia": null,
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "DEFERRED",
+   "recommendationReason": "Not on the portal and the cut-off has passed — no IMS record exists to act on. Credit deferred to a later period.",
+   "remarks": null,
+   "deltaTaxableValue": null,
+   "deltaTotalTax": null,
+   "itcImpact": 324000,
+   "signedItc": 324000,
+   "totalBucket": "DEFERRED",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 07",
+    "phone": "+91 00000 00007",
+    "email": "supplier7@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "PS-3401",
+    "invoiceDate": "2026-08-19",
+    "supplierGstin": "24AAECP8836L1ZY",
+    "supplierName": "Patel Systems",
+    "docType": "INVOICE",
+    "taxableValue": 1800000,
+    "totalTax": 324000
+   },
+   "portal": null,
+   "message": {
+    "kind": "NOT_FILED_AFTER_CUTOFF",
+    "subject": "Invoice PS-3401 dated 19 Aug 2026",
+    "text": "Hello, our invoice PS-3401 dated 19 Aug 2026 (₹18,000 + ₹3,240 GST) is not on the GST portal yet. Please add it through GSTR-1A so we can claim the credit. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039469,
+   "bucket": "MISSING_IN_PORTAL",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": null,
+   "matchedVia": null,
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "DEFERRED",
+   "recommendationReason": "Not on the portal and the cut-off has passed — no IMS record exists to act on. Credit deferred to a later period.",
+   "remarks": null,
+   "deltaTaxableValue": null,
+   "deltaTotalTax": null,
+   "itcImpact": 216000,
+   "signedItc": 216000,
+   "totalBucket": "DEFERRED",
+   "claimableItc": 0,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 09",
+    "phone": "+91 00000 00009",
+    "email": "supplier9@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "KE-112",
+    "invoiceDate": "2026-08-24",
+    "supplierGstin": "27BBRPK2295N1ZT",
+    "supplierName": "Krishna Enterprises",
+    "docType": "INVOICE",
+    "taxableValue": 1200000,
+    "totalTax": 216000
+   },
+   "portal": null,
+   "message": {
+    "kind": "NOT_FILED_AFTER_CUTOFF",
+    "subject": "Invoice KE-112 dated 24 Aug 2026",
+    "text": "Hello, our invoice KE-112 dated 24 Aug 2026 (₹12,000 + ₹2,160 GST) is not on the GST portal yet. Please include it in your quarterly GSTR-1 so we can claim the credit. Thank you, Sharma Electronics",
+    "whatsappUrl": null
+   }
+  },
+  {
+   "id": 3039459,
+   "bucket": "MATCHED",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 1,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "ACCEPT",
+   "recommendationReason": "Books and portal agree on supplier, number, date and amount. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 0,
+   "itcImpact": 0,
+   "signedItc": 900000,
+   "totalBucket": "CLAIMABLE",
+   "claimableItc": 900000,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 01",
+    "phone": "+91 00000 00001",
+    "email": "supplier1@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "INV-0801",
+    "invoiceDate": "2026-08-03",
+    "supplierGstin": "27AAFFO2231R1ZX",
+    "supplierName": "Orbit Distributors",
+    "docType": "INVOICE",
+    "taxableValue": 5000000,
+    "totalTax": 900000
+   },
+   "portal": {
+    "invoiceNo": "INV-0801",
+    "invoiceDate": "2026-08-03",
+    "supplierGstin": "27AAFFO2231R1ZX",
+    "supplierName": "Orbit Distributors",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 5000000,
+    "totalTax": 900000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": null
+  },
+  {
+   "id": 3039461,
+   "bucket": "MATCHED",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 1,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "ACCEPT",
+   "recommendationReason": "Books and portal agree on supplier, number, date and amount. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 0,
+   "itcImpact": 0,
+   "signedItc": 540000,
+   "totalBucket": "CLAIMABLE",
+   "claimableItc": 540000,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 03",
+    "phone": "+91 00000 00003",
+    "email": "supplier3@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "LC-821",
+    "invoiceDate": "2026-08-08",
+    "supplierGstin": "29AACCL3907B1ZT",
+    "supplierName": "Laxmi Components",
+    "docType": "INVOICE",
+    "taxableValue": 3000000,
+    "totalTax": 540000
+   },
+   "portal": {
+    "invoiceNo": "LC-821",
+    "invoiceDate": "2026-08-08",
+    "supplierGstin": "29AACCL3907B1ZT",
+    "supplierName": "Laxmi Components",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 3000000,
+    "totalTax": 540000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": null
+  },
+  {
+   "id": 3039460,
+   "bucket": "MATCHED",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 1,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "ACCEPT",
+   "recommendationReason": "Books and portal agree on supplier, number, date and amount. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 0,
+   "itcImpact": 0,
+   "signedItc": 360000,
+   "totalBucket": "CLAIMABLE",
+   "claimableItc": 360000,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 02",
+    "phone": "+91 00000 00002",
+    "email": "supplier2@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "GT/0145",
+    "invoiceDate": "2026-08-06",
+    "supplierGstin": "27AKLPG6614M1ZS",
+    "supplierName": "Ganesh Traders",
+    "docType": "INVOICE",
+    "taxableValue": 2000000,
+    "totalTax": 360000
+   },
+   "portal": {
+    "invoiceNo": "GT/0145",
+    "invoiceDate": "2026-08-06",
+    "supplierGstin": "27AKLPG6614M1ZS",
+    "supplierName": "Ganesh Traders",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 2000000,
+    "totalTax": 360000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": null
+  },
+  {
+   "id": 3039463,
+   "bucket": "MATCHED",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 1,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "ACCEPT",
+   "recommendationReason": "Books and portal agree on supplier, number, date and amount. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 60,
+   "itcImpact": 0,
+   "signedItc": 180000,
+   "totalBucket": "CLAIMABLE",
+   "claimableItc": 180000,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 10",
+    "phone": "+91 00000 00010",
+    "email": "supplier10@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "UD-1905",
+    "invoiceDate": "2026-08-26",
+    "supplierGstin": "07AADCU6071J1Z3",
+    "supplierName": "Unity Distributors",
+    "docType": "INVOICE",
+    "taxableValue": 1000000,
+    "totalTax": 180000
+   },
+   "portal": {
+    "invoiceNo": "UD-1905",
+    "invoiceDate": "2026-08-26",
+    "supplierGstin": "07AADCU6071J1Z3",
+    "supplierName": "Unity Distributors",
+    "docType": "INVOICE",
+    "section": "b2b",
+    "source": "IMS",
+    "taxableValue": 1000000,
+    "totalTax": 180060,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": null
+  },
+  {
+   "id": 3039464,
+   "bucket": "MATCHED",
+   "stale": false,
+   "staleReason": null,
+   "withdrawn": false,
+   "score": 1,
+   "matchedVia": "GSTIN_PERIOD",
+   "flags": [
+    "CUTOFF_PASSED"
+   ],
+   "recommendedAction": "ACCEPT",
+   "recommendationReason": "Books and portal agree on supplier, number, date and amount. No action recorded in IMS yet — it will be deemed accepted at GSTR-3B.",
+   "remarks": null,
+   "deltaTaxableValue": 0,
+   "deltaTotalTax": 0,
+   "itcImpact": 0,
+   "signedItc": -90000,
+   "totalBucket": "CLAIMABLE",
+   "claimableItc": -90000,
+   "confirmedAction": null,
+   "confirmedAt": null,
+   "needsDecision": false,
+   "decisionCategory": null,
+   "linkedFrom": null,
+   "supplierContact": {
+    "person": "Sample contact 11",
+    "phone": "+91 00000 00011",
+    "email": "supplier11@example.com",
+    "source": "REGISTER",
+    "updatedAt": "2026-10-04 08:02:38",
+    "whatsapp": null
+   },
+   "books": {
+    "taxPeriod": "2026-08",
+    "invoiceNo": "CE-CN-08",
+    "invoiceDate": "2026-08-28",
+    "supplierGstin": "27AAHFC3348Q1ZX",
+    "supplierName": "Crystal Enterprises",
+    "docType": "CREDIT_NOTE",
+    "taxableValue": 500000,
+    "totalTax": 90000
+   },
+   "portal": {
+    "invoiceNo": "CE-CN-08",
+    "invoiceDate": "2026-08-28",
+    "supplierGstin": "27AAHFC3348Q1ZX",
+    "supplierName": "Crystal Enterprises",
+    "docType": "CREDIT_NOTE",
+    "section": "cdnr",
+    "source": "IMS",
+    "taxableValue": 500000,
+    "totalTax": 90000,
+    "filingStatus": "FILED",
+    "imsAction": "N",
+    "pendingBlocked": false,
+    "remarksBlocked": false,
+    "itcAvailable": null,
+    "itcIneligibleReason": null,
+    "supplierFiledOn": null
+   },
+   "message": null
+  }
+ ],
+ "alerts": {
+  "taxPeriod": "2026-08",
+  "asOfDate": "2026-09-14",
+  "window": "REACTIVE",
+  "orgCutOffDate": "2026-09-11",
+  "nextTaxPeriod": "2026-09",
+  "historyPeriods": [
+   "2026-02",
+   "2026-03",
+   "2026-04",
+   "2026-05",
+   "2026-06",
+   "2026-07"
+  ],
+  "totals": {
+   "supplierCount": 3,
+   "invoiceCount": 3,
+   "itcAtStake": 936000,
+   "netItc": 936000,
+   "breakdown": {
+    "otherDocuments": {
+     "count": 3,
+     "itc": 936000
+    },
+    "creditNotes": {
+     "count": 0,
+     "itc": 0
+    }
+   },
+   "expectedInvoices": 11,
+   "imsRecords": 10,
+   "inGstr2bCount": 0
+  },
+  "excluded": {
+   "invoiceCount": 0,
+   "supplierCount": 0,
+   "itcAtStake": 0,
+   "byReason": {
+    "REVERSE_CHARGE": {
+     "count": 0,
+     "itcAtStake": 0
+    },
+    "ITC_INELIGIBLE": {
+     "count": 0,
+     "itcAtStake": 0
+    },
+    "NON_IMS_SECTION": {
+     "count": 0,
+     "itcAtStake": 0
+    }
+   },
+   "gstins": []
+  },
+  "bands": [
+   {
+    "band": "HIGH",
+    "supplierCount": 3,
+    "invoiceCount": 3,
+    "itcAtStake": 936000,
+    "netItc": 936000,
+    "breakdown": {
+     "otherDocuments": {
+      "count": 3,
+      "itc": 936000
+     },
+     "creditNotes": {
+      "count": 0,
+      "itc": 0
+     }
+    },
+    "escalatedCount": 3,
+    "pastCutOffCount": 3,
+    "suppliers": [
+     {
+      "gstin": "27ADQPA4410C1Z3",
+      "tradeName": "Anand Electricals",
+      "legalName": "Anand Electricals",
+      "contact": {
+       "person": "Sample contact 08",
+       "phone": "+91 00000 00008",
+       "email": "supplier8@example.com",
+       "source": "REGISTER",
+       "updatedAt": "2026-10-04 08:02:38",
+       "whatsapp": null
+      },
+      "filingScheme": "MONTHLY",
+      "filingSchemeConfidence": "LOW",
+      "filingSchemeReason": "not enough filing history to tell the schemes apart",
+      "filingSchemeSource": "INFERRED",
+      "cutOffDate": "2026-09-11",
+      "daysToCutOff": -3,
+      "preCutOff": false,
+      "urgency": "PAST_CUTOFF",
+      "urgencyRank": 5,
+      "risk": {
+       "band": "MEDIUM",
+       "score": null,
+       "reasons": [
+        "no filing history yet - this is the first period we have seen them"
+       ],
+       "features": {
+        "periodsObserved": 0,
+        "cutOffDay": 11
+       },
+       "guard": "NO_HISTORY",
+       "source": "HEURISTIC"
+      },
+      "alertBand": "HIGH",
+      "escalated": true,
+      "invoiceCount": 1,
+      "itcAtStake": 396000,
+      "netItc": 396000,
+      "breakdown": {
+       "otherDocuments": {
+        "count": 1,
+        "itc": 396000
+       },
+       "creditNotes": {
+        "count": 0,
+        "itc": 0
+       }
+      },
+      "statusCounts": {
+       "NOT_REPORTED": 0,
+       "SAVED_NOT_FILED": 1,
+       "SAVED_VALUE_MISMATCH": 0
+      },
+      "invoices": [
+       {
+        "expectedInvoiceId": 1801552,
+        "portalRecordId": 5060784,
+        "status": "SAVED_NOT_FILED",
+        "supplierGstin": "27ADQPA4410C1Z3",
+        "supplierName": "Anand Electricals",
+        "docType": "INVOICE",
+        "invoiceNo": "AE/177",
+        "invoiceDate": "2026-08-21",
+        "taxableValue": 2200000,
+        "totalTax": 396000,
+        "itcAtStake": 396000,
+        "bucket": "MISSING_IN_PORTAL",
+        "filingStatus": "SAVED",
+        "portalTaxableValue": 2200000,
+        "portalTotalTax": 396000,
+        "deltaTaxableValue": 0,
+        "deltaTotalTax": 0,
+        "inGstr2b": false,
+        "gstr2bFiledOn": null,
+        "gstr2bSection": null,
+        "excludedReason": null,
+        "note": "Saved in IMS but not filed. Not safe yet: a saved record can still be edited or deleted, and only filed records reach your GSTR-2B.",
+        "message": {
+         "kind": "SAVED_NOT_FILED_AFTER_CUTOFF",
+         "subject": "Invoice AE/177 dated 21 Aug 2026",
+         "text": "Hello, our invoice AE/177 dated 21 Aug 2026 (₹22,000 + ₹3,960 GST) was saved on the GST portal but not filed by 11 Sep 2026. Please file it with your next GSTR-1 so we can claim the credit. Thank you, Sharma Electronics",
+         "whatsappUrl": null
+        }
+       }
+      ],
+      "headline": "Anand Electricals — 1 document still not safe, and their cut-off has passed.",
+      "consequence": "Their cut-off (11 Sep 2026) has passed. A correction now needs GSTR-1A, and a GSTR-1A amendment reaches your GSTR-2B in September 2026 — the NEXT tax period, never August 2026. That is a month of delay on Rs. 3,960.00.",
+      "chaseMessage": "To: Anand Electricals (27ADQPA4410C1Z3)\nFrom: Sharma Electronics (27AABCS1080F1ZN)\nSubject: GSTR-1 for August 2026 - 1 document(s) pending\n\nHello,\n\nAs of 14 Sep 2026, the following August 2026 document(s) from you are saved in our GST portal data (IMS) but have not been filed:\n\n  1. invoice AE/177  dated 21 Aug 2026  taxable Rs. 22,000.00  tax Rs. 3,960.00\n     saved but not filed yet - please file it\n\nInput tax credit we are waiting for: Rs. 3,960.00 across 1 document(s).\n\nYour cut-off for this period was 11 Sep 2026 and it has passed. A correction now needs GSTR-1A, and it would only reach our GSTR-2B in September 2026 - the next tax period, not August 2026. Please still report it so the credit is not lost altogether.\n\nPlease confirm once done. Thank you,\nSharma Electronics\nGSTIN 27AABCS1080F1ZN",
+      "whatsappUrl": null
+     },
+     {
+      "gstin": "24AAECP8836L1ZY",
+      "tradeName": "Patel Systems",
+      "legalName": "Patel Systems",
+      "contact": {
+       "person": "Sample contact 07",
+       "phone": "+91 00000 00007",
+       "email": "supplier7@example.com",
+       "source": "REGISTER",
+       "updatedAt": "2026-10-04 08:02:38",
+       "whatsapp": null
+      },
+      "filingScheme": "MONTHLY",
+      "filingSchemeConfidence": "LOW",
+      "filingSchemeReason": "not enough filing history to tell the schemes apart",
+      "filingSchemeSource": "INFERRED",
+      "cutOffDate": "2026-09-11",
+      "daysToCutOff": -3,
+      "preCutOff": false,
+      "urgency": "PAST_CUTOFF",
+      "urgencyRank": 5,
+      "risk": {
+       "band": "MEDIUM",
+       "score": null,
+       "reasons": [
+        "no filing history yet - this is the first period we have seen them"
+       ],
+       "features": {
+        "periodsObserved": 0,
+        "cutOffDay": 11
+       },
+       "guard": "NO_HISTORY",
+       "source": "HEURISTIC"
+      },
+      "alertBand": "HIGH",
+      "escalated": true,
+      "invoiceCount": 1,
+      "itcAtStake": 324000,
+      "netItc": 324000,
+      "breakdown": {
+       "otherDocuments": {
+        "count": 1,
+        "itc": 324000
+       },
+       "creditNotes": {
+        "count": 0,
+        "itc": 0
+       }
+      },
+      "statusCounts": {
+       "NOT_REPORTED": 1,
+       "SAVED_NOT_FILED": 0,
+       "SAVED_VALUE_MISMATCH": 0
+      },
+      "invoices": [
+       {
+        "expectedInvoiceId": 1801551,
+        "portalRecordId": null,
+        "status": "NOT_REPORTED",
+        "supplierGstin": "24AAECP8836L1ZY",
+        "supplierName": "Patel Systems",
+        "docType": "INVOICE",
+        "invoiceNo": "PS-3401",
+        "invoiceDate": "2026-08-19",
+        "taxableValue": 1800000,
+        "totalTax": 324000,
+        "itcAtStake": 324000,
+        "bucket": "MISSING_IN_PORTAL",
+        "filingStatus": null,
+        "portalTaxableValue": null,
+        "portalTotalTax": null,
+        "deltaTaxableValue": null,
+        "deltaTotalTax": null,
+        "inGstr2b": false,
+        "gstr2bFiledOn": null,
+        "gstr2bSection": null,
+        "excludedReason": null,
+        "note": "Not in the IMS file you uploaded. If that download is current, the supplier has not even saved it yet.",
+        "message": {
+         "kind": "NOT_FILED_AFTER_CUTOFF",
+         "subject": "Invoice PS-3401 dated 19 Aug 2026",
+         "text": "Hello, our invoice PS-3401 dated 19 Aug 2026 (₹18,000 + ₹3,240 GST) is not on the GST portal yet. Please add it through GSTR-1A so we can claim the credit. Thank you, Sharma Electronics",
+         "whatsappUrl": null
+        }
+       }
+      ],
+      "headline": "Patel Systems — 1 document still not safe, and their cut-off has passed.",
+      "consequence": "Their cut-off (11 Sep 2026) has passed. A correction now needs GSTR-1A, and a GSTR-1A amendment reaches your GSTR-2B in September 2026 — the NEXT tax period, never August 2026. That is a month of delay on Rs. 3,240.00.",
+      "chaseMessage": "To: Patel Systems (24AAECP8836L1ZY)\nFrom: Sharma Electronics (27AABCS1080F1ZN)\nSubject: GSTR-1 for August 2026 - 1 document(s) pending\n\nHello,\n\nAs of 14 Sep 2026, the following August 2026 document(s) from you have not yet reached our GST portal data (IMS):\n\n  1. invoice PS-3401  dated 19 Aug 2026  taxable Rs. 18,000.00  tax Rs. 3,240.00\n     not in the IMS data we have downloaded - please report it\n\nInput tax credit we are waiting for: Rs. 3,240.00 across 1 document(s).\n\nYour cut-off for this period was 11 Sep 2026 and it has passed. A correction now needs GSTR-1A, and it would only reach our GSTR-2B in September 2026 - the next tax period, not August 2026. Please still report it so the credit is not lost altogether.\n\nPlease confirm once done. Thank you,\nSharma Electronics\nGSTIN 27AABCS1080F1ZN",
+      "whatsappUrl": null
+     },
+     {
+      "gstin": "27BBRPK2295N1ZT",
+      "tradeName": "Krishna Enterprises",
+      "legalName": "Krishna Enterprises",
+      "contact": {
+       "person": "Sample contact 09",
+       "phone": "+91 00000 00009",
+       "email": "supplier9@example.com",
+       "source": "REGISTER",
+       "updatedAt": "2026-10-04 08:02:38",
+       "whatsapp": null
+      },
+      "filingScheme": "QRMP",
+      "filingSchemeConfidence": "HIGH",
+      "filingSchemeReason": "set by you",
+      "filingSchemeSource": "USER",
+      "cutOffDate": "2026-09-13",
+      "daysToCutOff": -1,
+      "preCutOff": false,
+      "urgency": "PAST_CUTOFF",
+      "urgencyRank": 5,
+      "risk": {
+       "band": "MEDIUM",
+       "score": null,
+       "reasons": [
+        "no filing history yet - this is the first period we have seen them"
+       ],
+       "features": {
+        "periodsObserved": 0,
+        "cutOffDay": 13
+       },
+       "guard": "NO_HISTORY",
+       "source": "HEURISTIC"
+      },
+      "alertBand": "HIGH",
+      "escalated": true,
+      "invoiceCount": 1,
+      "itcAtStake": 216000,
+      "netItc": 216000,
+      "breakdown": {
+       "otherDocuments": {
+        "count": 1,
+        "itc": 216000
+       },
+       "creditNotes": {
+        "count": 0,
+        "itc": 0
+       }
+      },
+      "statusCounts": {
+       "NOT_REPORTED": 1,
+       "SAVED_NOT_FILED": 0,
+       "SAVED_VALUE_MISMATCH": 0
+      },
+      "invoices": [
+       {
+        "expectedInvoiceId": 1801553,
+        "portalRecordId": null,
+        "status": "NOT_REPORTED",
+        "supplierGstin": "27BBRPK2295N1ZT",
+        "supplierName": "Krishna Enterprises",
+        "docType": "INVOICE",
+        "invoiceNo": "KE-112",
+        "invoiceDate": "2026-08-24",
+        "taxableValue": 1200000,
+        "totalTax": 216000,
+        "itcAtStake": 216000,
+        "bucket": "MISSING_IN_PORTAL",
+        "filingStatus": null,
+        "portalTaxableValue": null,
+        "portalTotalTax": null,
+        "deltaTaxableValue": null,
+        "deltaTotalTax": null,
+        "inGstr2b": false,
+        "gstr2bFiledOn": null,
+        "gstr2bSection": null,
+        "excludedReason": null,
+        "note": "Not in the IMS file you uploaded. If that download is current, the supplier has not even saved it yet.",
+        "message": {
+         "kind": "NOT_FILED_AFTER_CUTOFF",
+         "subject": "Invoice KE-112 dated 24 Aug 2026",
+         "text": "Hello, our invoice KE-112 dated 24 Aug 2026 (₹12,000 + ₹2,160 GST) is not on the GST portal yet. Please include it in your quarterly GSTR-1 so we can claim the credit. Thank you, Sharma Electronics",
+         "whatsappUrl": null
+        }
+       }
+      ],
+      "headline": "Krishna Enterprises — 1 document still not safe, and their cut-off has passed.",
+      "consequence": "Their cut-off (13 Sep 2026) has passed. A correction now needs GSTR-1A, and a GSTR-1A amendment reaches your GSTR-2B in September 2026 — the NEXT tax period, never August 2026. That is a month of delay on Rs. 2,160.00.",
+      "chaseMessage": "To: Krishna Enterprises (27BBRPK2295N1ZT)\nFrom: Sharma Electronics (27AABCS1080F1ZN)\nSubject: GSTR-1 for August 2026 - 1 document(s) pending\n\nHello,\n\nAs of 14 Sep 2026, the following August 2026 document(s) from you have not yet reached our GST portal data (IMS):\n\n  1. invoice KE-112  dated 24 Aug 2026  taxable Rs. 12,000.00  tax Rs. 2,160.00\n     not in the IMS data we have downloaded - please report it\n\nInput tax credit we are waiting for: Rs. 2,160.00 across 1 document(s).\n\nYour cut-off for this period was 13 Sep 2026 and it has passed. A correction now needs GSTR-1A, and it would only reach our GSTR-2B in September 2026 - the next tax period, not August 2026. Please still report it so the credit is not lost altogether.\n\nPlease confirm once done. Thank you,\nSharma Electronics\nGSTIN 27AABCS1080F1ZN",
+      "whatsappUrl": null
+     }
+    ]
+   },
+   {
+    "band": "MEDIUM",
+    "supplierCount": 0,
+    "invoiceCount": 0,
+    "itcAtStake": 0,
+    "netItc": 0,
+    "breakdown": {
+     "otherDocuments": {
+      "count": 0,
+      "itc": 0
+     },
+     "creditNotes": {
+      "count": 0,
+      "itc": 0
+     }
+    },
+    "escalatedCount": 0,
+    "pastCutOffCount": 0,
+    "suppliers": []
+   },
+   {
+    "band": "LOW",
+    "supplierCount": 0,
+    "invoiceCount": 0,
+    "itcAtStake": 0,
+    "netItc": 0,
+    "breakdown": {
+     "otherDocuments": {
+      "count": 0,
+      "itc": 0
+     },
+     "creditNotes": {
+      "count": 0,
+      "itc": 0
+     }
+    },
+    "escalatedCount": 0,
+    "pastCutOffCount": 0,
+    "suppliers": []
+   }
+  ],
+  "suppliers": [
+   {
+    "gstin": "27ADQPA4410C1Z3",
+    "tradeName": "Anand Electricals",
+    "legalName": "Anand Electricals",
+    "contact": {
+     "person": "Sample contact 08",
+     "phone": "+91 00000 00008",
+     "email": "supplier8@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "cutOffDate": "2026-09-11",
+    "daysToCutOff": -3,
+    "preCutOff": false,
+    "urgency": "PAST_CUTOFF",
+    "urgencyRank": 5,
+    "risk": {
+     "band": "MEDIUM",
+     "score": null,
+     "reasons": [
+      "no filing history yet - this is the first period we have seen them"
+     ],
+     "features": {
+      "periodsObserved": 0,
+      "cutOffDay": 11
+     },
+     "guard": "NO_HISTORY",
+     "source": "HEURISTIC"
+    },
+    "alertBand": "HIGH",
+    "escalated": true,
+    "invoiceCount": 1,
+    "itcAtStake": 396000,
+    "netItc": 396000,
+    "breakdown": {
+     "otherDocuments": {
+      "count": 1,
+      "itc": 396000
+     },
+     "creditNotes": {
+      "count": 0,
+      "itc": 0
+     }
+    },
+    "statusCounts": {
+     "NOT_REPORTED": 0,
+     "SAVED_NOT_FILED": 1,
+     "SAVED_VALUE_MISMATCH": 0
+    },
+    "invoices": [
+     {
+      "expectedInvoiceId": 1801552,
+      "portalRecordId": 5060784,
+      "status": "SAVED_NOT_FILED",
+      "supplierGstin": "27ADQPA4410C1Z3",
+      "supplierName": "Anand Electricals",
+      "docType": "INVOICE",
+      "invoiceNo": "AE/177",
+      "invoiceDate": "2026-08-21",
+      "taxableValue": 2200000,
+      "totalTax": 396000,
+      "itcAtStake": 396000,
+      "bucket": "MISSING_IN_PORTAL",
+      "filingStatus": "SAVED",
+      "portalTaxableValue": 2200000,
+      "portalTotalTax": 396000,
+      "deltaTaxableValue": 0,
+      "deltaTotalTax": 0,
+      "inGstr2b": false,
+      "gstr2bFiledOn": null,
+      "gstr2bSection": null,
+      "excludedReason": null,
+      "note": "Saved in IMS but not filed. Not safe yet: a saved record can still be edited or deleted, and only filed records reach your GSTR-2B.",
+      "message": {
+       "kind": "SAVED_NOT_FILED_AFTER_CUTOFF",
+       "subject": "Invoice AE/177 dated 21 Aug 2026",
+       "text": "Hello, our invoice AE/177 dated 21 Aug 2026 (₹22,000 + ₹3,960 GST) was saved on the GST portal but not filed by 11 Sep 2026. Please file it with your next GSTR-1 so we can claim the credit. Thank you, Sharma Electronics",
+       "whatsappUrl": null
+      }
+     }
+    ],
+    "headline": "Anand Electricals — 1 document still not safe, and their cut-off has passed.",
+    "consequence": "Their cut-off (11 Sep 2026) has passed. A correction now needs GSTR-1A, and a GSTR-1A amendment reaches your GSTR-2B in September 2026 — the NEXT tax period, never August 2026. That is a month of delay on Rs. 3,960.00.",
+    "chaseMessage": "To: Anand Electricals (27ADQPA4410C1Z3)\nFrom: Sharma Electronics (27AABCS1080F1ZN)\nSubject: GSTR-1 for August 2026 - 1 document(s) pending\n\nHello,\n\nAs of 14 Sep 2026, the following August 2026 document(s) from you are saved in our GST portal data (IMS) but have not been filed:\n\n  1. invoice AE/177  dated 21 Aug 2026  taxable Rs. 22,000.00  tax Rs. 3,960.00\n     saved but not filed yet - please file it\n\nInput tax credit we are waiting for: Rs. 3,960.00 across 1 document(s).\n\nYour cut-off for this period was 11 Sep 2026 and it has passed. A correction now needs GSTR-1A, and it would only reach our GSTR-2B in September 2026 - the next tax period, not August 2026. Please still report it so the credit is not lost altogether.\n\nPlease confirm once done. Thank you,\nSharma Electronics\nGSTIN 27AABCS1080F1ZN",
+    "whatsappUrl": null
+   },
+   {
+    "gstin": "24AAECP8836L1ZY",
+    "tradeName": "Patel Systems",
+    "legalName": "Patel Systems",
+    "contact": {
+     "person": "Sample contact 07",
+     "phone": "+91 00000 00007",
+     "email": "supplier7@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "cutOffDate": "2026-09-11",
+    "daysToCutOff": -3,
+    "preCutOff": false,
+    "urgency": "PAST_CUTOFF",
+    "urgencyRank": 5,
+    "risk": {
+     "band": "MEDIUM",
+     "score": null,
+     "reasons": [
+      "no filing history yet - this is the first period we have seen them"
+     ],
+     "features": {
+      "periodsObserved": 0,
+      "cutOffDay": 11
+     },
+     "guard": "NO_HISTORY",
+     "source": "HEURISTIC"
+    },
+    "alertBand": "HIGH",
+    "escalated": true,
+    "invoiceCount": 1,
+    "itcAtStake": 324000,
+    "netItc": 324000,
+    "breakdown": {
+     "otherDocuments": {
+      "count": 1,
+      "itc": 324000
+     },
+     "creditNotes": {
+      "count": 0,
+      "itc": 0
+     }
+    },
+    "statusCounts": {
+     "NOT_REPORTED": 1,
+     "SAVED_NOT_FILED": 0,
+     "SAVED_VALUE_MISMATCH": 0
+    },
+    "invoices": [
+     {
+      "expectedInvoiceId": 1801551,
+      "portalRecordId": null,
+      "status": "NOT_REPORTED",
+      "supplierGstin": "24AAECP8836L1ZY",
+      "supplierName": "Patel Systems",
+      "docType": "INVOICE",
+      "invoiceNo": "PS-3401",
+      "invoiceDate": "2026-08-19",
+      "taxableValue": 1800000,
+      "totalTax": 324000,
+      "itcAtStake": 324000,
+      "bucket": "MISSING_IN_PORTAL",
+      "filingStatus": null,
+      "portalTaxableValue": null,
+      "portalTotalTax": null,
+      "deltaTaxableValue": null,
+      "deltaTotalTax": null,
+      "inGstr2b": false,
+      "gstr2bFiledOn": null,
+      "gstr2bSection": null,
+      "excludedReason": null,
+      "note": "Not in the IMS file you uploaded. If that download is current, the supplier has not even saved it yet.",
+      "message": {
+       "kind": "NOT_FILED_AFTER_CUTOFF",
+       "subject": "Invoice PS-3401 dated 19 Aug 2026",
+       "text": "Hello, our invoice PS-3401 dated 19 Aug 2026 (₹18,000 + ₹3,240 GST) is not on the GST portal yet. Please add it through GSTR-1A so we can claim the credit. Thank you, Sharma Electronics",
+       "whatsappUrl": null
+      }
+     }
+    ],
+    "headline": "Patel Systems — 1 document still not safe, and their cut-off has passed.",
+    "consequence": "Their cut-off (11 Sep 2026) has passed. A correction now needs GSTR-1A, and a GSTR-1A amendment reaches your GSTR-2B in September 2026 — the NEXT tax period, never August 2026. That is a month of delay on Rs. 3,240.00.",
+    "chaseMessage": "To: Patel Systems (24AAECP8836L1ZY)\nFrom: Sharma Electronics (27AABCS1080F1ZN)\nSubject: GSTR-1 for August 2026 - 1 document(s) pending\n\nHello,\n\nAs of 14 Sep 2026, the following August 2026 document(s) from you have not yet reached our GST portal data (IMS):\n\n  1. invoice PS-3401  dated 19 Aug 2026  taxable Rs. 18,000.00  tax Rs. 3,240.00\n     not in the IMS data we have downloaded - please report it\n\nInput tax credit we are waiting for: Rs. 3,240.00 across 1 document(s).\n\nYour cut-off for this period was 11 Sep 2026 and it has passed. A correction now needs GSTR-1A, and it would only reach our GSTR-2B in September 2026 - the next tax period, not August 2026. Please still report it so the credit is not lost altogether.\n\nPlease confirm once done. Thank you,\nSharma Electronics\nGSTIN 27AABCS1080F1ZN",
+    "whatsappUrl": null
+   },
+   {
+    "gstin": "27BBRPK2295N1ZT",
+    "tradeName": "Krishna Enterprises",
+    "legalName": "Krishna Enterprises",
+    "contact": {
+     "person": "Sample contact 09",
+     "phone": "+91 00000 00009",
+     "email": "supplier9@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "filingScheme": "QRMP",
+    "filingSchemeConfidence": "HIGH",
+    "filingSchemeReason": "set by you",
+    "filingSchemeSource": "USER",
+    "cutOffDate": "2026-09-13",
+    "daysToCutOff": -1,
+    "preCutOff": false,
+    "urgency": "PAST_CUTOFF",
+    "urgencyRank": 5,
+    "risk": {
+     "band": "MEDIUM",
+     "score": null,
+     "reasons": [
+      "no filing history yet - this is the first period we have seen them"
+     ],
+     "features": {
+      "periodsObserved": 0,
+      "cutOffDay": 13
+     },
+     "guard": "NO_HISTORY",
+     "source": "HEURISTIC"
+    },
+    "alertBand": "HIGH",
+    "escalated": true,
+    "invoiceCount": 1,
+    "itcAtStake": 216000,
+    "netItc": 216000,
+    "breakdown": {
+     "otherDocuments": {
+      "count": 1,
+      "itc": 216000
+     },
+     "creditNotes": {
+      "count": 0,
+      "itc": 0
+     }
+    },
+    "statusCounts": {
+     "NOT_REPORTED": 1,
+     "SAVED_NOT_FILED": 0,
+     "SAVED_VALUE_MISMATCH": 0
+    },
+    "invoices": [
+     {
+      "expectedInvoiceId": 1801553,
+      "portalRecordId": null,
+      "status": "NOT_REPORTED",
+      "supplierGstin": "27BBRPK2295N1ZT",
+      "supplierName": "Krishna Enterprises",
+      "docType": "INVOICE",
+      "invoiceNo": "KE-112",
+      "invoiceDate": "2026-08-24",
+      "taxableValue": 1200000,
+      "totalTax": 216000,
+      "itcAtStake": 216000,
+      "bucket": "MISSING_IN_PORTAL",
+      "filingStatus": null,
+      "portalTaxableValue": null,
+      "portalTotalTax": null,
+      "deltaTaxableValue": null,
+      "deltaTotalTax": null,
+      "inGstr2b": false,
+      "gstr2bFiledOn": null,
+      "gstr2bSection": null,
+      "excludedReason": null,
+      "note": "Not in the IMS file you uploaded. If that download is current, the supplier has not even saved it yet.",
+      "message": {
+       "kind": "NOT_FILED_AFTER_CUTOFF",
+       "subject": "Invoice KE-112 dated 24 Aug 2026",
+       "text": "Hello, our invoice KE-112 dated 24 Aug 2026 (₹12,000 + ₹2,160 GST) is not on the GST portal yet. Please include it in your quarterly GSTR-1 so we can claim the credit. Thank you, Sharma Electronics",
+       "whatsappUrl": null
+      }
+     }
+    ],
+    "headline": "Krishna Enterprises — 1 document still not safe, and their cut-off has passed.",
+    "consequence": "Their cut-off (13 Sep 2026) has passed. A correction now needs GSTR-1A, and a GSTR-1A amendment reaches your GSTR-2B in September 2026 — the NEXT tax period, never August 2026. That is a month of delay on Rs. 2,160.00.",
+    "chaseMessage": "To: Krishna Enterprises (27BBRPK2295N1ZT)\nFrom: Sharma Electronics (27AABCS1080F1ZN)\nSubject: GSTR-1 for August 2026 - 1 document(s) pending\n\nHello,\n\nAs of 14 Sep 2026, the following August 2026 document(s) from you have not yet reached our GST portal data (IMS):\n\n  1. invoice KE-112  dated 24 Aug 2026  taxable Rs. 12,000.00  tax Rs. 2,160.00\n     not in the IMS data we have downloaded - please report it\n\nInput tax credit we are waiting for: Rs. 2,160.00 across 1 document(s).\n\nYour cut-off for this period was 13 Sep 2026 and it has passed. A correction now needs GSTR-1A, and it would only reach our GSTR-2B in September 2026 - the next tax period, not August 2026. Please still report it so the credit is not lost altogether.\n\nPlease confirm once done. Thank you,\nSharma Electronics\nGSTIN 27AABCS1080F1ZN",
+    "whatsappUrl": null
+   }
+  ]
+ },
+ "suppliers": {
+  "asOfPeriod": "2026-08",
+  "window": [
+   "2026-03",
+   "2026-04",
+   "2026-05",
+   "2026-06",
+   "2026-07",
+   "2026-08"
+  ],
+  "suppliers": [
+   {
+    "gstin": "27BBRPK2295N1ZT",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Krishna Enterprises",
+    "legalName": "Krishna Enterprises",
+    "stateCode": "27",
+    "filingScheme": "QRMP",
+    "filingSchemeConfidence": "HIGH",
+    "filingSchemeReason": "set by you",
+    "filingSchemeSource": "USER",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 09",
+     "phone": "+91 00000 00009",
+     "email": "supplier9@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 1,
+     "invoiceCount": 0,
+     "mismatchCount": 0,
+     "avgDaysLate": null,
+     "observedTotalTax": 0,
+     "expectedTotalTax": 216000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": null
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 1,
+     "avgDaysLate": null,
+     "source": "HEURISTIC",
+     "guard": null,
+     "reasons": [
+      "reported nothing at all in 1 of the last 1 month",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 13,
+      "documents": 0,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 1,
+      "maxDaysLate": null,
+      "missedCount": 1,
+      "meanDaysLate": null,
+      "mismatchRate": 0,
+      "notIn2bCount": 1,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "24AAECP8836L1ZY",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Patel Systems",
+    "legalName": "Patel Systems",
+    "stateCode": "24",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 07",
+     "phone": "+91 00000 00007",
+     "email": "supplier7@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 1,
+     "invoiceCount": 0,
+     "mismatchCount": 0,
+     "avgDaysLate": null,
+     "observedTotalTax": 0,
+     "expectedTotalTax": 324000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": null
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 1,
+     "avgDaysLate": null,
+     "source": "HEURISTIC",
+     "guard": null,
+     "reasons": [
+      "reported nothing at all in 1 of the last 1 month",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 0,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 1,
+      "maxDaysLate": null,
+      "missedCount": 1,
+      "meanDaysLate": null,
+      "mismatchRate": 0,
+      "notIn2bCount": 1,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "27ADQPA4410C1Z3",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Anand Electricals",
+    "legalName": "Anand Electricals",
+    "stateCode": "27",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 08",
+     "phone": "+91 00000 00008",
+     "email": "supplier8@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": null,
+     "observedTotalTax": 396000,
+     "expectedTotalTax": 396000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": null
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": null,
+     "source": "HEURISTIC",
+     "guard": null,
+     "reasons": [
+      "reported but never reached your GSTR-2B in 1 of the last 1 month",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 1,
+      "maxDaysLate": null,
+      "missedCount": 0,
+      "meanDaysLate": null,
+      "mismatchRate": 0,
+      "notIn2bCount": 1,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "33AAGFB1455H1ZT",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Balaji Agencies",
+    "legalName": "Balaji Agencies",
+    "stateCode": "33",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 06",
+     "phone": "+91 00000 00006",
+     "email": "supplier6@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": -2,
+     "observedTotalTax": 270000,
+     "expectedTotalTax": 270000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -2
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -2,
+     "source": "MODEL",
+     "guard": null,
+     "reasons": [
+      "amounts matched your books on all 1 document",
+      "filed on time in all of the last 1 month, by their 11th",
+      "only 1 month of history so far"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": -2,
+      "missedCount": 0,
+      "meanDaysLate": -2,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "27AAHFC3348Q1ZX",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Crystal Enterprises",
+    "legalName": "Crystal Enterprises",
+    "stateCode": "27",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 11",
+     "phone": "+91 00000 00011",
+     "email": "supplier11@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": -1,
+     "observedTotalTax": -90000,
+     "expectedTotalTax": -90000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -1
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -1,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
+     "reasons": [
+      "amounts matched your books on all 1 document",
+      "filed on time in all of the last 1 month, by their 11th",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": -1,
+      "missedCount": 0,
+      "meanDaysLate": -1,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "27AKLPG6614M1ZS",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Ganesh Traders",
+    "legalName": "Ganesh Traders",
+    "stateCode": "27",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 02",
+     "phone": "+91 00000 00002",
+     "email": "supplier2@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": -2,
+     "observedTotalTax": 360000,
+     "expectedTotalTax": 360000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -2
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -2,
+     "source": "MODEL",
+     "guard": null,
+     "reasons": [
+      "amounts matched your books on all 1 document",
+      "filed on time in all of the last 1 month, by their 11th",
+      "only 1 month of history so far"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": -2,
+      "missedCount": 0,
+      "meanDaysLate": -2,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "29AACCL3907B1ZT",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Laxmi Components",
+    "legalName": "Laxmi Components",
+    "stateCode": "29",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 03",
+     "phone": "+91 00000 00003",
+     "email": "supplier3@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": -1,
+     "observedTotalTax": 540000,
+     "expectedTotalTax": 540000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -1
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -1,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
+     "reasons": [
+      "amounts matched your books on all 1 document",
+      "filed on time in all of the last 1 month, by their 11th",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": -1,
+      "missedCount": 0,
+      "meanDaysLate": -1,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "24AAKFM5120D1ZR",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Mahavir Sales",
+    "legalName": "Mahavir Sales",
+    "stateCode": "24",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 04",
+     "phone": "+91 00000 00004",
+     "email": "supplier4@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 1,
+     "avgDaysLate": -6,
+     "observedTotalTax": 630000,
+     "expectedTotalTax": 720000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -6
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -6,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
+     "reasons": [
+      "amounts differed from your books on 1 of 1 document",
+      "filed on time in all of the last 1 month, by their 11th",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 1,
+      "failedCount": 0,
+      "maxDaysLate": -6,
+      "missedCount": 0,
+      "meanDaysLate": -6,
+      "mismatchRate": 1,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "27AABCN7782E1Z9",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "National Supply Co",
+    "legalName": "National Supply Co",
+    "stateCode": "27",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 05",
+     "phone": "+91 00000 00005",
+     "email": "supplier5@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 1,
+     "avgDaysLate": 0,
+     "observedTotalTax": 504000,
+     "expectedTotalTax": 450000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": 0
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": 0,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
+     "reasons": [
+      "amounts differed from your books on 1 of 1 document",
+      "never missed their 11th in the last 1 month, but files on the deadline itself — most file about 4 days early, so there is no room if anything slips",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 1,
+      "failedCount": 0,
+      "maxDaysLate": 0,
+      "missedCount": 0,
+      "meanDaysLate": 0,
+      "mismatchRate": 1,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "27AAFFO2231R1ZX",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Orbit Distributors",
+    "legalName": "Orbit Distributors",
+    "stateCode": "27",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 01",
+     "phone": "+91 00000 00001",
+     "email": "supplier1@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": -7,
+     "observedTotalTax": 900000,
+     "expectedTotalTax": 900000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -7
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "LOW",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -7,
+     "source": "MODEL",
+     "guard": null,
+     "reasons": [
+      "filed on time in all of the last 1 month, by their 11th",
+      "amounts matched your books on all 1 document",
+      "only 1 month of history so far"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": -7,
+      "missedCount": 0,
+      "meanDaysLate": -7,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "27AAJFR9162G1ZT",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Reliable Traders",
+    "legalName": "Reliable Traders",
+    "stateCode": "27",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": null,
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": 0,
+     "observedTotalTax": 540000,
+     "expectedTotalTax": 0,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": 0
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "MEDIUM",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": 0,
+     "source": "MODEL",
+     "guard": "THIN_HISTORY",
+     "reasons": [
+      "never missed their 11th in the last 1 month, but files on the deadline itself — most file about 4 days early, so there is no room if anything slips",
+      "amounts matched your books on all 1 document",
+      "only 1 month of history so far, so this is a provisional read"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": 0,
+      "missedCount": 0,
+      "meanDaysLate": 0,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   },
+   {
+    "gstin": "07AADCU6071J1Z3",
+    "gstinChecksumValid": true,
+    "gstinVariants": [],
+    "tradeName": "Unity Distributors",
+    "legalName": "Unity Distributors",
+    "stateCode": "07",
+    "filingScheme": "MONTHLY",
+    "filingSchemeConfidence": "LOW",
+    "filingSchemeReason": "not enough filing history to tell the schemes apart",
+    "filingSchemeSource": "INFERRED",
+    "firstSeenPeriod": "2026-08",
+    "lastSeenPeriod": "2026-08",
+    "contact": {
+     "person": "Sample contact 10",
+     "phone": "+91 00000 00010",
+     "email": "supplier10@example.com",
+     "source": "REGISTER",
+     "updatedAt": "2026-10-04 08:02:38",
+     "whatsapp": null
+    },
+    "stats": {
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "invoiceCount": 1,
+     "mismatchCount": 0,
+     "avgDaysLate": -5,
+     "observedTotalTax": 180060,
+     "expectedTotalTax": 180000,
+     "trend": [
+      {
+       "taxPeriod": "2026-08",
+       "daysLate": -5
+      }
+     ]
+    },
+    "risk": {
+     "asOfPeriod": "2026-08",
+     "band": "LOW",
+     "periodsObserved": 1,
+     "lateCount": 0,
+     "missedCount": 0,
+     "avgDaysLate": -5,
+     "source": "MODEL",
+     "guard": null,
+     "reasons": [
+      "amounts matched your books on all 1 document",
+      "filed on time in all of the last 1 month, by their 11th",
+      "only 1 month of history so far"
+     ],
+     "features": {
+      "cutOffDay": 11,
+      "documents": 1,
+      "lateCount": 0,
+      "mismatches": 0,
+      "failedCount": 0,
+      "maxDaysLate": -5,
+      "missedCount": 0,
+      "meanDaysLate": -5,
+      "mismatchRate": 0,
+      "notIn2bCount": 0,
+      "periodsObserved": 1
+     },
+     "computedAt": "2026-10-04 08:02:39"
+    }
+   }
+  ]
+ },
+ "periods": [
+  {
+   "taxPeriod": "2026-08",
+   "books": 11,
+   "ims": 10,
+   "gstr2b": 9,
+   "hasBooks": true,
+   "hasPortal": true,
+   "runId": 8097,
+   "register": {
+    "documents": 11,
+    "suppliers": 11,
+    "invoices": 10,
+    "creditNotes": 1,
+    "debitNotes": 0,
+    "contacts": 11
+   },
+   "imsRecords": {
+    "records": 10,
+    "suppliers": 10,
+    "filed": 9,
+    "saved": 1
+   },
+   "twoB": {
+    "records": 9,
+    "suppliers": 9
+   }
+  }
+ ],
+ "uploads": [
+  {
+   "id": 17818,
+   "kind": "GSTR2B",
+   "file_format": "JSON",
+   "detected_format": "GSTR2B_JSON",
+   "original_filename": "gstr2b_aug26.json",
+   "byte_size": 6898,
+   "tax_period": "2026-08",
+   "snapshot_date": null,
+   "row_count": 9,
+   "status": "PARSED",
+   "created_at": "2026-10-04 08:02:39",
+   "committed_at": "2026-10-04 08:02:39",
+   "replaced_at": null,
+   "replaced_by_upload_id": null
+  },
+  {
+   "id": 17817,
+   "kind": "IMS",
+   "file_format": "JSON",
+   "detected_format": "IMS_JSON",
+   "original_filename": "ims_aug26_as_of_11sep.json",
+   "byte_size": 5909,
+   "tax_period": "2026-08",
+   "snapshot_date": "2026-09-11",
+   "row_count": 10,
+   "status": "PARSED",
+   "created_at": "2026-10-04 08:02:39",
+   "committed_at": "2026-10-04 08:02:39",
+   "replaced_at": null,
+   "replaced_by_upload_id": null
+  },
+  {
+   "id": 17816,
+   "kind": "PURCHASE_REGISTER",
+   "file_format": "XLSX",
+   "detected_format": "PR_TEMPLATE_V24",
+   "original_filename": "purchase_register_aug26.xlsx",
+   "byte_size": 23411,
+   "tax_period": "2026-08",
+   "snapshot_date": null,
+   "row_count": 11,
+   "status": "PARSED",
+   "created_at": "2026-10-04 08:02:38",
+   "committed_at": "2026-10-04 08:02:38",
+   "replaced_at": null,
+   "replaced_by_upload_id": null
+  }
+ ],
+ "clock": {
+  "clock": {
+   "asOfDate": "2026-09-14",
+   "today": "2026-10-04",
+   "followsToday": false
+  },
+  "calendar": {
+   "taxPeriod": "2026-08",
+   "asOfDate": "2026-09-14",
+   "window": "REACTIVE",
+   "deadlines": [
+    {
+     "key": "CUTOFF_MONTHLY",
+     "date": "2026-09-11",
+     "daysLeft": -3
+    },
+    {
+     "key": "CUTOFF_QRMP",
+     "date": "2026-09-13",
+     "daysLeft": -1
+    },
+    {
+     "key": "GSTR2B_GENERATED",
+     "date": "2026-09-14",
+     "daysLeft": 0
+    },
+    {
+     "key": "GSTR3B_DUE",
+     "date": "2026-09-20",
+     "daysLeft": 6
+    }
+   ]
+  }
+ },
+ "corrections": {
+  "taxPeriod": "2026-08",
+  "asOfDate": "2026-09-14",
+  "runId": 8097,
+  "counts": {
+   "arrived": 0,
+   "waiting": 0
+  },
+  "arrivedItc": 0,
+  "waitingItc": 0,
+  "items": []
+ }
+}

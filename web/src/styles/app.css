@@ -690,6 +690,8 @@ button {
 /* --- tables --------------------------------------------------------------- */
 
 .table-scroll {
+  /* Positioned, so a visually hidden header label stays inside the scroller. */
+  position: relative;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -1132,7 +1134,7 @@ button {
 }
 
 .side-card {
-  flex: 1 1 280px;
+  flex: 1 1 260px;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -1716,7 +1718,14 @@ button {
 }
 
 @media (max-width: 560px) {
-  .stat-grid,
+  .stat-grid {
+    gap: 20px 16px;
+  }
+
+  .stat-grid .stat-value {
+    font-size: 24px;
+  }
+
   .stat-grid.is-three,
   .file-cards,
   .calendar {
@@ -1782,4 +1791,50 @@ button {
 
 .boundary-details pre {
   white-space: pre-wrap;
+}
+
+/* --- small helpers used by the screens ------------------------------------ */
+
+.strong-line {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.align-start {
+  align-self: flex-start;
+}
+
+.link-start {
+  padding: 0;
+  text-align: left;
+}
+
+.history {
+  flex: 3 1 560px;
+  min-width: 0;
+}
+
+.history .table td,
+.history .table th {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.mapper-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 359px) {
+  .stat-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
