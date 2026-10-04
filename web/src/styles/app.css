@@ -1334,6 +1334,12 @@ button {
   padding: 16px 20px;
 }
 
+.footer-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .status-dot {
   flex: 0 0 10px;
   width: 10px;
@@ -1714,6 +1720,21 @@ button {
   .help-list li {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
+  }
+
+  /* An opened row's details stay in view while its wide table scrolls. */
+  .table tr.is-detail > td > * {
+    position: sticky;
+    left: 12px;
+    max-width: calc(100vw - 58px);
+  }
+
+  .footer-status {
+    align-items: flex-start;
+  }
+
+  .footer-status .status-dot {
+    margin-top: 6px;
   }
 }
 
