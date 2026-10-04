@@ -1,36 +1,22 @@
-// Loading, empty and error states. Every screen uses these rather than inventing
-// its own, so "nothing here" never looks like "something broke".
+// Loading and error states, shared by every screen.
 
 export function Loading({ label = 'Loading', rows = 3 }) {
   return (
-    <div className="state state-loading" data-testid="loading" role="status" aria-live="polite">
-      <div className="state-label">{label}…</div>
-      <div className="skeletons">
-        {Array.from({ length: rows }, (_, index) => (
-          <div className="skeleton" key={index} />
-        ))}
-      </div>
+    <div className="loading" role="status" aria-live="polite">
+      <span className="visually-hidden">{label}</span>
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="skeleton" style={{ width: `${90 - index * 12}%` }} />
+      ))}
     </div>
   );
 }
 
-export function Empty({ title, children, action = null, testId = 'empty' }) {
-  return (
-    <div className="state state-empty" data-testid={testId}>
-      <h3>{title}</h3>
-      {children ? <p>{children}</p> : null}
-      {action}
-    </div>
-  );
-}
-
-export function ErrorBox({ error, onRetry = null, title = 'Something went wrong' }) {
+export function ErrorBox({ error, title = 'Something went wrong', onRetry = null }) {
   if (!error) return null;
   return (
-    <div className="state state-error" data-testid="error" role="alert">
-      <h3>{title}</h3>
-      <p className="mono">{error.message}</p>
-      {error.code ? <p className="muted small">code: {error.code}{error.status ? ` · http ${error.status}` : ''}</p> : null}
+    <div className="error-box" role="alert" data-testid="error-box">
+      <strong>{title}</strong>
+      <span>{error.message ?? String(error)}</span>
       {onRetry ? (
         <button type="button" className="btn" onClick={onRetry}>
           Try again
@@ -40,18 +26,11 @@ export function ErrorBox({ error, onRetry = null, title = 'Something went wrong'
   );
 }
 
-// Inline banner for a failure that must not blank the screen it happened on — a
-// rejected PATCH, for instance, where the rest of the list is still valid.
-export function InlineError({ error, onDismiss = null }) {
+export function InlineError({ error }) {
   if (!error) return null;
   return (
-    <div className="inline-error" role="alert" data-testid="inline-error">
-      <span>{error.message}</span>
-      {onDismiss ? (
-        <button type="button" className="link" onClick={onDismiss}>
-          dismiss
-        </button>
-      ) : null}
-    </div>
+    <p className="inline-error" role="alert">
+      {error.message ?? String(error)}
+    </p>
   );
 }

@@ -1,6 +1,7 @@
-// Filing-calendar arithmetic for display. Mirrors api/src/matching/cutoff.js:
-// cut-off on the 11th (monthly) or 13th (QRMP), 2B generates on the 14th, GSTR-3B
-// falls due on the 20th — all in the month AFTER the tax period.
+// Filing-calendar arithmetic and date formatting for display. Mirrors
+// api/src/matching/cutoff.js: cut-off on the 11th (monthly) or 13th (QRMP), 2B
+// generates on the 14th, GSTR-3B falls due on the 20th — all in the month AFTER
+// the tax period.
 //
 // Dates are ISO yyyy-mm-dd strings throughout. Nothing here parses a locale date.
 
@@ -12,9 +13,7 @@ const MONTHS = [
 export function nextPeriod(taxPeriod) {
   const [year, month] = String(taxPeriod).split('-').map(Number);
   if (!year || !month) return null;
-  return month === 12
-    ? `${year + 1}-01`
-    : `${year}-${String(month + 1).padStart(2, '0')}`;
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
 }
 
 function dayInFollowingMonth(taxPeriod, day) {
@@ -32,9 +31,11 @@ export const gstr3bDueDate = (taxPeriod) => dayInFollowingMonth(taxPeriod, 20);
 // Whole days from `from` to `to`, both ISO. Positive = `to` is in the future.
 export function daysBetween(from, to) {
   if (!from || !to) return null;
-  const a = Date.UTC(...from.slice(0, 10).split('-').map(Number).map((n, i) => (i === 1 ? n - 1 : n)));
-  const b = Date.UTC(...to.slice(0, 10).split('-').map(Number).map((n, i) => (i === 1 ? n - 1 : n)));
-  return Math.round((b - a) / 86400000);
+  const utc = (iso) => {
+    const [year, month, day] = iso.slice(0, 10).split('-').map(Number);
+    return Date.UTC(year, month - 1, day);
+  };
+  return Math.round((utc(to) - utc(from)) / 86400000);
 }
 
 // '2026-05-16' -> '16 May 2026'
@@ -42,7 +43,15 @@ export function formatDate(iso) {
   if (!iso) return '—';
   const [year, month, day] = String(iso).slice(0, 10).split('-').map(Number);
   if (!year || !month || !day) return String(iso);
-  return `${day} ${MONTHS[month - 1]?.slice(0, 3) ?? month} ${year}`;
+  return `${day} ${MONTHS[month - 1].slice(0, 3)} ${year}`;
+}
+
+// '2026-05-16' -> '16 May', for chips and tight cells.
+export function formatDay(iso) {
+  if (!iso) return '—';
+  const [, month, day] = String(iso).slice(0, 10).split('-').map(Number);
+  if (!month || !day) return String(iso);
+  return `${day} ${MONTHS[month - 1].slice(0, 3)}`;
 }
 
 // '2026-04' -> 'April 2026'
@@ -52,26 +61,56 @@ export function formatPeriod(taxPeriod) {
   return `${MONTHS[month - 1] ?? month} ${year}`;
 }
 
-// The run's own as-of date is the clock everything on screen is measured against.
-// Falling back to the real today would silently change what "3 days left" means
-// depending on when the page was opened.
-export function runClock(run) {
-  const asOf = run?.asOfDate ? String(run.asOfDate).slice(0, 10) : null;
-  return asOf ?? new Date().toISOString().slice(0, 10);
+// '2026-04' -> 'Apr 2026'
+export function formatPeriodShort(taxPeriod) {
+  if (!taxPeriod) return '—';
+  const [year, month] = String(taxPeriod).split('-').map(Number);
+  return `${MONTHS[month - 1]?.slice(0, 3) ?? month} ${year}`;
 }
 
-// Which half of the filing month the trader is in. Drives the banner's tone.
-export function filingWindow(asOfDate, taxPeriod, filingScheme = 'MONTHLY') {
-  if (!asOfDate || !taxPeriod) return null;
-  if (asOfDate <= cutOffDate(taxPeriod, filingScheme)) return 'PREVENTIVE';
-  if (asOfDate < twoBGenerationDate(taxPeriod)) return 'CUTOFF_PASSED';
-  if (asOfDate <= gstr3bDueDate(taxPeriod)) return 'REACTIVE';
-  return 'CLOSED';
+// '2026-08' -> 'August'
+export function monthOf(taxPeriod) {
+  const month = Number(String(taxPeriod ?? '').split('-')[1]);
+  return MONTHS[month - 1] ?? '';
 }
 
-export const WINDOW_LABEL = {
-  PREVENTIVE: 'Before the cut-off',
-  CUTOFF_PASSED: 'Cut-off passed, 2B not generated',
-  REACTIVE: 'After 2B, before GSTR-3B',
-  CLOSED: 'GSTR-3B due date passed'
-};
+// "3 days left", "1 day left", "Today" for a count of days to a deadline.
+export function daysLeftText(days) {
+  if (days === null || days === undefined) return '';
+  if (days === 0) return 'Today';
+  if (days < 0) return 'Passed';
+  return `${days} day${days === 1 ? '' : 's'} left`;
+}
+
+// An upload's timestamp ('2026-10-04 07:32:49', UTC from MySQL) as the trader
+// reads it, in India: "Today, 1:02 pm", or "4 Oct, 1:02 pm".
+export function formatUploadTime(stamp, now = new Date()) {
+  if (!stamp) return '—';
+  const when = new Date(`${String(stamp).replace(' ', 'T')}Z`);
+  if (Number.isNaN(when.getTime())) return String(stamp);
+  const zone = { timeZone: 'Asia/Kolkata' };
+  const day = (date) => date.toLocaleDateString('en-CA', zone);
+  const time = when
+    .toLocaleTimeString('en-IN', { ...zone, hour: 'numeric', minute: '2-digit', hour12: true })
+    .replace(/\s?([ap])\.?m\.?/i, (_, half) => ` ${half.toLowerCase()}m`);
+  if (day(when) === day(now)) return `Today, ${time}`;
+  return `${formatDay(day(when))}, ${time}`;
+}
+
+// The calendar entry the API returns for a period (GET /workspace/clock), by key.
+export function deadlineOf(calendar, key) {
+  return calendar?.deadlines?.find((deadline) => deadline.key === key) ?? null;
+}
+
+// The top bar's deadline chip, from the period's calendar as of the workspace
+// date: the supplier cut-off until it passes (info), then GSTR-3B (warn), then
+// overdue (bad).
+export function deadlineChip(calendar) {
+  const cut = deadlineOf(calendar, 'CUTOFF_MONTHLY');
+  const due = deadlineOf(calendar, 'GSTR3B_DUE');
+  if (!cut || !due) return null;
+  const left = (days) => (days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} left`);
+  if (cut.daysLeft >= 0) return { tone: 'info', text: `Supplier cut-off ${formatDay(cut.date)} · ${left(cut.daysLeft)}` };
+  if (due.daysLeft >= 0) return { tone: 'warn', text: `GSTR-3B due ${formatDay(due.date)} · ${left(due.daysLeft)}` };
+  return { tone: 'bad', text: `GSTR-3B was due ${formatDay(due.date)}` };
+}

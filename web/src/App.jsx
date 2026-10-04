@@ -1,450 +1,264 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
-import { formatDate, formatPeriod } from './lib/calendar.js';
-import {
-  ConfirmationResetBanner,
-  DeemedAcceptanceBanner
-} from './components/DeemedAcceptanceBanner.jsx';
+import { Sidebar } from './components/Sidebar.jsx';
+import { TopBar } from './components/TopBar.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { ErrorBox, Loading } from './components/States.jsx';
-import { ClearAllData } from './components/DemoSession.jsx';
+import { notFiledRows } from './lib/overview.js';
 import { UploadScreen } from './screens/Upload.jsx';
-import { SummaryScreen } from './screens/Summary.jsx';
-import { ActionsScreen } from './screens/Actions.jsx';
+import { OverviewScreen } from './screens/Overview.jsx';
+import { DecisionsScreen } from './screens/Decisions.jsx';
+import { NotFiledScreen } from './screens/NotFiled.jsx';
+import { CorrectionsScreen } from './screens/Corrections.jsx';
 import { SuppliersScreen } from './screens/Suppliers.jsx';
-import { AlertsScreen } from './screens/Alerts.jsx';
-import { AboutScreen } from './screens/About.jsx';
-import { HowToUseScreen } from './screens/HowToUse.jsx';
+import { HelpScreen } from './screens/Help.jsx';
 
-const ROUTES = [
-  { id: 'upload', label: 'Upload' },
-  { id: 'summary', label: 'Summary' },
-  // Sits before Actions on purpose: preventive work happens earlier in the month
-  // than the accept/reject pass, and the nav should read in that order.
-  { id: 'alerts', label: 'Still fixable' },
-  { id: 'actions', label: 'Actions' },
-  { id: 'suppliers', label: 'Suppliers' },
-  // Both need no run and no data, so they stay clickable on a cold start — which
-  // is exactly when someone is most likely to want to know what they are looking
-  // at. "How to use" is the walkthrough; About is the provenance and the
-  // synthetic-data caveat, and they are deliberately not merged.
-  { id: 'howto', label: 'How to use', alwaysEnabled: true },
-  { id: 'about', label: 'About', alwaysEnabled: true }
-];
+export const ROUTES = ['upload', 'overview', 'decisions', 'notfiled', 'corrections', 'suppliers', 'help'];
+const PERIOD = /^\d{4}-\d{2}$/;
 
-// The hash is `#/route?key=value`. The query part is session state that belongs
-// to the WHOLE app rather than to one screen — today that is the as-of date, the
-// clock everything on screen is being read at.
-//
-// It lives in the URL rather than in component state for three reasons: it
-// survives navigating away and back (it did not, and the Still fixable screen
-// silently snapped back to the run's date), it survives a reload, and it makes a
-// particular point in the filing month a link someone can send.
-// The real clock, read once at module load. Everything else in the app runs on
-// the run's as-of date, which is 2026 sample data.
-const TODAY = new Date().toISOString().slice(0, 10);
-
+// The location is `#/<route>?period=YYYY-MM`: a screen and a month survive a
+// reload and can be linked to. Upload is the default screen.
 function readHash() {
-  const raw = window.location.hash.replace(/^#\/?/, '');
-  const [path, query = ''] = raw.split('?');
-  return {
-    route: ROUTES.some((route) => route.id === path) ? path : null,
-    params: new URLSearchParams(query)
-  };
+  const [path, search = ''] = window.location.hash.replace(/^#\/?/, '').split('?');
+  const period = new URLSearchParams(search).get('period');
+  return { route: ROUTES.includes(path) ? path : 'upload', period: PERIOD.test(period ?? '') ? period : null };
 }
 
-function writeHash(route, params) {
-  const query = params.toString();
-  window.location.hash = `#/${route}${query ? `?${query}` : ''}`;
-}
+const hashFor = (route, period) => `#/${route}${period ? `?period=${period}` : ''}`;
 
-function useHashRoute(fallback) {
-  const [state, setState] = useState(readHash);
-
+function useHashLocation() {
+  const [location, setLocation] = useState(readHash);
   useEffect(() => {
-    const onChange = () => setState(readHash());
+    const onChange = () => setLocation(readHash());
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
-
-  // Writing the hash fires `hashchange` — but only when the value actually
-  // changes, so the state is set here too rather than relying on the event.
-  const apply = useCallback((route, params) => {
-    writeHash(route, params);
-    setState(readHash());
+  const go = useCallback((route, period) => {
+    window.location.hash = hashFor(route, period);
+    setLocation(readHash());
   }, []);
-
-  const navigate = useCallback(
-    (next) => apply(next, readHash().params), // query survives the move
-    [apply]
-  );
-
-  const setParam = useCallback(
-    (key, value) => {
-      const { route, params } = readHash();
-      if (value === null || value === undefined || value === '') params.delete(key);
-      else params.set(key, value);
-      apply(route ?? fallback, params);
-    },
-    [apply, fallback]
-  );
-
-  return [state.route ?? fallback, navigate, state.params, setParam];
+  return [location, go];
 }
 
+const shortLegalName = (name) => (name ? name.replace(/\bPrivate Limited$/i, 'Pvt Ltd') : null);
+
 export default function App() {
-  const [session, setSession] = useState(null);
-  const [clearing, setClearing] = useState(false);
+  const [location, go] = useHashLocation();
+  const [sessionReady, setSessionReady] = useState(false);
+  const [perVisitor, setPerVisitor] = useState(false);
+  const [bootError, setBootError] = useState(null);
+  const [booted, setBooted] = useState(false);
+
   const [org, setOrg] = useState(null);
-  const [runs, setRuns] = useState(null);
-  const [period, setPeriod] = useState(null);
+  const [periods, setPeriods] = useState([]);
+
+  const [clock, setClock] = useState(null);
+  const [calendar, setCalendar] = useState(null);
   const [run, setRun] = useState(null);
   const [results, setResults] = useState(null);
-  const [bootError, setBootError] = useState(null);
-  const [runError, setRunError] = useState(null);
-  const [booting, setBooting] = useState(true);
-  const [loadingRun, setLoadingRun] = useState(false);
+  const [corrections, setCorrections] = useState(null);
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [periodError, setPeriodError] = useState(null);
+  // Screens that fetch their own data (uploads, alerts, suppliers) re-read on this.
+  const [dataVersion, setDataVersion] = useState(0);
 
-  const [route, navigate, params, setParam] = useHashRoute('summary');
+  const [clockBusy, setClockBusy] = useState(false);
+  const [clockError, setClockError] = useState(null);
+  const [rerunning, setRerunning] = useState(false);
+  const loadToken = useRef(0);
 
-  // The as-of date rides in the URL so it holds across screens and reloads. An
-  // absent or hand-mangled value falls back to the run's own date rather than
-  // being sent to an API that would reject it.
-  const asOfParam = params.get('asOf');
-  const asOf = /^\d{4}-\d{2}-\d{2}$/.test(asOfParam ?? '') ? asOfParam : null;
-  const setAsOf = useCallback((value) => setParam('asOf', value), [setParam]);
+  const periodList = useMemo(() => periods.map((entry) => entry.taxPeriod), [periods]);
+  const period = location.period && periodList.includes(location.period) ? location.period : periodList[0] ?? null;
+  const inventory = periods.find((entry) => entry.taxPeriod === period) ?? null;
 
-  // --- boot ----------------------------------------------------------------
+  // --- loading -----------------------------------------------------------------
 
-  const boot = useCallback(async () => {
-    setBooting(true);
-    setBootError(null);
-    try {
-      const [orgBody, runList] = await Promise.all([api.org(), api.listRuns()]);
-      setOrg(orgBody);
-      setRuns(runList);
-      setPeriod((current) => current ?? runList[0]?.taxPeriod ?? null);
-    } catch (err) {
-      setBootError(err);
-    } finally {
-      setBooting(false);
-    }
+  const loadWorkspace = useCallback(async () => {
+    const [orgBody, list] = await Promise.all([api.org(), api.listPeriods()]);
+    setOrg(orgBody?.org ?? null);
+    setPeriods(list);
+    return list;
   }, []);
 
-  // --- this visitor's own workspace ----------------------------------------
-  //
-  // On a public deployment the first call creates an empty workspace and sets the
-  // session cookie, so nothing below it may run until it has answered.
-  const refreshSession = useCallback(async () => {
+  const loadPeriod = useCallback(async (taxPeriod, { quiet = false } = {}) => {
+    const token = ++loadToken.current;
+    if (!quiet) setPeriodLoading(true);
     try {
-      const next = await api.session();
-      setSession(next);
-      return next;
-    } catch (err) {
-      // An API that predates this route is a single-org deployment, not a
-      // failure: carry on as before rather than blocking the whole app.
-      if (err.status === 404) {
-        const legacy = { state: 'READY', perVisitor: false };
-        setSession(legacy);
-        return legacy;
-      }
-      setBootError(err);
-      setBooting(false);
-      return null;
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshSession();
-  }, [refreshSession]);
-
-  // Load the data once the session has answered: on a per-visitor deployment
-  // that answer is what created the workspace.
-  const sessionReady = session?.state === 'READY';
-  useEffect(() => {
-    if (!sessionReady) return;
-    boot();
-  }, [sessionReady, boot]);
-
-  // Empties THIS visitor's workspace. Everything held for the old data is dropped
-  // first so nothing renders against run ids that no longer exist; boot then finds
-  // no runs and the app goes to Upload.
-  const clearAllData = useCallback(async () => {
-    setClearing(true);
-    setBootError(null);
-    setRunError(null);
-    try {
-      await api.clearWorkspace();
-      setRuns(null);
-      setResults(null);
-      setRun(null);
-      setPeriod(null);
-      setOrg(null);
-      await boot();
-    } catch (err) {
-      setBootError(err);
-    } finally {
-      setClearing(false);
-    }
-  }, [boot]);
-
-  // --- the selected period's run + its results -----------------------------
-
-  const loadRun = useCallback(async (taxPeriod) => {
-    if (!taxPeriod) {
-      setRun(null);
-      setResults(null);
-      return;
-    }
-    setLoadingRun(true);
-    setRunError(null);
-    try {
-      const found = await api.getRunByPeriod(taxPeriod);
-      setRun(found);
-      setResults(found ? await api.listAllResults(found.id) : null);
-    } catch (err) {
-      setRunError(err);
-      setRun(null);
-      setResults(null);
-    } finally {
-      setLoadingRun(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadRun(period);
-  }, [period, loadRun]);
-
-  // Totals move when a decision is confirmed, so the run has to be re-read rather
-  // than patched locally — claimable/at-risk are recomputed server-side.
-  const refreshRun = useCallback(async () => {
-    if (!run) return;
-    try {
-      const [fresh, freshResults] = await Promise.all([
-        api.getRun(run.id),
-        api.listAllResults(run.id)
+      const [clockBody, found, correctionList] = await Promise.all([
+        api.clock(taxPeriod),
+        taxPeriod ? api.getRunByPeriod(taxPeriod) : null,
+        taxPeriod ? api.listCorrections(taxPeriod) : null
       ]);
-      setRun(fresh);
-      setResults(freshResults);
+      const rows = found ? await api.listAllResults(found.id) : null;
+      if (token !== loadToken.current) return;
+      setClock(clockBody.clock);
+      setCalendar(clockBody.calendar);
+      setRun(found ?? null);
+      setResults(rows);
+      setCorrections(correctionList);
+      setPeriodError(null);
     } catch (err) {
-      setRunError(err);
+      if (token === loadToken.current) setPeriodError(err);
+    } finally {
+      if (token === loadToken.current) setPeriodLoading(false);
     }
-  }, [run]);
-
-  // Applies one confirmed decision to local state without a full refetch, so a
-  // 400-row list does not flash on every click.
-  const patchResult = useCallback((resultId, confirmedAction) => {
-    setResults((current) =>
-      current?.map((result) =>
-        result.id === resultId
-          ? { ...result, confirmedAction, confirmedAt: new Date().toISOString() }
-          : result
-      ) ?? current
-    );
   }, []);
 
-  // A commit re-runs the period on the server. Nothing navigates, but whatever is
-  // held for that period in memory is now a version behind — including the run the
-  // Actions screen is about to render verdicts from.
-  const afterDataChanged = useCallback(
-    async (taxPeriod) => {
-      const runList = await api.listRuns();
-      setRuns(runList);
-      if (taxPeriod && taxPeriod === period) await loadRun(taxPeriod);
-    },
-    [period, loadRun]
-  );
+  // The visitor's workspace exists once /session has answered; nothing else may
+  // run before it.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .session()
+      .then((session) => {
+        if (cancelled) return;
+        setPerVisitor(Boolean(session?.perVisitor));
+        setSessionReady(true);
+      })
+      .catch((err) => !cancelled && setBootError(err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const afterIngest = useCallback(
-    async (taxPeriod) => {
-      // org is re-read, not just the run list: seededPeriods on it is what tells
-      // Summary which period's SAMPLE data is on screen, and a period that was
-      // just loaded is not in the copy fetched at boot.
-      const [runList, orgBody] = await Promise.all([api.listRuns(), api.org()]);
-      setRuns(runList);
-      setOrg(orgBody);
-      // The as-of date in the URL belongs to the period that WAS loaded. Carrying
-      // it into a new one reads the new period's filing month at the old one's
-      // date — July's data judged on 16 May. Clearing it hands the clock back to
-      // the run's as-of date, which is the workspace date.
-      //
-      // Cleared BEFORE navigating, because navigate() carries the query across.
-      setAsOf(null);
-      if (taxPeriod) {
-        setPeriod(taxPeriod);
-        await loadRun(taxPeriod);
-      }
-      navigate('summary');
-    },
-    [loadRun, navigate, setAsOf]
-  );
-
-  const goToActions = useCallback(() => navigate('actions'), [navigate]);
-  const goToUpload = useCallback(() => navigate('upload'), [navigate]);
-
-  const hasData = Boolean(runs?.length);
-  const periods = useMemo(() => runs?.map((entry) => entry.taxPeriod) ?? [], [runs]);
-
-  // With nothing loaded there is only one useful screen. Send people there rather
-  // than showing three empty ones.
-  // Gated on the session too, so nothing redirects before the workspace exists.
   useEffect(() => {
     if (!sessionReady) return;
-    if (booting || hasData) return;
+    loadWorkspace()
+      .then(() => setBooted(true))
+      .catch(setBootError);
+  }, [sessionReady, loadWorkspace]);
 
-    // The hash is read LIVE here rather than trusting the `route` this effect
-    // closed over. About and How to use are enabled from the very first paint —
-    // that is the point of them — so someone can click one while boot is still in
-    // flight. When boot then finished, this effect ran with the route captured
-    // BEFORE that click and redirected them to Upload, undoing it. The window is
-    // a few hundred milliseconds on a cold load, which is exactly when a judge
-    // who has never seen the app is most likely to click "How to use".
-    const current = readHash().route;
-    if (current !== 'upload' && current !== 'about' && current !== 'howto') navigate('upload');
-  }, [sessionReady, booting, hasData, route, navigate]);
+  useEffect(() => {
+    if (!booted) return;
+    loadPeriod(period);
+  }, [booted, period, loadPeriod]);
+
+  // After anything that changes data: the period list, then the period in view
+  // (or `prefer`, a period a new file just created), then every screen's own reads.
+  const refresh = useCallback(
+    async ({ prefer = null } = {}) => {
+      const list = (await loadWorkspace()).map((entry) => entry.taxPeriod);
+      const target = prefer && list.includes(prefer) ? prefer : list.includes(period) ? period : list[0] ?? null;
+      if (target !== period) go(readHash().route, target);
+      else await loadPeriod(target, { quiet: true });
+      setDataVersion((value) => value + 1);
+    },
+    [loadWorkspace, loadPeriod, period, go]
+  );
+
+  // A decision moves the run's totals, so the run and its results are re-read.
+  const reloadPeriod = useCallback(() => loadPeriod(period, { quiet: true }), [loadPeriod, period]);
+
+  const setAsOf = useCallback(
+    async (asOfDate) => {
+      setClockBusy(true);
+      setClockError(null);
+      try {
+        await api.setClock(asOfDate, period);
+        await refresh();
+      } catch (err) {
+        setClockError(err);
+      } finally {
+        setClockBusy(false);
+      }
+    },
+    [period, refresh]
+  );
+
+  const rerun = useCallback(async () => {
+    if (!period) return;
+    setRerunning(true);
+    try {
+      await api.createRun(period);
+      await refresh();
+    } catch (err) {
+      setPeriodError(err);
+    } finally {
+      setRerunning(false);
+    }
+  }, [period, refresh]);
+
+  const href = useCallback((route) => hashFor(route, period), [period]);
+  const navigate = useCallback((route) => go(route, period), [go, period]);
+
+  const badges = {
+    decisions: run?.openDecisions?.count ?? 0,
+    notFiled: results ? notFiledRows(results).length : 0,
+    corrections: corrections?.counts?.waiting ?? 0
+  };
+
+  const trader = org?.gstinAdopted
+    ? { name: shortLegalName(org.legalName) ?? org.tradeName, gstin: org.gstin }
+    : null;
+
+  const screen = {
+    period,
+    periods,
+    inventory,
+    org,
+    clock,
+    calendar,
+    run,
+    results,
+    corrections,
+    dataVersion,
+    perVisitor,
+    navigate,
+    href,
+    refresh,
+    reloadPeriod,
+    rerun,
+    rerunning
+  };
+
+  let content;
+  if (bootError) {
+    content = <ErrorBox error={bootError} title="Cannot reach ITC Guard" onRetry={() => window.location.reload()} />;
+  } else if (!booted) {
+    content = <Loading label="Starting up" rows={4} />;
+  } else if (location.route === 'help') {
+    content = <HelpScreen />;
+  } else if (location.route === 'upload') {
+    content = <UploadScreen {...screen} />;
+  } else if (periodError) {
+    content = <ErrorBox error={periodError} title="Cannot load this period" onRetry={() => loadPeriod(period)} />;
+  } else if (periodLoading && !run) {
+    content = <Loading label="Loading" rows={6} />;
+  } else if (location.route === 'overview') {
+    content = <OverviewScreen {...screen} />;
+  } else if (location.route === 'decisions') {
+    content = <DecisionsScreen {...screen} />;
+  } else if (location.route === 'notfiled') {
+    content = <NotFiledScreen {...screen} />;
+  } else if (location.route === 'corrections') {
+    content = <CorrectionsScreen {...screen} />;
+  } else {
+    content = <SuppliersScreen {...screen} />;
+  }
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">ITC</span>
-          <div>
-            <div className="brand-name">ITC Guard</div>
-            <div className="brand-sub">
-              {org?.org
-                ? `${org.org.tradeName ?? org.org.legalName} · ${org.org.gstin}`
-                : 'GST input tax credit reconciliation'}
-            </div>
-            {/* Every date the app shows is 2026 sample data. Saying what day it
-                really is, once, is the cheapest way to stop a judge reading a
-                simulated filing calendar as a live one. */}
-            <div className="brand-today" data-testid="real-today">
-              Today is {formatDate(TODAY)} · all dates below are sample data
-            </div>
-          </div>
-        </div>
-
-        <nav className="nav">
-          {ROUTES.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              className={`nav-item ${route === entry.id ? 'is-active' : ''}`}
-              data-testid={`nav-${entry.id}`}
-              disabled={!hasData && entry.id !== 'upload' && !entry.alwaysEnabled}
-              onClick={() => navigate(entry.id)}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* Only on a deployment that gives each visitor their own workspace. On a
-            single-org dev run this button would wipe the developer's own data,
-            so the API says whether it applies and the UI believes it. */}
-        {session?.perVisitor ? <ClearAllData onClear={clearAllData} busy={clearing} /> : null}
-
-        <div className="period-picker">
-          <label htmlFor="period">Tax period</label>
-          <select
-            id="period"
-            data-testid="period-select"
-            value={period ?? ''}
-            disabled={!periods.length}
-            onChange={(event) => setPeriod(event.target.value)}
-          >
-            {periods.length ? (
-              periods.map((entry) => (
-                <option key={entry} value={entry}>
-                  {formatPeriod(entry)}
-                </option>
-              ))
-            ) : (
-              <option value="">no runs yet</option>
-            )}
-          </select>
-        </div>
-      </header>
-
-      {hasData ? (
-        <div className="banners">
-          <DeemedAcceptanceBanner
-            run={run}
-            results={results}
-            loading={loadingRun}
-            onGoToActions={goToActions}
-          />
-          <ConfirmationResetBanner results={results} onGoToActions={goToActions} />
-        </div>
-      ) : null}
-
-      <main className="content">
-        {/* Keyed on the route and period so navigating away from a screen that threw
-            remounts the boundary and clears the error — the nav bar above stays
-            mounted throughout, so there is always a way out. */}
-        <ErrorBoundary key={`${route}:${period ?? ''}`} scope="This screen">
-        {/* About is checked first, ahead of booting and ahead of the API error:
-            it is static text about the project and reads correctly when nothing
-            else in the app can load. */}
-        {route === 'about' ? (
-          <AboutScreen />
-        ) : route === 'howto' ? (
-          <HowToUseScreen onGoTo={navigate} hasData={hasData} />
-        ) : booting ? (
-          <Loading label="Starting up" rows={4} />
-        ) : bootError ? (
-          <ErrorBox
-            error={bootError}
-            onRetry={boot}
-            title="Cannot reach the API"
-          />
-        ) : route === 'upload' ? (
-          <UploadScreen
-            org={org}
-            runs={runs}
-            activePeriod={period}
-            onIngested={afterIngest}
-            onDataChanged={afterDataChanged}
-          />
-        ) : runError ? (
-          <ErrorBox error={runError} onRetry={() => loadRun(period)} title="Cannot load this run" />
-        ) : loadingRun ? (
-          <Loading label={`Loading ${formatPeriod(period)}`} rows={6} />
-        ) : route === 'summary' ? (
-          <SummaryScreen
-            run={run}
-            results={results}
-            onGoToActions={goToActions}
-            onGoToUpload={goToUpload}
-            onRefresh={refreshRun}
-            seededPeriods={org?.seededPeriods ?? []}
-          />
-        ) : route === 'alerts' ? (
-          <AlertsScreen run={run} taxPeriod={period} asOf={asOf} onAsOfChange={setAsOf} />
-        ) : route === 'actions' ? (
-          <ActionsScreen
-            run={run}
-            results={results}
-            onConfirmed={patchResult}
-            onRefresh={refreshRun}
-          />
-        ) : (
-          <SuppliersScreen run={run} />
-        )}
-        </ErrorBoundary>
-      </main>
-
-      <footer className="footer">
-        <span>
-          Money is held as integer paise end to end and rounded to whole rupees only for
-          display.
-        </span>
-        {run ? (
-          <span className="mono muted">
-            run #{run.id} · engine {run.engineVersion} · {run.mode.toLowerCase()}
-          </span>
-        ) : null}
-      </footer>
+    <div className="shell">
+      <Sidebar route={location.route} href={href} badges={badges} trader={trader} />
+      <div className="main">
+        <TopBar
+          periods={periodList}
+          period={period}
+          onPeriodChange={(next) => go(location.route, next)}
+          asOfDate={clock?.asOfDate ?? null}
+          onAsOfChange={setAsOf}
+          clockBusy={clockBusy || !booted}
+          clockError={clockError}
+          calendar={calendar}
+          stale={Boolean(run?.staleness?.isStale)}
+          onRerun={rerun}
+          rerunning={rerunning}
+        />
+        <main className="page" id="content">
+          <ErrorBoundary key={`${location.route}:${period ?? ''}`} scope="This screen">
+            {content}
+          </ErrorBoundary>
+        </main>
+      </div>
     </div>
   );
 }

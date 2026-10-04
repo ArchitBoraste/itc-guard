@@ -1,0 +1,62 @@
+/* Design tokens: docs/design/README.md. Every colour, font and radius the app
+   uses is one of these; components never carry a raw hex value. */
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+
+  --bg-app: #f5f6f8;
+  --bg-card: #ffffff;
+  --bg-subtle: #f7f8fa;
+  --bg-muted: #eef1f5;
+  --bg-disabled: #f1f3f6;
+  --bg-selected-row: #f7f9fd;
+  --border: #e2e6ec;
+  --border-row: #eef1f4;
+  --border-input: #d5dbe3;
+  --border-dashed: #c3cbd6;
+  --radius-card: 10px;
+  --radius-control: 6px;
+  --radius-button: 8px;
+  --radius-chip: 4px;
+
+  --sidebar-bg: #0f1b2d;
+  --sidebar-active: #1e2d44;
+  --sidebar-text: #c9d2de;
+  --sidebar-muted: #93a1b5;
+  --sidebar-divider: #24344d;
+  --sidebar-badge: #33445e;
+  --sidebar-strong: #e6ebf2;
+
+  --text: #0f1b2d;
+  --text-secondary: #3d4b5f;
+  --text-muted: #5b6778;
+  --text-body: #22303f;
+
+  --primary: #2446c7;
+  --primary-hover: #1a3599;
+  --primary-soft: #e9edfb;
+  --primary-soft-text: #1a3599;
+
+  --ok-text: #11724a;
+  --ok-bg: #e8f5ee;
+  --ok-solid: #1f8a5b;
+  --warn-text: #8a3f05;
+  --warn-bg: #fdf1e3;
+  --warn-solid: #d9822b;
+  --warn-strong: #b4540a;
+  --bad-text: #a11e14;
+  --bad-bg: #fdecea;
+  --bad-solid: #b42318;
+  --bad-border: #e8b4af;
+  --info-text: #1d4f8c;
+  --info-bg: #eaf2fb;
+  --neutral-text: #2d4a73;
+  --neutral-bg: #eaeff6;
+  --neutral-bar: #7e93b3;
+  --rest-bar: #c9d2de;
+
+  --focus-ring: 0 0 0 3px rgba(36, 70, 199, 0.35);
+  --page-padding: 32px 40px 48px;
+  --content-max: 1240px;
+  --sidebar-width: 232px;
+}
