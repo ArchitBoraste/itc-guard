@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { deadlineChip, formatDate, formatPeriod } from '../lib/calendar.js';
 import { Icon } from './Icon.jsx';
+import { TopBarBell } from './SupplierBell.jsx';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 // A picker can fire a change per keystroke as it moves; only the settled value
@@ -37,7 +38,8 @@ export function TopBar({
   calendar = null,
   stale = false,
   onRerun,
-  rerunning = false
+  rerunning = false,
+  onOpenReply = null
 }) {
   const [draft, setDraft] = useState(asOfDate ?? '');
   const timer = useRef(null);
@@ -130,6 +132,7 @@ export function TopBar({
             {chip.text}
           </span>
         ) : null}
+        <TopBarBell onOpenReply={onOpenReply} />
       </div>
     </header>
   );

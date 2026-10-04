@@ -66,6 +66,8 @@ export default function App() {
   const [clockBusy, setClockBusy] = useState(false);
   const [clockError, setClockError] = useState(null);
   const [rerunning, setRerunning] = useState(false);
+  // The row a top-bar reply points at: { gstin, invoiceNo, nonce }.
+  const [focus, setFocus] = useState(null);
   const loadToken = useRef(0);
 
   const periodList = useMemo(() => periods.map((entry) => entry.taxPeriod), [periods]);
@@ -179,6 +181,15 @@ export default function App() {
     }
   }, [period, refresh]);
 
+  const openReply = useCallback(
+    (reply) => {
+      setFocus({ gstin: reply.supplierGstin, invoiceNo: reply.documentRefs?.[0] ?? null, nonce: Date.now() });
+      const route = ROUTES.includes(reply.context) ? reply.context : 'suppliers';
+      go(route, reply.taxPeriod && periodList.includes(reply.taxPeriod) ? reply.taxPeriod : period);
+    },
+    [go, period, periodList]
+  );
+
   const href = useCallback((route) => hashFor(route, period), [period]);
   const navigate = useCallback((route) => go(route, period), [go, period]);
 
@@ -209,7 +220,8 @@ export default function App() {
     refresh,
     reloadPeriod,
     rerun,
-    rerunning
+    rerunning,
+    focus
   };
 
   let content;
@@ -254,6 +266,7 @@ export default function App() {
           stale={Boolean(run?.staleness?.isStale)}
           onRerun={rerun}
           rerunning={rerunning}
+          onOpenReply={openReply}
         />
         <main className="page" id="content">
           <ErrorBoundary key={`${location.route}:${period ?? ''}`} scope="This screen">

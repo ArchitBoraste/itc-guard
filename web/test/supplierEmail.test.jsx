@@ -15,6 +15,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 import { api } from '../src/api.js';
 import { MailProvider } from '../src/components/MailProvider.jsx';
 import { MessagePanel } from '../src/components/MessagePanel.jsx';
+import { PromisedLine, SupplierBell, TopBarBell } from '../src/components/SupplierBell.jsx';
 
 const GSTIN = '27AABCN7782E1ZT';
 const MESSAGE = {
@@ -111,5 +112,70 @@ describe('Email from the app', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByTestId('intent-chip')).toHaveTextContent('Will fix');
     expect(screen.getByTestId('reply-promised')).toHaveTextContent('Promised by 9 Oct 2026');
+  });
+});
+
+const REPLY = {
+  id: 1, threadId: 7, from: CONTACT.email, receivedAt: '2026-10-04T19:20:00Z',
+  text: 'Will correct NS-612 through GSTR-1A by 9 Oct', intent: 'will_fix',
+  summary: 'Will correct it through GSTR-1A by 9 Oct.', promisedDate: '2026-10-09', mentionsOurInvoice: true,
+  read: false, flag: null
+};
+const SPAM = {
+  ...REPLY, id: 2, receivedAt: '2026-10-04T19:25:00Z', text: 'Cheap watches', intent: 'unrelated',
+  summary: 'An advert.', promisedDate: null, mentionsOurInvoice: false, flag: "Doesn't seem to be about NS-612"
+};
+
+describe('follow-ups', () => {
+  it('puts an unread dot on the supplier bell, and opening it shows the reply and marks it read', async () => {
+    api.listMessages.mockResolvedValue({ mail: MAIL, threads: [{ ...THREAD, replies: [REPLY, SPAM] }] });
+    api.markSupplierRead.mockResolvedValue({ marked: 2 });
+    const user = userEvent.setup();
+    render(
+      <MailProvider>
+        <SupplierBell gstin={GSTIN} name="National Supply Co" />
+        <PromisedLine gstin={GSTIN} invoiceNo="ns/612" />
+      </MailProvider>
+    );
+    const bell = await screen.findByTestId('supplier-bell');
+    expect(screen.getByTestId('bell-dot')).toBeInTheDocument();
+    expect(screen.getByTestId('promised-line')).toHaveTextContent('Promised by 9 Oct 2026');
+
+    await user.click(bell);
+    const popover = screen.getByTestId('bell-popover');
+    expect(within(popover).getAllByTestId('intent-chip').map((chip) => chip.textContent)).toEqual(['Unrelated', 'Will fix']);
+    expect(within(popover).getByText('Will correct it through GSTR-1A by 9 Oct.')).toBeInTheDocument();
+    expect(within(popover).getByTestId('reply-flag')).toHaveTextContent("Doesn't seem to be about NS-612");
+    expect(api.markSupplierRead).toHaveBeenCalledWith(GSTIN);
+    expect(screen.queryByTestId('bell-dot')).toBeNull();
+  });
+
+  it('shows no bell for a supplier never emailed from the app', async () => {
+    api.listMessages.mockResolvedValue({ mail: MAIL, threads: [THREAD] });
+    render(
+      <MailProvider>
+        <SupplierBell gstin="27AAAAA0000A1Z5" name="Someone" />
+        <span>ready</span>
+      </MailProvider>
+    );
+    await screen.findByText('ready');
+    expect(screen.queryByTestId('supplier-bell')).toBeNull();
+  });
+
+  it('counts unread replies in the top bar and opens the row of the one clicked', async () => {
+    api.listMessages.mockResolvedValue({ mail: MAIL, threads: [{ ...THREAD, replies: [REPLY] }] });
+    const latest = [{ ...REPLY, ref: 'K7Q2XM', supplierGstin: GSTIN, supplierName: 'National Supply Co', documentRefs: ['NS-612'], context: 'decisions', taxPeriod: '2026-08' }];
+    api.unreadMessages.mockResolvedValue({ count: 1, version: '1:1:1', latest });
+    const onOpenReply = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MailProvider>
+        <TopBarBell onOpenReply={onOpenReply} />
+      </MailProvider>
+    );
+    expect(await screen.findByTestId('topbar-bell-count')).toHaveTextContent('1');
+    await user.click(screen.getByTestId('topbar-bell'));
+    await user.click(screen.getByTestId('topbar-bell-item'));
+    expect(onOpenReply).toHaveBeenCalledWith(latest[0]);
   });
 });

@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Chip } from '../components/Chip.jsx';
 import { DataTable } from '../components/DataTable.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { MessagePanel } from '../components/MessagePanel.jsx';
+import { PromisedLine, SupplierBell, scrollToSelector } from '../components/SupplierBell.jsx';
+import { docKey } from '../components/MailProvider.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { StatTile } from '../components/StatTile.jsx';
 import { formatDate, monthOf } from '../lib/calendar.js';
@@ -39,9 +41,23 @@ export function foundIn(item, period) {
   return `Not in ${monthOf(period)} files`;
 }
 
-export function CorrectionsScreen({ period, corrections }) {
+export function CorrectionsScreen({ period, corrections, focus = null }) {
   const [selected, setSelected] = useState(null);
   const items = corrections?.items ?? [];
+
+  // A reply picked in the top bar: open its reminder, which shows the thread.
+  useEffect(() => {
+    if (!focus) return;
+    const item = items.find(
+      (entry) =>
+        entry.status === 'WAITING' &&
+        entry.supplier.gstin === focus.gstin &&
+        (!focus.invoiceNo || docKey(entry.document.invoiceNo) === docKey(focus.invoiceNo))
+    );
+    if (!item) return;
+    setSelected(item.resultId);
+    scrollToSelector('[data-testid="message-panel"]');
+  }, [focus?.nonce, corrections]); // eslint-disable-line react-hooks/exhaustive-deps
   const months = [...new Set(items.map((item) => item.taxPeriod))];
   const from = months.length === 1 ? monthOf(months[0]) : 'earlier months';
 
@@ -111,7 +127,10 @@ export function CorrectionsScreen({ period, corrections }) {
               header: 'Supplier',
               render: (item) => (
                 <>
-                  <div className="cell-main">{item.supplier.name}</div>
+                  <div className="supplier-cell-head">
+                    <div className="cell-main">{item.supplier.name}</div>
+                    <SupplierBell gstin={item.supplier.gstin} name={item.supplier.name} />
+                  </div>
                   <div className="cell-gstin">{item.supplier.gstin}</div>
                 </>
               )
@@ -138,9 +157,12 @@ export function CorrectionsScreen({ period, corrections }) {
                     Arrived
                   </Chip>
                 ) : (
-                  <Chip tone="warn">
-                    Waiting · {item.waiting.monthsWaiting} month{item.waiting.monthsWaiting === 1 ? '' : 's'}
-                  </Chip>
+                  <>
+                    <Chip tone="warn">
+                      Waiting · {item.waiting.monthsWaiting} month{item.waiting.monthsWaiting === 1 ? '' : 's'}
+                    </Chip>
+                    <PromisedLine gstin={item.supplier.gstin} invoiceNo={item.document.invoiceNo} />
+                  </>
                 )
             },
             {

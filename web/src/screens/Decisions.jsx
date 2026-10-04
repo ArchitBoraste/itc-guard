@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { Chip } from '../components/Chip.jsx';
 import { DataTable } from '../components/DataTable.jsx';
@@ -8,6 +8,8 @@ import { NoRun } from '../components/NoRun.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { ImsDownloadButton } from '../components/ImsDownload.jsx';
 import { MessagePanel } from '../components/MessagePanel.jsx';
+import { SupplierBell, scrollToSelector } from '../components/SupplierBell.jsx';
+import { docKey } from '../components/MailProvider.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { SegmentedDecision } from '../components/SegmentedDecision.jsx';
 import { InlineError } from '../components/States.jsx';
@@ -90,7 +92,7 @@ function Details({ result, period = null }) {
   );
 }
 
-export function DecisionsScreen({ period, inventory, run, results, calendar, navigate, refresh, reloadPeriod }) {
+export function DecisionsScreen({ period, inventory, run, results, calendar, navigate, refresh, reloadPeriod, focus = null }) {
   const rows = useMemo(() => decisionRows(results ?? []), [results]);
   const counts = tabCounts(rows);
   // Opens on whatever needs the trader first, and stays put once they act, so
@@ -103,6 +105,22 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState(null);
   const tabRefs = useRef({});
+
+  // A reply picked in the top bar: open its row, on whichever tab holds it.
+  useEffect(() => {
+    if (!focus) return;
+    const row = rows.find(({ result }) => {
+      const doc = messageDocument(result);
+      return doc.supplierGstin === focus.gstin && (!focus.invoiceNo || docKey(doc.invoiceNo) === docKey(focus.invoiceNo));
+    });
+    if (!row) return;
+    const holder = TABS.find((entry) => rowsForTab(rows, entry.key).includes(row));
+    if (holder) setChosen(holder.key);
+    setOpen(row.result.id);
+    scrollToSelector(`[data-result-id="${row.result.id}"]`);
+    // Only when a new reply is picked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   if (!run || !results) return <NoRun period={period} inventory={inventory} navigate={navigate} refresh={refresh} />;
 
@@ -168,7 +186,10 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
         const reset = (result.flags ?? []).includes('CONFIRMATION_RESET');
         return (
           <>
-            <div className="cell-main">{identity.supplierName ?? 'Unknown supplier'}</div>
+            <div className="supplier-cell-head">
+              <div className="cell-main">{identity.supplierName ?? 'Unknown supplier'}</div>
+              <SupplierBell gstin={identity.supplierGstin} name={identity.supplierName} />
+            </div>
             <div className="cell-gstin">{identity.supplierGstin}</div>
             {result.linkedFrom || reset ? (
               <div className="row-flags">
