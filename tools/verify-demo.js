@@ -19,6 +19,16 @@
 // Every document's verdict is printed at every step, so a failing check comes
 // with what the app showed instead. The workspace is deleted afterwards. Exits
 // non-zero if any check fails.
+//
+// Against a deployed site instead of an in-process app (a smoke test after a
+// deploy; no database access needed, only this checkout's fixtures/demo):
+//
+//   node tools/verify-demo.js --base-url https://itcguard.duckdns.org
+//
+// It plays the story in a visitor workspace of its own, then empties it with
+// Clear all data and prints its org id. The empty workspace is reaped once idle
+// (DEMO_IDLE_MINUTES), or deleted at once on the server with
+// tools/purge-visitor-workspaces.js --org <id> --yes. --keep leaves it full.
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,14 +47,33 @@ import {
   twoBFileName
 } from './demo-timeline.js';
 
+function option(name) {
+  const args = process.argv.slice(2);
+  const at = args.findIndex((arg) => arg === name || arg.startsWith(`${name}=`));
+  if (at === -1) return null;
+  return args[at].includes('=') ? args[at].slice(name.length + 1) : args[at + 1] ?? '';
+}
+const BASE_URL = option('--base-url')?.replace(/\/+$/, '') || null;
+const KEEP = process.argv.includes('--keep');
+if (BASE_URL !== null && !/^https?:\/\/[^/]+/.test(BASE_URL)) {
+  console.error('--base-url takes a URL, e.g. https://itcguard.duckdns.org');
+  process.exit(2);
+}
+
 process.env.DEMO_TENANCY = 'on';
 process.env.DEMO_SESSION_SECRET ??= `verify-demo-${process.pid}-${Date.now()}`;
 
-const { createApp } = await import('../api/src/app.js');
-const { closePool, pool } = await import('../api/src/db/pool.js');
-const { describeConnection } = await import('../api/src/config.js');
-const { wipeOrgData } = await import('../api/src/services/demoStory.js');
+// Against a deployed site nothing here touches a database.
 const { formatPaise } = await import('../api/src/matching/recommend.js');
+const local = BASE_URL
+  ? null
+  : {
+      ...(await import('../api/src/app.js')),
+      ...(await import('../api/src/db/pool.js')),
+      ...(await import('../api/src/config.js')),
+      ...(await import('../api/src/services/demoStory.js'))
+    };
+const closePool = async () => local?.closePool();
 
 const DEMO_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'demo');
 const rupees = (paise) => `Rs ${formatPaise(paise)}`;
@@ -511,12 +540,14 @@ const fingerprint = ({ run, results }) => JSON.stringify({
 
 async function main() {
   console.log('ITC Guard — the demo story, replayed');
-  console.log(`database ${describeConnection()}`);
+  console.log(BASE_URL ? `site ${BASE_URL}` : `database ${local.describeConnection()}`);
 
-  const server = await new Promise((resolve) => {
-    const listening = createApp({ pingDb: async () => true }).listen(0, () => resolve(listening));
-  });
-  const client = browser(`http://127.0.0.1:${server.address().port}`);
+  const server = BASE_URL
+    ? null
+    : await new Promise((resolve) => {
+        const listening = local.createApp({ pingDb: async () => true }).listen(0, () => resolve(listening));
+      });
+  const client = browser(BASE_URL ?? `http://127.0.0.1:${server.address().port}`);
   let orgId = null;
 
   try {
@@ -557,11 +588,20 @@ async function main() {
     console.log(failed.length ? '\nSOME CHECKS FAIL' : '\nALL CHECKS PASS');
     return failed.length === 0;
   } finally {
-    if (orgId) {
-      await wipeOrgData(orgId);
-      await pool.query('DELETE FROM organizations WHERE id = ? AND demo_state IS NOT NULL', [orgId]);
+    if (orgId && KEEP) {
+      console.log(`\nworkspace ${orgId} kept (--keep)`);
+    } else if (orgId && BASE_URL) {
+      const cleared = await client.json('POST', '/api/workspace/clear');
+      console.log(
+        `\nworkspace ${orgId} ${cleared.status === 200 ? 'emptied (Clear all data)' : `NOT emptied: ${cleared.status}`}; ` +
+          'reaped once idle, or delete it now on the server:\n' +
+          `  dc run --rm api node /app/tools/purge-visitor-workspaces.js --org ${orgId} --yes`
+      );
+    } else if (orgId) {
+      await local.wipeOrgData(orgId);
+      await local.pool.query('DELETE FROM organizations WHERE id = ? AND demo_state IS NOT NULL', [orgId]);
     }
-    await new Promise((resolve) => server.close(resolve));
+    if (server) await new Promise((resolve) => server.close(resolve));
   }
 }
 

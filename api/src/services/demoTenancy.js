@@ -133,10 +133,16 @@ export async function claimSession() {
   return { orgId, state: 'READY' };
 }
 
+// A workspace that has never held an upload has nothing in it to lose. Every
+// cookieless /api request mints one, so a scanner probing paths fills the cap with
+// these; at the cap they go after this many idle minutes, not the quarter TTL.
+const UNUSED_GRACE_MINUTES = 10;
+
 // At the cap: delete the least recently seen workspace that may go, and reuse the
-// headroom. Leftovers of the old pool go first; then a claimed workspace idle for
-// a quarter of the normal TTL with no upload in the retention window. A workspace
-// someone uploaded to this month is never taken, even to let a new visitor in.
+// headroom. Leftovers of the old pool go first; then a claimed workspace that never
+// had an upload and has been idle UNUSED_GRACE_MINUTES, or one idle for a quarter
+// of the normal TTL with no upload in the retention window. A workspace someone
+// uploaded to this month is never taken, even to let a new visitor in.
 async function reclaimForCapacity() {
   const graceMinutes = Math.max(5, Math.floor(config.demo.idleMinutes / 4));
   const [rows] = await pool.query(
@@ -145,10 +151,13 @@ async function reclaimForCapacity() {
         AND (o.demo_state IN ('POOL', 'RETIRED')
           OR (o.demo_state = 'CLAIMED'
               AND o.last_seen_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)
+              AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.org_id = o.id))
+          OR (o.demo_state = 'CLAIMED'
+              AND o.last_seen_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)
               AND NOT ${HAS_RECENT_UPLOAD}))
       ORDER BY o.demo_state = 'CLAIMED', o.last_seen_at ASC
       LIMIT 1`,
-    [APP_ORG_ID, graceMinutes, config.demo.retainDays]
+    [APP_ORG_ID, Math.min(UNUSED_GRACE_MINUTES, graceMinutes), graceMinutes, config.demo.retainDays]
   );
   if (!rows.length) return null;
   const victim = await getDemoOrg(rows[0].id);
@@ -156,6 +165,31 @@ async function reclaimForCapacity() {
   console.log(`[demo] at capacity: reclaiming workspace ${victim.id}`);
   await deleteOrgRow(victim.id);
   return createWorkspaceOrg();
+}
+
+// --- operator tools ------------------------------------------------------------
+
+// Every visitor workspace, for tools/purge-visitor-workspaces.js. Org 1 and the
+// test orgs (demo_state IS NULL) are never listed.
+export async function listVisitorWorkspaces() {
+  const [rows] = await pool.query(
+    `SELECT o.id, o.demo_state, o.created_at, o.last_seen_at,
+            (SELECT COUNT(*) FROM uploads u WHERE u.org_id = o.id) AS uploads,
+            (SELECT MAX(u.created_at) FROM uploads u WHERE u.org_id = o.id) AS last_upload_at
+       FROM organizations o
+      WHERE o.demo_state IS NOT NULL AND o.id <> ?
+      ORDER BY o.id`,
+    [APP_ORG_ID]
+  );
+  return rows.map((row) => ({ ...row, id: Number(row.id), uploads: Number(row.uploads) }));
+}
+
+// Deletes one visitor workspace outright, whatever its age. Refuses org 1 and any
+// org that is not a demo tenant.
+export async function deleteVisitorWorkspace(orgId) {
+  assertDemoOrg(await getDemoOrg(orgId), 'deleteVisitorWorkspace');
+  await deleteOrgRow(Number(orgId));
+  touchedAt.delete(Number(orgId));
 }
 
 // --- keeping a session alive -------------------------------------------------

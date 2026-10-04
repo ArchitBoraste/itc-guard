@@ -396,4 +396,35 @@ describe('the cap', () => {
       process.env.DEMO_MAX_ORGS = savedMax;
     }
   });
+
+  it('reclaims a never-used workspace after minutes, but one with an upload only after the longer grace', async () => {
+    const savedMax = process.env.DEMO_MAX_ORGS;
+    const ageMinutes = (orgId, minutes) =>
+      pool.query('UPDATE organizations SET last_seen_at = DATE_SUB(NOW(), INTERVAL ? MINUTE) WHERE id = ?', [minutes, orgId]);
+    try {
+      // Used 40 days ago, seen 20 minutes ago: inside the 45-minute grace.
+      const used = browser();
+      const { orgId: usedOrg } = await sessionOf(used);
+      await withAugust(used);
+      await ageUploads(usedOrg, 40);
+      await ageMinutes(usedOrg, 20);
+
+      // Never uploaded to, seen 20 minutes ago: a scanner's, or an abandoned tab.
+      const unused = browser();
+      const { orgId: unusedOrg } = await sessionOf(unused);
+      await ageMinutes(unusedOrg, 20);
+
+      process.env.DEMO_MAX_ORGS = String((await tenancyStats()).live);
+
+      expect((await sessionOf(browser())).isNew).toBe(true);
+      expect(await exists(unusedOrg)).toBe(false);
+      expect(await exists(usedOrg)).toBe(true);
+
+      const turnedAway = await browser().call('/api/session');
+      expect(turnedAway.status).toBe(503);
+      expect(await exists(usedOrg)).toBe(true);
+    } finally {
+      process.env.DEMO_MAX_ORGS = savedMax;
+    }
+  });
 });

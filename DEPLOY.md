@@ -240,10 +240,13 @@ the images, and `docker load` them here.)
 
 ### If the box struggles, in this order
 
-1. `DEMO_MAX_ORGS` down (20 → 10). Fewer workspaces means less buffer pool
-   pressure. Biggest effect.
-2. `DB_MEM_LIMIT=320M` and `innodb_buffer_pool_size = 64M` in
+1. `DB_MEM_LIMIT=320M` and `innodb_buffer_pool_size = 64M` in
    `deploy/mysql/small.cnf` (this needs `--build` on the db service).
+
+`DEMO_MAX_ORGS` (200) is not a memory knob any more. Workspaces start empty, the
+API keeps nothing per workspace in memory, and the buffer pool holds what the
+visitors active right now touch, so the cap bounds disk: under 1 MB for a
+workspace that plays the whole demo. Lower it only if `df -h` is short.
 
 ---
 
@@ -349,6 +352,16 @@ every request looks like a first visit. Either set it `false` or fix TLS.
 
 **`demo_at_capacity` (503)** — `DEMO_MAX_ORGS` reached and every workspace is
 either in use or holds an upload from the last `DEMO_RETAIN_DAYS`. Raise the cap.
+At the cap a workspace that never had an upload goes after 10 idle minutes, one
+whose uploads are all older than `DEMO_RETAIN_DAYS` after a quarter of
+`DEMO_IDLE_MINUTES`. To see what is filling it, or to delete visitor workspaces
+outright (never org 1):
+
+```bash
+dc run --rm api node /app/tools/purge-visitor-workspaces.js            # list only
+dc run --rm api node /app/tools/purge-visitor-workspaces.js --all --yes  # delete every one
+dc run --rm api node /app/tools/purge-visitor-workspaces.js --org 1234 --yes
+```
 
 **Disk filling** — container logs are capped (10 MB × 3 per service). The usual
 culprit is old images: `docker image prune -a`.

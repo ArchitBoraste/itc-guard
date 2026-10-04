@@ -107,8 +107,9 @@ function demoConfig() {
     // has to survive coming back to the demo days later.
     sessionDays: Number(process.env.DEMO_SESSION_DAYS ?? 180),
     // Hard ceiling on live workspaces. Org 1 and the reserved test orgs are not
-    // demo orgs and never count towards it.
-    maxOrgs: Number(process.env.DEMO_MAX_ORGS ?? 40),
+    // demo orgs and never count towards it. An empty workspace is one row, so the
+    // cap bounds disk, not memory; see DEMO_MAX_ORGS in .env.prod.example.
+    maxOrgs: Number(process.env.DEMO_MAX_ORGS ?? 200),
     // A workspace untouched for this long is deleted, unless it was uploaded to
     // within retainDays.
     idleMinutes: Number(process.env.DEMO_IDLE_MINUTES ?? 180),
