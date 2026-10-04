@@ -28,6 +28,10 @@ const DECISION_LABEL = { ACCEPT: 'Accept', REJECT: 'Reject', PENDING: 'Pending' 
 const signed = (side) => (side?.docType === 'CREDIT_NOTE' ? -side.totalTax : side?.totalTax);
 const signedTaxable = (side) => (side?.docType === 'CREDIT_NOTE' ? -side.taxableValue : side?.taxableValue);
 const identityOf = (result) => result.books ?? result.portal ?? {};
+// The document a row's message is about: the portal's for a record not in the
+// books, else the books' (services/supplierMessages.js messageForResult).
+const messageDocument = (result) =>
+  (result.bucket === 'MISSING_IN_BOOKS' ? result.portal : identityOf(result)) ?? {};
 
 // How a suggested match was found, from the score the engine stored.
 function matchLine(result) {
@@ -36,7 +40,7 @@ function matchLine(result) {
   return `Matched on supplier, date and amount; the two numbers are ${Math.round(similarity * 100)}% alike.`;
 }
 
-function Details({ result }) {
+function Details({ result, period = null }) {
   const books = result.books;
   const portal = result.portal;
   const remark =
@@ -75,6 +79,10 @@ function Details({ result }) {
           headingLevel={2}
           contact={result.supplierContact}
           message={result.message}
+          supplierGstin={messageDocument(result).supplierGstin}
+          documentRefs={[messageDocument(result).invoiceNo]}
+          taxPeriod={period}
+          context="decisions"
           noContactText={books ? 'No contact on file' : 'No contact on file: not in your purchase register'}
         />
       ) : null}
@@ -336,7 +344,7 @@ export function DecisionsScreen({ period, inventory, run, results, calendar, nav
             rowProps={({ result }) => ({ 'data-result-id': result.id })}
             columns={columns}
             isExpanded={({ result }) => open === result.id}
-            renderDetail={({ result }) => <Details result={result} />}
+            renderDetail={({ result }) => <Details result={result} period={period} />}
           />
         ) : (
           <EmptyState title={current.empty} testId="tab-empty" />

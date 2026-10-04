@@ -9,8 +9,9 @@ const XLSX = createRequire(import.meta.url)('xlsx');
 
 const HEADER_ROW = 4; // 0-based: the v2.4 template's header is row 5
 
-// changes: { [supplierGstin]: { person?, phone?, email? } } -> path of the copy
-export function registerWithContacts(sourcePath, changes, name = 'register-copy') {
+// changes: { [supplierGstin]: { person?, phone?, email? } } -> path of the copy.
+// traderPhone adds the "Contact phone" label the demo-local files carry on row 1.
+export function registerWithContacts(sourcePath, changes, name = 'register-copy', { traderPhone = null } = {}) {
   const book = XLSX.readFile(sourcePath);
   const sheet = book.Sheets[book.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, blankrows: true });
@@ -30,6 +31,10 @@ export function registerWithContacts(sourcePath, changes, name = 'register-copy'
       if (change[field] === undefined) continue;
       sheet[XLSX.utils.encode_cell({ r, c: col[field] })] = { t: 's', v: change[field] };
     }
+  }
+  if (traderPhone) {
+    sheet.G1 = { t: 's', v: 'Contact phone :' };
+    sheet.H1 = { t: 's', v: traderPhone };
   }
   const path = join(tmpdir(), `${name}-${process.pid}-${Date.now()}.xlsx`);
   XLSX.writeFile(book, path);

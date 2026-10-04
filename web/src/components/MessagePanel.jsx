@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatSentTime } from '../lib/calendar.js';
+import { ComposeDialog } from './ComposeDialog.jsx';
+import { EmailThreads } from './EmailThreads.jsx';
+import { useMail } from './MailProvider.jsx';
 
 // The message to a supplier, built by the server (services/supplierMessages.js),
-// with the ways to send it. Nothing is sent from here: Copy puts the text on the
-// clipboard, WhatsApp and Email open the trader's own app with it filled in.
+// with the ways to send it. Copy puts the text on the clipboard and WhatsApp opens
+// the trader's own app. Email sends from the app when the server is set up for it
+// (services/supplierEmail.js) and the panel knows which supplier and documents
+// the message is about; otherwise it opens the trader's mail app (mailto).
 export function contactLine(contact) {
   if (!contact) return null;
   return [contact.person, contact.phone, contact.email].filter(Boolean).join(' · ') || null;
@@ -31,6 +37,13 @@ async function copyText(text) {
   document.body.removeChild(area);
 }
 
+// The email body: the message, then how to reach the trader back.
+export function emailBody(message, traderPhone) {
+  return traderPhone ? `${message.text}
+
+Reply here or on WhatsApp ${traderPhone}` : message.text;
+}
+
 // A control that cannot be used here, still focusable so its reason is reachable.
 function Unavailable({ children, reason }) {
   return (
@@ -47,11 +60,19 @@ export function MessagePanel({
   card = false,
   noContactText = 'No contact on file',
   headingLevel = 3,
-  testId = 'message-panel'
+  testId = 'message-panel',
+  // For sending from the app: who and what the message is about.
+  supplierGstin = null,
+  documentRefs = null,
+  taxPeriod = null,
+  context = null
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(null);
+  const [composing, setComposing] = useState(false);
+  const [sentAt, setSentAt] = useState(null);
   const timer = useRef(null);
+  const { mail, send } = useMail();
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -59,6 +80,14 @@ export function MessagePanel({
   const Heading = `h${headingLevel}`;
   const line = contactLine(contact);
   const mailto = mailtoHref(contact, message);
+  const refs = (documentRefs ?? []).filter(Boolean);
+  const inApp = Boolean(mail?.enabled && contact?.email && supplierGstin && refs.length);
+
+  const sendEmail = async ({ subject, body }) => {
+    const thread = await send({ supplierGstin, documentRefs: refs, subject, body, taxPeriod, context });
+    setSentAt(thread.sentAt);
+    setComposing(false);
+  };
 
   const copy = async () => {
     setCopyError(null);
@@ -103,7 +132,11 @@ export function MessagePanel({
             WhatsApp
           </Unavailable>
         )}
-        {mailto ? (
+        {inApp ? (
+          <button type="button" className="btn" onClick={() => setComposing(true)} data-testid="email-button">
+            Email
+          </button>
+        ) : mailto ? (
           <a className="btn" href={mailto}>
             Email
           </a>
@@ -111,9 +144,21 @@ export function MessagePanel({
           <Unavailable reason="No email address on file">Email</Unavailable>
         )}
         <span className="caption" aria-live="polite">
-          {copied ? 'Message copied' : copyError ?? ''}
+          {copied ? 'Message copied' : copyError ?? (sentAt ? `Emailed ${formatSentTime(sentAt)}` : '')}
         </span>
       </div>
+      <EmailThreads supplierGstin={supplierGstin} invoiceNo={refs[0] ?? null} />
+      {inApp ? (
+        <ComposeDialog
+          open={composing}
+          to={contact.email}
+          fromName={mail.fromName}
+          initialSubject={`${refs[0]} · ${mail.fromName ?? ''}`.replace(/ · $/, '')}
+          initialBody={emailBody(message, mail.traderPhone)}
+          onSend={sendEmail}
+          onCancel={() => setComposing(false)}
+        />
+      ) : null}
     </section>
   );
 }

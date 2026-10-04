@@ -17,8 +17,11 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "imapflow": "^2.2.5",
+    "mailparser": "^3.9.35",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.11.3",
+    "nodemailer": "^10.0.14",
     "papaparse": "^5.4.1",
     "xlsx": "^0.18.5"
   },

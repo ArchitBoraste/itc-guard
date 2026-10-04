@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar.jsx';
 import { TopBar } from './components/TopBar.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { ErrorBox, Loading } from './components/States.jsx';
+import { MailProvider } from './components/MailProvider.jsx';
 import { notFiledRows } from './lib/overview.js';
 import { UploadScreen } from './screens/Upload.jsx';
 import { OverviewScreen } from './screens/Overview.jsx';
@@ -237,6 +238,7 @@ export default function App() {
   }
 
   return (
+    <MailProvider refreshKey={dataVersion}>
     <div className="shell">
       <Sidebar route={location.route} href={href} badges={badges} trader={trader} />
       <div className="main">
@@ -260,5 +262,6 @@ export default function App() {
         </main>
       </div>
     </div>
+    </MailProvider>
   );
 }

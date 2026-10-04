@@ -279,6 +279,10 @@ export function NotFiledScreen({ period, dataVersion }) {
           title={`Message to ${current.supplier.tradeName}`}
           contact={current.supplier.contact}
           message={current.invoice.message}
+          supplierGstin={current.supplier.gstin}
+          documentRefs={[current.invoice.invoiceNo]}
+          taxPeriod={period}
+          context="notfiled"
         />
       ) : null}
     </>

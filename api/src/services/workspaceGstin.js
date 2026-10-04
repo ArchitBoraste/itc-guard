@@ -62,3 +62,13 @@ export async function adoptFileGstin(connection, orgId, fileGstin) {
   }
   return fileGstin;
 }
+
+// Inside the register commit: the trader's own phone from the register's
+// "Contact phone" label, which the email signature carries. Latest register
+// carrying one wins; Clear all data resets it (demoStory.wipeOrgData).
+export async function adoptTraderPhone(connection, orgId, phone) {
+  const value = String(phone ?? '').replace(/\s+/g, ' ').trim().slice(0, 32);
+  if (!value) return null;
+  await connection.query('UPDATE organizations SET trader_phone = ? WHERE id = ?', [value, orgId]);
+  return value;
+}

@@ -188,6 +188,10 @@ export function CorrectionsScreen({ period, corrections }) {
           title={`Reminder to ${current.supplier.name}`}
           contact={current.supplier.contact}
           message={current.message}
+          supplierGstin={current.supplier.gstin}
+          documentRefs={[current.document.invoiceNo]}
+          taxPeriod={period}
+          context="corrections"
         />
       ) : null}
     </>
