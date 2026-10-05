@@ -158,9 +158,13 @@ async function main() {
   return 0;
 }
 
+// exitCode, not exit(): on Windows, process.exit() while fetch's sockets are still
+// closing trips a libuv assertion and the exit status is lost.
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    process.exitCode = code;
+  })
   .catch((err) => {
     console.error(`self-test crashed: ${err.name ?? 'error'}`);
-    process.exit(1);
+    process.exitCode = 1;
   });
