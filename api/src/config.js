@@ -73,6 +73,12 @@ export const config = {
     return mailConfig();
   },
 
+  // Supplier WhatsApp through Meta's Cloud API, read lazily like mail. Every value
+  // comes from the environment and none is ever logged.
+  get whatsapp() {
+    return whatsappConfig();
+  },
+
   // Recommendation tuning, read lazily for the same reason as demo.
   get matching() {
     return {
@@ -120,6 +126,36 @@ function mailConfig() {
     dailyLimit: messageDailyLimit(),
     pollSeconds: Number(env('IMAP_POLL_SECONDS') || 30),
     gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL }
+  };
+}
+
+// Meta's Graph API version for the WhatsApp Cloud API calls: the latest on Meta's
+// Graph API changelog (v26.0, 29 Jul 2026) when this was written.
+// WHATSAPP_GRAPH_VERSION overrides it.
+export const DEFAULT_GRAPH_VERSION = 'v26.0';
+
+function whatsappConfig() {
+  const version = env('WHATSAPP_GRAPH_VERSION');
+  const token = env('WHATSAPP_TOKEN');
+  const phoneNumberId = env('WHATSAPP_PHONE_NUMBER_ID');
+  const templateName = env('WHATSAPP_TEMPLATE_NAME');
+  return {
+    // Not configured -> the WhatsApp button stays a wa.me link.
+    enabled: Boolean(token && phoneNumberId && templateName),
+    token,
+    phoneNumberId,
+    businessAccountId: env('WHATSAPP_BUSINESS_ACCOUNT_ID'),
+    templateName,
+    templateLanguage: env('WHATSAPP_TEMPLATE_LANGUAGE') || 'en',
+    graphVersion: /^v\d+\.\d+$/.test(version) ? version : DEFAULT_GRAPH_VERSION,
+    // The webhook: GET answers Meta's check with verifyToken, POST must be signed
+    // with appSecret.
+    appSecret: env('WHATSAPP_APP_SECRET'),
+    verifyToken: env('WHATSAPP_VERIFY_TOKEN'),
+    // The only numbers the app may message: digits with the country code. Empty
+    // sends to nobody.
+    allowlist: env('WHATSAPP_ALLOWLIST').split(',').map((entry) => entry.replace(/\D/g, '')).filter(Boolean),
+    dailyLimit: messageDailyLimit()
   };
 }
 

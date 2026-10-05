@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { formatSentTime } from '../lib/calendar.js';
 import { ComposeDialog } from './ComposeDialog.jsx';
 import { MessageThreads } from './MessageThreads.jsx';
+import { WhatsAppDialog } from './WhatsAppDialog.jsx';
 import { useMail } from './MailProvider.jsx';
 
 // The message to a supplier, built by the server (services/supplierMessages.js),
-// with the ways to send it. Copy puts the text on the clipboard and WhatsApp opens
-// the trader's own app. Email sends from the app when the server is set up for it
-// (services/supplierEmail.js) and the panel knows which supplier and documents
-// the message is about; otherwise it opens the trader's mail app (mailto).
+// with the ways to send it. Copy puts the text on the clipboard. Email and
+// WhatsApp send from the app when the server is set up for them
+// (services/supplierEmail.js, services/supplierWhatsapp.js) and the panel knows
+// which supplier and documents the message is about; otherwise they open the
+// trader's own mail app (mailto) and WhatsApp (wa.me).
 export function contactLine(contact) {
   if (!contact) return null;
   return [contact.person, contact.phone, contact.email].filter(Boolean).join(' · ') || null;
@@ -70,9 +72,10 @@ export function MessagePanel({
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(null);
   const [composing, setComposing] = useState(false);
-  const [sentAt, setSentAt] = useState(null);
+  const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [sent, setSent] = useState(null);
   const timer = useRef(null);
-  const { mail, send } = useMail();
+  const { mail, whatsapp, send, preview } = useMail();
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -82,11 +85,28 @@ export function MessagePanel({
   const mailto = mailtoHref(contact, message);
   const refs = (documentRefs ?? []).filter(Boolean);
   const inApp = Boolean(mail?.enabled && contact?.email && supplierGstin && refs.length);
+  const whatsappInApp = Boolean(whatsapp?.enabled && contact?.whatsapp && supplierGstin && refs.length);
+  const whatsappRequest = {
+    channel: 'whatsapp',
+    supplierGstin,
+    documentRefs: refs,
+    body: message.text,
+    ask: message.ask ?? null,
+    invoiceDate: message.invoiceDate ?? null,
+    taxPeriod,
+    context
+  };
 
   const sendEmail = async ({ subject, body }) => {
     const thread = await send({ supplierGstin, documentRefs: refs, subject, body, taxPeriod, context });
-    setSentAt(thread.sentAt);
+    setSent(`Emailed ${formatSentTime(thread.sentAt)}`);
     setComposing(false);
+  };
+
+  const sendWhatsapp = async () => {
+    const thread = await send(whatsappRequest);
+    setSent(`Sent on WhatsApp ${formatSentTime(thread.messages?.at(-1)?.sentAt ?? thread.sentAt)}`);
+    setWhatsappOpen(false);
   };
 
   const copy = async () => {
@@ -123,7 +143,11 @@ export function MessagePanel({
         <button type="button" className="btn" onClick={copy}>
           {copied ? 'Copied' : 'Copy'}
         </button>
-        {message.whatsappUrl ? (
+        {whatsappInApp ? (
+          <button type="button" className="btn" onClick={() => setWhatsappOpen(true)} data-testid="whatsapp-button">
+            WhatsApp
+          </button>
+        ) : message.whatsappUrl ? (
           <a className="btn" href={message.whatsappUrl} target="_blank" rel="noopener noreferrer">
             WhatsApp
           </a>
@@ -144,7 +168,7 @@ export function MessagePanel({
           <Unavailable reason="No email address on file">Email</Unavailable>
         )}
         <span className="caption" aria-live="polite">
-          {copied ? 'Message copied' : copyError ?? (sentAt ? `Emailed ${formatSentTime(sentAt)}` : '')}
+          {copied ? 'Message copied' : copyError ?? sent ?? ''}
         </span>
       </div>
       <MessageThreads supplierGstin={supplierGstin} invoiceNo={refs[0] ?? null} />
@@ -157,6 +181,17 @@ export function MessagePanel({
           initialBody={emailBody(message, mail.traderPhone)}
           onSend={sendEmail}
           onCancel={() => setComposing(false)}
+        />
+      ) : null}
+      {whatsappInApp ? (
+        <WhatsAppDialog
+          open={whatsappOpen}
+          request={whatsappRequest}
+          contactName={contact.person}
+          fallbackUrl={message.whatsappUrl}
+          preview={preview}
+          onSend={sendWhatsapp}
+          onCancel={() => setWhatsappOpen(false)}
         />
       ) : null}
     </section>

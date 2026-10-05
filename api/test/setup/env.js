@@ -28,8 +28,14 @@ if (!process.env.ITC_QUIET_ENV) {
 // local dev) must not change what every other suite exercises.
 process.env.DEMO_TENANCY = 'off';
 
-// Nor may a developer's mail settings: no suite sends a real email, polls a real
-// mailbox or calls Gemini. The email suites configure a fake transport themselves.
-for (const name of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'IMAP_HOST', 'EMAIL_ALLOWLIST', 'GEMINI_API_KEY', 'GEMINI_MODEL']) {
+// Nor may a developer's mail or WhatsApp settings: no suite sends a real email or
+// WhatsApp, polls a real mailbox or calls Gemini. The email and WhatsApp suites
+// configure a fake transport and a fake Graph API themselves.
+for (const name of [
+  'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'IMAP_HOST', 'EMAIL_ALLOWLIST', 'GEMINI_API_KEY', 'GEMINI_MODEL',
+  'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_BUSINESS_ACCOUNT_ID', 'WHATSAPP_APP_SECRET',
+  'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_TEMPLATE_NAME', 'WHATSAPP_TEMPLATE_LANGUAGE', 'WHATSAPP_ALLOWLIST',
+  'WHATSAPP_GRAPH_VERSION', 'MESSAGE_DAILY_LIMIT', 'EMAIL_DAILY_LIMIT'
+]) {
   delete process.env[name];
 }

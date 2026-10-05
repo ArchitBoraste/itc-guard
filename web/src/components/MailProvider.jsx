@@ -1,20 +1,25 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 
-// The workspace's supplier email: whether the server can send, every thread with
-// its replies, and the unread count the bells show. Polls GET /api/messages/unread
-// every 20 s and re-reads the threads only when its version changes.
+// The workspace's supplier messages: whether the server can send email and
+// WhatsApp, every thread with its messages and replies, and the unread count the
+// bells show. Polls GET /api/messages/unread every 20 s and re-reads the threads
+// only when its version changes (a new message, reply or delivery status).
 //
-// Without a provider (a screen rendered on its own) everything reads as "email
-// off, no threads", so the Email button stays a mailto link.
+// Without a provider (a screen rendered on its own) everything reads as "email and
+// WhatsApp off, no threads", so the buttons stay mailto and wa.me links.
 const POLL_MS = 20000;
 
 const EMPTY = Object.freeze({
   mail: null,
+  whatsapp: null,
   threads: [],
   unread: { count: 0, latest: [] },
   send: async () => {
-    throw new Error('email is not available here');
+    throw new Error('sending is not available here');
+  },
+  preview: async () => {
+    throw new Error('WhatsApp is not available here');
   },
   markRead: async () => {},
   reload: async () => {}
@@ -50,6 +55,7 @@ export function promisedDateFor(threads, gstin, invoiceNo) {
 
 export function MailProvider({ children, refreshKey = 0 }) {
   const [mail, setMail] = useState(null);
+  const [whatsapp, setWhatsapp] = useState(null);
   const [threads, setThreads] = useState([]);
   const [unread, setUnread] = useState({ count: 0, latest: [] });
   const version = useRef(null);
@@ -60,9 +66,10 @@ export function MailProvider({ children, refreshKey = 0 }) {
       const body = await api.listMessages();
       if (!alive.current || !body) return;
       setMail(body.mail ?? null);
+      setWhatsapp(body.whatsapp ?? null);
       setThreads(body.threads ?? []);
     } catch {
-      // Email is an extra: a failed read leaves the app as it was.
+      // Messaging is an extra: a failed read leaves the app as it was.
     }
   }, []);
 
@@ -95,11 +102,16 @@ export function MailProvider({ children, refreshKey = 0 }) {
     async (message) => {
       const thread = await api.sendMessage(message);
       setThreads((current) => [thread, ...current.filter((entry) => entry.id !== thread.id)]);
-      setMail((current) => (current ? { ...current, sentToday: (current.sentToday ?? 0) + 1 } : current));
+      // One daily limit for both channels.
+      const counted = (current) => (current ? { ...current, sentToday: (current.sentToday ?? 0) + 1 } : current);
+      setMail(counted);
+      setWhatsapp(counted);
       return thread;
     },
     []
   );
+
+  const preview = useCallback((message) => api.previewMessage(message), []);
 
   const markRead = useCallback(
     async (gstin) => {
@@ -121,11 +133,13 @@ export function MailProvider({ children, refreshKey = 0 }) {
     [threads, poll]
   );
 
-  const value = useMemo(() => ({ mail, threads, unread, send, markRead, reload: poll }), [
+  const value = useMemo(() => ({ mail, whatsapp, threads, unread, send, preview, markRead, reload: poll }), [
     mail,
+    whatsapp,
     threads,
     unread,
     send,
+    preview,
     markRead,
     poll
   ]);

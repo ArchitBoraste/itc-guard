@@ -39,6 +39,7 @@ import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { setSupplierContact } from '../services/supplierContacts.js';
 import { mailStatus, sendSupplierEmail } from '../services/supplierEmail.js';
 import { listThreads, markSupplierRead, unreadSummary } from '../services/messageThreads.js';
+import { previewSupplierWhatsapp, sendSupplierWhatsapp, whatsappStatus } from '../services/supplierWhatsapp.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
@@ -502,13 +503,19 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     res.json(await setSupplierContact(req.orgId, String(req.params.gstin).toUpperCase(), req.body ?? {}));
   }));
 
-  // --- supplier email (services/supplierEmail.js) -----------------------------
+  // --- supplier messages: email (services/supplierEmail.js) and WhatsApp -----
+  // (services/supplierWhatsapp.js), on one thread model (services/messageThreads.js)
 
-  // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday }, threads }:
-  // every thread in the workspace with its replies.
+  // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday },
+  //   whatsapp: { enabled, dailyLimit, sentToday }, threads }: every thread in the
+  // workspace with its messages and replies.
   router.get('/messages', wrap(async (req, res) => {
-    const [mail, threads] = await Promise.all([mailStatus(req.orgId), listThreads(req.orgId)]);
-    res.json({ mail, threads });
+    const [mail, whatsapp, threads] = await Promise.all([
+      mailStatus(req.orgId),
+      whatsappStatus(req.orgId),
+      listThreads(req.orgId)
+    ]);
+    res.json({ mail, whatsapp, threads });
   }));
 
   // { count, version, latest }: what the bells poll.
@@ -516,10 +523,24 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
     res.json(await unreadSummary(req.orgId));
   }));
 
-  // Sends one email to the supplier's current contact and stores the thread:
-  // { supplierGstin, documentRefs[], subject, body, taxPeriod?, context? }.
+  // Sends one message to the supplier's current contact and stores it on its
+  // thread. channel 'email' (the default): { supplierGstin, documentRefs[],
+  // subject, body, taxPeriod?, context? }. channel 'whatsapp': the same without
+  // subject, plus ask and invoiceDate for the template.
   router.post('/messages', wrap(async (req, res) => {
+    const channel = req.body?.channel ?? 'email';
+    if (channel === 'whatsapp') {
+      return res.status(201).json({ thread: await sendSupplierWhatsapp(req.orgId, req.body) });
+    }
+    if (channel !== 'email') throw new ServiceError("channel must be 'email' or 'whatsapp'");
     res.status(201).json({ thread: await sendSupplierEmail(req.orgId, req.body ?? {}) });
+  }));
+
+  // What a WhatsApp send would do, checked but not sent: the number, template or
+  // text, and the text the supplier will read. Refuses exactly as the send would.
+  router.post('/messages/preview', wrap(async (req, res) => {
+    if ((req.body?.channel ?? 'whatsapp') !== 'whatsapp') throw new ServiceError('only a WhatsApp message has a preview');
+    res.json({ preview: await previewSupplierWhatsapp(req.orgId, req.body ?? {}) });
   }));
 
   // Marks every reply from one supplier read: { supplierGstin }.
