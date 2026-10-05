@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   GraphError,
+  WINDOW_CLOSED,
   explainGraphError,
   fetchTemplate,
   graphFailure,
@@ -12,7 +13,7 @@ import {
   setGraphFetch,
   templateParameters
 } from '../../src/services/whatsappApi.js';
-import { DEFAULT_GRAPH_VERSION } from '../../src/config.js';
+import { DEFAULT_GRAPH_VERSION, config } from '../../src/config.js';
 
 const ENV = {
   WHATSAPP_TOKEN: 'test-token-abc123',
@@ -35,7 +36,46 @@ beforeEach(() => {
 
 afterEach(() => {
   setGraphFetch(null);
-  for (const name of [...Object.keys(ENV), 'WHATSAPP_GRAPH_VERSION', 'WHATSAPP_TEMPLATE_LANGUAGE']) delete process.env[name];
+  for (const name of [...Object.keys(ENV), 'WHATSAPP_GRAPH_VERSION', 'WHATSAPP_TEMPLATE_LANG', 'WHATSAPP_FIRST_MESSAGE']) {
+    delete process.env[name];
+  }
+});
+
+describe('settings', () => {
+  it('sends the template by default, and text when WHATSAPP_FIRST_MESSAGE is text', () => {
+    expect(config.whatsapp).toMatchObject({ enabled: true, firstMessage: 'template', templateLanguage: 'en' });
+    process.env.WHATSAPP_FIRST_MESSAGE = 'Text';
+    expect(config.whatsapp.firstMessage).toBe('text');
+    process.env.WHATSAPP_FIRST_MESSAGE = 'sms';
+    expect(config.whatsapp.firstMessage).toBe('template');
+  });
+
+  it('needs a template name only when a template can be sent', () => {
+    delete process.env.WHATSAPP_TEMPLATE_NAME;
+    expect(config.whatsapp.enabled).toBe(false);
+    process.env.WHATSAPP_FIRST_MESSAGE = 'text';
+    expect(config.whatsapp.enabled).toBe(true);
+  });
+
+  it('reads the template language from WHATSAPP_TEMPLATE_LANG', async () => {
+    process.env.WHATSAPP_TEMPLATE_LANG = 'en_US';
+    fake(() => ({ body: { messages: [{ id: 'wamid.L1' }] } }));
+    await sendTemplate('919800000001', ['a', 'b', 'c', 'd', 'e']);
+    expect(calls[0].json.template.language).toEqual({ code: 'en_US' });
+  });
+});
+
+describe('the 24-hour window', () => {
+  it('is one plain sentence, refused at send or failed later, for both of its codes', () => {
+    const sentence = "WhatsApp only allows a free message within 24 hours of the supplier's last message. Ask them to message our WhatsApp number first, or wait for the template to be approved.";
+    expect(WINDOW_CLOSED).toBe(sentence);
+    for (const code of [131047, 470]) {
+      expect(explainGraphError(code)).toEqual({ status: 409, code: 'whatsapp_window_closed', message: sentence, short: sentence });
+    }
+    // Every other error keeps its own words.
+    expect(explainGraphError(131030).message).not.toBe(sentence);
+    expect(explainGraphError(132001).message).not.toBe(sentence);
+  });
 });
 
 describe('sending', () => {
@@ -103,7 +143,6 @@ describe("Meta's errors in plain words", () => {
     expect(explainGraphError(131030)).toMatchObject({ status: 403, code: 'whatsapp_recipient_not_allowed' });
     expect(explainGraphError(131030).message).toContain('allowed recipients');
     expect(explainGraphError(131047)).toMatchObject({ status: 409, code: 'whatsapp_window_closed' });
-    expect(explainGraphError(131047).message).toContain('24 hours');
     expect(explainGraphError(132001)).toMatchObject({ code: 'whatsapp_template_not_approved' });
     expect(explainGraphError(132001).message).toContain('"itc_guard_chase" in language "en"');
     expect(explainGraphError(132000).code).toBe('whatsapp_template_parameters');
@@ -114,7 +153,7 @@ describe("Meta's errors in plain words", () => {
   });
 
   it('gives a short reason for a delivery that failed later', () => {
-    expect(explainGraphError(131047).short).toBe('more than 24 hours since they last wrote');
+    expect(explainGraphError(131026).short).toContain('could not deliver');
     expect(explainGraphError(131026).short).toContain('could not deliver');
     expect(explainGraphError(888, { title: 'Something odd' }).short).toBe('Something odd (Meta error 888)');
   });
@@ -163,12 +202,12 @@ describe('the template', () => {
   });
 
   it('says MISSING when there is no such name in that language, and knows named variables', async () => {
-    process.env.WHATSAPP_TEMPLATE_LANGUAGE = 'hi';
+    process.env.WHATSAPP_TEMPLATE_LANG = 'hi';
     fake(() => ({ body: listing }));
     expect((await fetchTemplate()).status).toBe('MISSING');
 
     setGraphFetch(null);
-    process.env.WHATSAPP_TEMPLATE_LANGUAGE = 'en';
+    process.env.WHATSAPP_TEMPLATE_LANG = 'en';
     fake(() => ({
       body: {
         data: [{

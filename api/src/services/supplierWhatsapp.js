@@ -1,8 +1,9 @@
 // Supplier WhatsApp sent from the app through Meta's WhatsApp Cloud API: the
 // whatsapp channel of services/messageThreads.js.
 //
-// Off unless WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TEMPLATE_NAME
-// are set: the WhatsApp button then stays a wa.me link. When on:
+// Off unless WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are set, with
+// WHATSAPP_TEMPLATE_NAME unless WHATSAPP_FIRST_MESSAGE is "text": the WhatsApp
+// button then stays a wa.me link. When on:
 //   * the number is the supplier's contact phone AT SEND TIME (an Indian mobile,
 //     E.164), and the thread keeps the number it went to;
 //   * only numbers in WHATSAPP_ALLOWLIST receive anything (403), and the daily
@@ -12,7 +13,10 @@
 //     an approved template, so a thread opens with WHATSAPP_TEMPLATE_NAME and five
 //     values: whom, from whom, the invoice number, its date and the ask (one
 //     sentence from services/supplierMessages.js). Once the supplier has written
-//     on that thread in the last 24 hours the full message goes as plain text;
+//     on that thread in the last 24 hours the full message goes as plain text.
+//     WHATSAPP_FIRST_MESSAGE=text sends the full message as plain text every time,
+//     for while the template is in review: WhatsApp delivers it only within 24
+//     hours of the supplier's last message, and says so otherwise (WINDOW_CLOSED);
 //   * the wamid Meta returns is stored on the message. A swipe-reply carries it as
 //     context.id, and the delivery statuses name it (services/whatsappWebhook.js).
 import { config } from '../config.js';
@@ -72,6 +76,7 @@ export async function whatsappStatus(orgId) {
   const wa = config.whatsapp;
   return {
     enabled: wa.enabled,
+    firstMessage: wa.firstMessage,
     dailyLimit: wa.dailyLimit,
     sentToday: wa.enabled ? await sentToday(orgId) : 0
   };
@@ -153,14 +158,22 @@ async function planSend(orgId, input) {
     );
   }
 
-  const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(String(input.invoiceDate ?? ''))
-    ? input.invoiceDate
-    : await invoiceDateOf(orgId, gstin, documentRefs[0]);
-  if (!invoiceDate) throw new ServiceError('invoiceDate (yyyy-mm-dd) is required: the document is not in the books or on the portal');
+  // Only the template needs the date.
+  let invoiceDate = null;
+  if (wa.firstMessage !== 'text') {
+    invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(String(input.invoiceDate ?? ''))
+      ? input.invoiceDate
+      : await invoiceDateOf(orgId, gstin, documentRefs[0]);
+    if (!invoiceDate) throw new ServiceError('invoiceDate (yyyy-mm-dd) is required: the document is not in the books or on the portal');
+  }
 
   const traderName = traderNameOf(await orgRow(orgId)) || 'ITC Guard';
   const thread = await continuingThread(orgId, gstin, to, documentRefs);
   const replied = thread ? await lastReplyAt(thread.id) : null;
+  const windowOpen = Boolean(replied && Date.now() - replied.getTime() < WINDOW_MS);
+  // Why this send is text or the template: 'text_mode' (the server sends text
+  // only), 'window_open' (they wrote in the last 24 hours) or 'first_message'.
+  const reason = wa.firstMessage === 'text' ? 'text_mode' : windowOpen ? 'window_open' : 'first_message';
   return {
     gstin,
     name,
@@ -170,9 +183,10 @@ async function planSend(orgId, input) {
     body,
     traderName,
     thread,
-    // Plain text only while the supplier's own last message is under 24 hours old.
-    format: replied && Date.now() - replied.getTime() < WINDOW_MS ? 'text' : 'template',
-    values: templateValues({ person: contact.person, traderName, documentRefs, invoiceDate, ask: input.ask })
+    reason,
+    format: reason === 'first_message' ? 'template' : 'text',
+    // The template's values whenever the template may go: in text mode it never does.
+    values: reason === 'text_mode' ? null : templateValues({ person: contact.person, traderName, documentRefs, invoiceDate, ask: input.ask })
   };
 }
 
@@ -193,8 +207,10 @@ const templateRecord = (template, values) =>
   renderTemplate(template, values) ?? `Template "${config.whatsapp.templateName}": ${values.join(' · ')}`;
 
 // What the confirm dialog shows before the trader sends:
-//   { to, format: 'template' | 'text', text, templateName, templateStatus, threadRef }
+//   { to, toDisplay, format: 'template' | 'text', reason, text, values, templateName,
+//     templateStatus, threadRef }
 // text is null when the template's body could not be read; values are then shown.
+// reason: 'first_message' | 'window_open' | 'text_mode' (see planSend).
 export async function previewSupplierWhatsapp(orgId, input = {}) {
   const plan = await planSend(orgId, input);
   const template = plan.format === 'template' ? await templateOrNull() : null;
@@ -202,6 +218,7 @@ export async function previewSupplierWhatsapp(orgId, input = {}) {
     to: plan.to,
     toDisplay: displayNumber(plan.to),
     format: plan.format,
+    reason: plan.reason,
     text: plan.format === 'text' ? plan.body : renderTemplate(template, plan.values),
     values: plan.format === 'template' ? plan.values : null,
     templateName: config.whatsapp.templateName,
@@ -223,8 +240,11 @@ export async function sendSupplierWhatsapp(orgId, input = {}) {
       wamid = await sendText(plan.digits, plan.body);
       sent = plan.body;
     } catch (err) {
-      // Meta's clock said the 24 hours were up: the template is still allowed.
-      if (!(err instanceof GraphError) || err.metaCode !== 131047) throw graphFailure(err);
+      // Meta's clock said the 24 hours were up: the template is still allowed,
+      // unless this server sends text only (graphFailure then says WINDOW_CLOSED).
+      if (plan.reason !== 'window_open' || !(err instanceof GraphError) || ![131047, 470].includes(err.metaCode)) {
+        throw graphFailure(err);
+      }
       format = 'template';
     }
   }

@@ -6,6 +6,15 @@ import { useEffect, useId, useRef, useState } from 'react';
 // supplier last wrote) or as the full message. Nothing is sent until Send.
 // A refusal keeps the dialog open with the server's reason and offers the
 // trader's own WhatsApp (the wa.me link) instead.
+// How the message goes, and why: the server's reason (services/supplierWhatsapp.js).
+function formatLine(preview) {
+  if (preview.reason === 'text_mode') {
+    return "The full message as free text. WhatsApp delivers it only within 24 hours of the supplier's last message.";
+  }
+  if (preview.format === 'text') return 'The full message: they wrote in the last 24 hours';
+  return `Your approved template “${preview.templateName}”: WhatsApp's rule for a first message`;
+}
+
 export function WhatsAppDialog({ open, request, contactName = null, fallbackUrl = null, preview, onSend, onCancel }) {
   const titleId = useId();
   const [state, setState] = useState({ phase: 'loading', preview: null, error: null });
@@ -68,11 +77,7 @@ export function WhatsAppDialog({ open, request, contactName = null, fallbackUrl 
                 {contactName ? ` (${contactName})` : ''}
               </span>
               <span className="muted">As</span>
-              <span data-testid="whatsapp-format">
-                {shown.format === 'text'
-                  ? 'The full message: they wrote in the last 24 hours'
-                  : `Your approved template “${shown.templateName}”: WhatsApp's rule for a first message`}
-              </span>
+              <span data-testid="whatsapp-format">{formatLine(shown)}</span>
             </div>
             {unapproved ? (
               <div className="inline-error" data-testid="whatsapp-template-warning">

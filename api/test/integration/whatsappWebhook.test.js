@@ -20,6 +20,7 @@ import { createApp } from '../../src/app.js';
 import { ensureOrg } from '../../src/services/demo.js';
 import { CHANNELS, addSend, createThread } from '../../src/services/messageThreads.js';
 import { handleWhatsappWebhook, webhooksIdle } from '../../src/services/whatsappWebhook.js';
+import { WINDOW_CLOSED } from '../../src/services/whatsappApi.js';
 import { TEST_ORGS, requireDatabase, resetOrg } from '../helpers/db.js';
 
 const ORG_ID = TEST_ORGS.whatsappWebhook;
@@ -204,14 +205,14 @@ describe('delivery statuses', () => {
     expect((await sendRow('wamid.ITCG-TEST-T1')).status).toBe('read');
   });
 
-  it('keep the reason a message failed, in plain words, and the thread shows it', async () => {
+  it('keep the reason a message failed (the 24-hour window, in its one sentence), and the thread shows it', async () => {
     await post(FIXTURES.failed);
     expect(await sendRow('wamid.ITCG-TEST-T2')).toMatchObject({
-      status: 'failed', status_detail: 'more than 24 hours since they last wrote'
+      status: 'failed', status_detail: WINDOW_CLOSED
     });
     const body = await fetch(`${base}/api/messages`).then((res) => res.json());
     const latest = body.threads.find((entry) => entry.id === threads.latest);
-    expect(latest.messages[0]).toMatchObject({ status: 'failed', statusDetail: 'more than 24 hours since they last wrote' });
+    expect(latest.messages[0]).toMatchObject({ status: 'failed', statusDetail: WINDOW_CLOSED });
   });
 
   it('a later send on the thread gets its own status', async () => {

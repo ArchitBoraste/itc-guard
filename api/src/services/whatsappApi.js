@@ -156,6 +156,10 @@ export function renderTemplate(template, values) {
 
 // --- Meta's errors, in plain words ------------------------------------------------
 
+export const WINDOW_CLOSED =
+  "WhatsApp only allows a free message within 24 hours of the supplier's last message. " +
+  'Ask them to message our WhatsApp number first, or wait for the template to be approved.';
+
 // Meta's error code -> { status, code, message, short }. message is for the trader
 // when a send is refused; short finishes "Failed: …" on a message whose delivery
 // failed later (the webhook's status update).
@@ -178,10 +182,12 @@ export function explainGraphError(metaCode, { httpStatus = null, title = null } 
       return plain(403, 'whatsapp_recipient_not_allowed',
         "This number is not on the Meta test number's list of allowed recipients. Add it in the Meta app under WhatsApp > API Setup, or use Open in WhatsApp.",
         "the number is not on the test number's allowed list");
+    // Re-engagement: a free message outside the 24 hours after the supplier last
+    // wrote (470 is the same error from the older API). One sentence wherever the
+    // trader meets it, refused at send or failed later.
+    case 470:
     case 131047:
-      return plain(409, 'whatsapp_window_closed',
-        'More than 24 hours have passed since the supplier last wrote, so WhatsApp only allows the approved template.',
-        'more than 24 hours since they last wrote');
+      return plain(409, 'whatsapp_window_closed', WINDOW_CLOSED, WINDOW_CLOSED);
     case 132001:
       return plain(502, 'whatsapp_template_not_approved',
         `WhatsApp has no approved template "${name}" in language "${language}". It may still be in review, or the name or language differs in WhatsApp Manager.`,

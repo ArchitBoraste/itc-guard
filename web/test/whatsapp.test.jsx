@@ -105,7 +105,7 @@ describe('a WhatsApp thread', () => {
   });
 });
 
-const ON = { enabled: true, dailyLimit: 30, sentToday: 0 };
+const ON = { enabled: true, firstMessage: 'template', dailyLimit: 30, sentToday: 0 };
 const REQUEST = {
   channel: 'whatsapp',
   supplierGstin: GSTIN,
@@ -120,6 +120,7 @@ const PREVIEW = {
   to: '+919800000001',
   toDisplay: '+91 98000 00001',
   format: 'template',
+  reason: 'first_message',
   text: `Hello Rakesh, this is Sharma Electronics. About invoice NS-612 dated 13 Aug 2026: ${MESSAGE.ask}`,
   values: ['Rakesh', 'Sharma Electronics', 'NS-612', '13 Aug 2026', MESSAGE.ask],
   templateName: 'itc_guard_chase',
@@ -153,7 +154,7 @@ describe('sending on WhatsApp from the app', () => {
 
   it('says when the full message goes as text, and warns of a template not yet approved', async () => {
     api.listMessages.mockResolvedValue({ mail: MAIL, whatsapp: ON, threads: [] });
-    api.previewMessage.mockResolvedValueOnce({ ...PREVIEW, format: 'text', text: MESSAGE.text, values: null, threadRef: 'W4TSAP' });
+    api.previewMessage.mockResolvedValueOnce({ ...PREVIEW, format: 'text', reason: 'window_open', text: MESSAGE.text, values: null, threadRef: 'W4TSAP' });
     const user = userEvent.setup();
     panel();
     await user.click(await screen.findByTestId('whatsapp-button'));
@@ -165,6 +166,25 @@ describe('sending on WhatsApp from the app', () => {
     await user.click(screen.getByTestId('whatsapp-button'));
     expect(await screen.findByTestId('whatsapp-template-warning')).toHaveTextContent('shows this template as PENDING');
     expect(screen.getByTestId('whatsapp-preview')).toHaveTextContent('Template itc_guard_chase with: Rakesh · Sharma Electronics · NS-612');
+  });
+
+  it('says when the server sends free text only, and shows the 24-hour refusal in its sentence', async () => {
+    const windowClosed =
+      "WhatsApp only allows a free message within 24 hours of the supplier's last message. " +
+      'Ask them to message our WhatsApp number first, or wait for the template to be approved.';
+    api.listMessages.mockResolvedValue({ mail: MAIL, whatsapp: { ...ON, firstMessage: 'text' }, threads: [] });
+    api.previewMessage.mockResolvedValue({ ...PREVIEW, format: 'text', reason: 'text_mode', text: MESSAGE.text, values: null });
+    api.sendMessage.mockRejectedValue(new Error(windowClosed));
+    const user = userEvent.setup();
+    panel();
+    await user.click(await screen.findByTestId('whatsapp-button'));
+    expect(await screen.findByTestId('whatsapp-format')).toHaveTextContent(
+      "The full message as free text. WhatsApp delivers it only within 24 hours of the supplier's last message."
+    );
+    expect(screen.getByTestId('whatsapp-preview')).toHaveTextContent('Hello Rakesh ji, invoice NS-612');
+    await user.click(screen.getByTestId('whatsapp-send'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(windowClosed);
+    expect(screen.getByTestId('whatsapp-fallback')).toBeInTheDocument();
   });
 
   it("keeps the dialog open with the server's reason and offers the trader's own WhatsApp", async () => {
@@ -205,7 +225,7 @@ describe('delivery state', () => {
     const messages = [
       { ...THREAD.messages[0], status: 'read' },
       { ...THREAD.messages[1], status: 'delivered' },
-      { ...THREAD.messages[1], id: 3, sentAt: '2026-10-06T14:00:00Z', status: 'failed', statusDetail: 'more than 24 hours since they last wrote' }
+      { ...THREAD.messages[1], id: 3, sentAt: '2026-10-06T14:00:00Z', status: 'failed', statusDetail: 'the template is not approved' }
     ];
     api.listMessages.mockResolvedValue({ mail: MAIL, whatsapp: ON, threads: [{ ...THREAD, messages, replies: [] }] });
     panel();
@@ -213,7 +233,7 @@ describe('delivery state', () => {
     expect(states.map((node) => node.textContent)).toEqual([
       '✓✓ Read',
       '✓✓ Delivered',
-      'Failed: more than 24 hours since they last wrote'
+      'Failed: the template is not approved'
     ]);
   });
 

@@ -14,7 +14,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { closePool, pool } from '../../src/db/pool.js';
 import { ensureOrg } from '../../src/services/demo.js';
-import { setGraphFetch } from '../../src/services/whatsappApi.js';
+import { WINDOW_CLOSED, setGraphFetch } from '../../src/services/whatsappApi.js';
 import { storeReply } from '../../src/services/messageThreads.js';
 import { supplierAsk, MESSAGE_KINDS } from '../../src/services/supplierMessages.js';
 import { SUPPLIERS } from '../../../tools/demo-timeline.js';
@@ -120,7 +120,7 @@ afterAll(async () => {
 describe('the first message on a thread', () => {
   it('says WhatsApp is on', async () => {
     const { body } = await api.call('GET', '/api/messages');
-    expect(body.whatsapp).toEqual({ enabled: true, dailyLimit: 30, sentToday: 0 });
+    expect(body.whatsapp).toEqual({ enabled: true, firstMessage: 'template', dailyLimit: 30, sentToday: 0 });
   });
 
   it('previews the template as the supplier will read it, sending nothing', async () => {
@@ -134,6 +134,7 @@ describe('the first message on a thread', () => {
       to: `+${NATIONAL_PHONE}`,
       toDisplay: '+91 98000 00001',
       format: 'template',
+      reason: 'first_message',
       text: `Hello Rakesh, this is Sharma Electronics. About invoice NS-612 dated ${dated}: ${ASK} Please reply here.`,
       values: ['Rakesh', 'Sharma Electronics', 'NS-612', dated, ASK],
       templateName: 'itc_guard_chase',
@@ -187,7 +188,7 @@ describe('later messages on the thread', () => {
     const preview = await api.call('POST', '/api/messages/preview', {
       channel: 'whatsapp', supplierGstin: NATIONAL.gstin, documentRefs: ['ns/612'], body: 'The full message', invoiceDate
     });
-    expect(preview.body.preview).toMatchObject({ format: 'text', text: 'The full message', values: null, threadRef: thread.ref });
+    expect(preview.body.preview).toMatchObject({ format: 'text', reason: 'window_open', text: 'The full message', values: null, threadRef: thread.ref });
 
     const { body } = await send();
     expect(sends[0].body).toMatchObject({ type: 'text', text: { body: expect.stringContaining('invoice NS-612 shows ₹28,000') } });
@@ -283,5 +284,50 @@ describe('refusals', () => {
     } finally {
       process.env.WHATSAPP_TOKEN = token;
     }
+  });
+});
+
+describe('text mode (WHATSAPP_FIRST_MESSAGE=text, while the template is in review)', () => {
+  beforeEach(() => {
+    process.env.WHATSAPP_FIRST_MESSAGE = 'text';
+  });
+
+  afterEach(() => {
+    delete process.env.WHATSAPP_FIRST_MESSAGE;
+    process.env.WHATSAPP_TEMPLATE_NAME = ENV.WHATSAPP_TEMPLATE_NAME;
+  });
+
+  it('sends the full message as text even as the first message, needing no template or date', async () => {
+    delete process.env.WHATSAPP_TEMPLATE_NAME;
+    expect((await api.call('GET', '/api/messages')).body.whatsapp).toMatchObject({ enabled: true, firstMessage: 'text' });
+
+    const preview = await api.call('POST', '/api/messages/preview', {
+      channel: 'whatsapp', supplierGstin: NATIONAL.gstin, documentRefs: ['NS-555'], body: 'The full message'
+    });
+    expect(preview.body.preview).toMatchObject({ format: 'text', reason: 'text_mode', text: 'The full message', values: null, threadRef: null });
+
+    const { status, body } = await send({ documentRefs: ['NS-555'], invoiceDate: undefined, ask: undefined });
+    expect(status).toBe(201);
+    expect(sends).toHaveLength(1);
+    expect(sends[0].body).toMatchObject({ type: 'text', to: NATIONAL_PHONE, text: { body: expect.stringContaining('invoice NS-612 shows ₹28,000') } });
+    expect(body.thread.messages).toEqual([expect.objectContaining({ format: 'text' })]);
+  });
+
+  it('answers a closed 24-hour window in one plain sentence and never falls back to the template', async () => {
+    refuse = (posted) => (posted.type === 'text' ? 131047 : null);
+    const before = (await threadRows()).length;
+    const { status, body } = await send({ documentRefs: ['NS-556'] });
+    expect(status).toBe(409);
+    expect(body).toEqual({ error: 'whatsapp_window_closed', message: WINDOW_CLOSED });
+    expect(sends.map((entry) => entry.body.type)).toEqual(['text']);
+    expect(await threadRows()).toHaveLength(before);
+  });
+
+  it("keeps Meta's other errors in their own words", async () => {
+    refuse = () => 131030;
+    const { status, body } = await send({ documentRefs: ['NS-557'] });
+    expect(status).toBe(403);
+    expect(body.error).toBe('whatsapp_recipient_not_allowed');
+    expect(body.message).not.toBe(WINDOW_CLOSED);
   });
 });

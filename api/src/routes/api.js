@@ -507,7 +507,7 @@ export function apiRouter({ auth = defaultAuth() } = {}) {
   // (services/supplierWhatsapp.js), on one thread model (services/messageThreads.js)
 
   // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday },
-  //   whatsapp: { enabled, dailyLimit, sentToday }, threads }: every thread in the
+  //   whatsapp: { enabled, firstMessage, dailyLimit, sentToday }, threads }: every thread in the
   // workspace with its messages and replies.
   router.get('/messages', wrap(async (req, res) => {
     const [mail, whatsapp, threads] = await Promise.all([

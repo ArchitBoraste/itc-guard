@@ -139,14 +139,19 @@ function whatsappConfig() {
   const token = env('WHATSAPP_TOKEN');
   const phoneNumberId = env('WHATSAPP_PHONE_NUMBER_ID');
   const templateName = env('WHATSAPP_TEMPLATE_NAME');
+  // 'template' (the default): a thread opens with the approved template. 'text':
+  // every message is the full text, for while the template is not yet approved.
+  const firstMessage = env('WHATSAPP_FIRST_MESSAGE').toLowerCase() === 'text' ? 'text' : 'template';
   return {
-    // Not configured -> the WhatsApp button stays a wa.me link.
-    enabled: Boolean(token && phoneNumberId && templateName),
+    // Not configured -> the WhatsApp button stays a wa.me link. Text mode needs no
+    // template.
+    enabled: Boolean(token && phoneNumberId && (templateName || firstMessage === 'text')),
     token,
     phoneNumberId,
     businessAccountId: env('WHATSAPP_BUSINESS_ACCOUNT_ID'),
+    firstMessage,
     templateName,
-    templateLanguage: env('WHATSAPP_TEMPLATE_LANGUAGE') || 'en',
+    templateLanguage: env('WHATSAPP_TEMPLATE_LANG') || 'en',
     graphVersion: /^v\d+\.\d+$/.test(version) ? version : DEFAULT_GRAPH_VERSION,
     // The webhook: GET answers Meta's check with verifyToken, POST must be signed
     // with appSecret.
