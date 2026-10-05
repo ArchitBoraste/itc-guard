@@ -73,6 +73,12 @@ export const config = {
     return mailConfig();
   },
 
+  // Supplier WhatsApp through Meta's Cloud API, read lazily like mail. Every value
+  // comes from the environment and none is ever logged.
+  get whatsapp() {
+    return whatsappConfig();
+  },
+
   // Recommendation tuning, read lazily for the same reason as demo.
   get matching() {
     return {
@@ -103,6 +109,10 @@ const env = (name) => (process.env[name] ?? '').trim();
 // Google's fast, low-cost stable model at the time of writing; GEMINI_MODEL overrides.
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
+// Messages one workspace may send a day, email and WhatsApp together.
+// EMAIL_DAILY_LIMIT is the name it had before WhatsApp.
+const messageDailyLimit = () => Number(env('MESSAGE_DAILY_LIMIT') || env('EMAIL_DAILY_LIMIT') || 30);
+
 function mailConfig() {
   const port = Number(env('SMTP_PORT') || 465);
   const smtp = { host: env('SMTP_HOST'), port, secure: port === 465, user: env('SMTP_USER'), pass: env('SMTP_PASS') };
@@ -113,9 +123,44 @@ function mailConfig() {
     imap: { host: env('IMAP_HOST'), port: 993, user: smtp.user, pass: smtp.pass },
     // Lower-cased addresses the app may send to. Empty sends to nobody.
     allowlist: env('EMAIL_ALLOWLIST').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean),
-    dailyLimit: Number(env('EMAIL_DAILY_LIMIT') || 30),
+    dailyLimit: messageDailyLimit(),
     pollSeconds: Number(env('IMAP_POLL_SECONDS') || 30),
     gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL }
+  };
+}
+
+// Meta's Graph API version for the WhatsApp Cloud API calls: the latest on Meta's
+// Graph API changelog (v26.0, 29 Jul 2026) when this was written.
+// WHATSAPP_GRAPH_VERSION overrides it.
+export const DEFAULT_GRAPH_VERSION = 'v26.0';
+
+function whatsappConfig() {
+  const version = env('WHATSAPP_GRAPH_VERSION');
+  const token = env('WHATSAPP_TOKEN');
+  const phoneNumberId = env('WHATSAPP_PHONE_NUMBER_ID');
+  const templateName = env('WHATSAPP_TEMPLATE_NAME');
+  // 'template' (the default): a thread opens with the approved template. 'text':
+  // every message is the full text, for while the template is not yet approved.
+  const firstMessage = env('WHATSAPP_FIRST_MESSAGE').toLowerCase() === 'text' ? 'text' : 'template';
+  return {
+    // Not configured -> the WhatsApp button stays a wa.me link. Text mode needs no
+    // template.
+    enabled: Boolean(token && phoneNumberId && (templateName || firstMessage === 'text')),
+    token,
+    phoneNumberId,
+    businessAccountId: env('WHATSAPP_BUSINESS_ACCOUNT_ID'),
+    firstMessage,
+    templateName,
+    templateLanguage: env('WHATSAPP_TEMPLATE_LANG') || 'en',
+    graphVersion: /^v\d+\.\d+$/.test(version) ? version : DEFAULT_GRAPH_VERSION,
+    // The webhook: GET answers Meta's check with verifyToken, POST must be signed
+    // with appSecret.
+    appSecret: env('WHATSAPP_APP_SECRET'),
+    verifyToken: env('WHATSAPP_VERIFY_TOKEN'),
+    // The only numbers the app may message: digits with the country code. Empty
+    // sends to nobody.
+    allowlist: env('WHATSAPP_ALLOWLIST').split(',').map((entry) => entry.replace(/\D/g, '')).filter(Boolean),
+    dailyLimit: messageDailyLimit()
   };
 }
 

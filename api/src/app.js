@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { healthRouter } from './routes/health.js';
 import { apiRouter } from './routes/api.js';
+import { webhookRouter } from './routes/webhooks.js';
 
 // pingDb is injected so the app can be exercised without a live MySQL.
 // mountApi is off by default so health-only tests need no database.
@@ -18,6 +19,9 @@ export function createApp({ pingDb, mountApi = true, auth, extraRoutes = null })
   app.disable('x-powered-by');
 
   app.use(cors());
+  // Before the JSON parser, which would consume the raw body a signature is
+  // checked on, and before /api's session, which would mint a workspace for Meta.
+  if (mountApi) app.use('/api/webhooks', webhookRouter());
   app.use(express.json({ limit: '5mb' }));
 
   app.use(healthRouter({ pingDb }));

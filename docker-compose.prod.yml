@@ -116,6 +116,19 @@ services:
       # Reply checking; blank key = replies shown unchecked.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-}
+      # Supplier WhatsApp through Meta's Cloud API (services/supplierWhatsapp.js,
+      # services/whatsappWebhook.js). Blank token, phone number id or template
+      # name leaves the WhatsApp button a wa.me link. Never logged.
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_BUSINESS_ACCOUNT_ID: ${WHATSAPP_BUSINESS_ACCOUNT_ID:-}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+      WHATSAPP_TEMPLATE_NAME: ${WHATSAPP_TEMPLATE_NAME:-}
+      WHATSAPP_TEMPLATE_LANG: ${WHATSAPP_TEMPLATE_LANG:-}
+      WHATSAPP_FIRST_MESSAGE: ${WHATSAPP_FIRST_MESSAGE:-}
+      WHATSAPP_ALLOWLIST: ${WHATSAPP_ALLOWLIST:-}
+      WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-}
 
       NODE_OPTIONS: ${API_NODE_OPTIONS:---max-old-space-size=192}
     deploy:

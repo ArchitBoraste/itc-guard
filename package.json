@@ -13,6 +13,7 @@
     "ml:export": "node tools/export-training-data.js --seed",
     "verify:answer-key": "node tools/verify-answer-key.js",
     "verify:demo": "node tools/verify-demo.js",
-    "mail:selftest": "node tools/mail-selftest.js"
+    "mail:selftest": "node tools/mail-selftest.js",
+    "whatsapp:selftest": "node tools/whatsapp-selftest.js"
   }
 }

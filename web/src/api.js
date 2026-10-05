@@ -152,12 +152,15 @@ export const api = {
   setContact: (gstin, contact) =>
     json('PUT', `/api/suppliers/${encodeURIComponent(gstin)}/contact`, contact),
 
-  // --- supplier email --------------------------------------------------------
-  // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday }, threads }
+  // --- supplier email and WhatsApp ------------------------------------------
+  // { mail: { enabled, fromName, traderPhone, dailyLimit, sentToday },
+  //   whatsapp: { enabled, firstMessage, dailyLimit, sentToday }, threads }
   listMessages: () => request('/api/messages'),
   // { count, version, latest }: what the bells poll.
   unreadMessages: () => request('/api/messages/unread'),
   // { supplierGstin, documentRefs, subject, body, taxPeriod, context } -> thread
   sendMessage: (message) => json('POST', '/api/messages', message).then((body) => body.thread),
+  // What a WhatsApp send would do: { to, toDisplay, format, reason, text, values, templateName, templateStatus, threadRef }
+  previewMessage: (message) => json('POST', '/api/messages/preview', message).then((body) => body.preview),
   markSupplierRead: (supplierGstin) => json('POST', '/api/messages/read', { supplierGstin })
 };

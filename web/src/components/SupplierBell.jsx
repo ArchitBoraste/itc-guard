@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatDate, formatSentTime } from '../lib/calendar.js';
 import { Icon } from './Icon.jsx';
-import { ReplyCard } from './EmailThreads.jsx';
+import { ReplyCard, sentPhrase } from './MessageThreads.jsx';
 import { promisedDateFor, repliesFor, threadsFor, useMail } from './MailProvider.jsx';
 
 // Supplier replies where the trader works: a bell on each supplier's row (once
-// they have been emailed from the app), one in the top bar, and the date a
-// supplier promised under a document's status.
+// they have been emailed or sent a WhatsApp from the app), one in the top bar, and
+// the date a supplier promised under a document's status.
 
 // Closes on Escape or a click outside, and hands focus back to the bell.
 function usePopover() {
@@ -34,7 +34,7 @@ function usePopover() {
   return { open, setOpen, wrap, button };
 }
 
-// The bell on a supplier's row. Nothing until the supplier has been emailed; a dot
+// The bell on a supplier's row. Nothing until the supplier has been messaged; a dot
 // while a reply is unread. Opening it marks the supplier's replies read.
 export function SupplierBell({ gstin, name = null, align = 'left' }) {
   const { threads, markRead } = useMail();
@@ -82,7 +82,8 @@ export function SupplierBell({ gstin, name = null, align = 'left' }) {
             replies.map((reply) => (
               <div key={reply.id}>
                 <div className="caption">
-                  About {reply.thread.documentRefs.join(', ')} · emailed {formatSentTime(reply.thread.sentAt)}
+                  About {reply.thread.documentRefs.join(', ')} · {sentPhrase(reply.thread, { lower: true })}{' '}
+                  {formatSentTime(reply.thread.sentAt)}
                 </div>
                 <ReplyCard reply={reply} />
               </div>
@@ -90,7 +91,7 @@ export function SupplierBell({ gstin, name = null, align = 'left' }) {
           ) : (
             mine.map((thread) => (
               <div key={thread.id} className="caption">
-                Emailed {formatSentTime(thread.sentAt)} about {thread.documentRefs.join(', ')} · no reply yet
+                {sentPhrase(thread)} {formatSentTime(thread.sentAt)} about {thread.documentRefs.join(', ')} · no reply yet
               </div>
             ))
           )}

@@ -82,7 +82,10 @@ export const TEST_ORGS = Object.freeze({
   clearWorkspace: 33,
   contactsFollowRegister: 34,
   supplierEmail: 35,
-  mailInbox: 36
+  mailInbox: 36,
+  messageThreads: 37,
+  whatsappSend: 38,
+  whatsappWebhook: 39
 });
 
 export async function ensureOrg(orgId, gstin) {
@@ -113,6 +116,7 @@ export async function resetOrg(orgId) {
   assertNotAppOrg(orgId, 'resetOrg');
   const statements = [
     'DELETE FROM message_replies WHERE org_id = ?',
+    'DELETE FROM message_sends WHERE org_id = ?',
     'DELETE FROM message_threads WHERE org_id = ?',
     'DELETE FROM match_results WHERE org_id = ?',
     'DELETE FROM runs WHERE org_id = ?',

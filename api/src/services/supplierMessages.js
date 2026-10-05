@@ -1,10 +1,13 @@
-// Every message the app writes to a supplier. RETURNED, never sent: the trader
-// copies it, or opens it in WhatsApp or their mail app, and sends it themselves.
+// Every message the app writes to a supplier. Built here, sent elsewhere: the
+// trader copies it or opens it in WhatsApp or their mail app, or the app sends it
+// (services/supplierEmail.js, services/supplierWhatsapp.js).
 //
 // Two shapes:
 //   supplierMessage(kind, facts)  one document, a few sentences, shown beside the
 //                                 row it is about (IMS decisions, Not filed yet,
 //                                 Corrections). Signed with the trader's name.
+//                                 Its ask is the same request in one sentence, for
+//                                 the WhatsApp template's last value.
 //   buildChaseMessage(...)        every unsettled document from one supplier as a
 //                                 single digest (the alerts' chaseMessage). ASCII
 //                                 only, for SMS gateways and ERP note fields.
@@ -68,7 +71,7 @@ function monthName(taxPeriod) {
 }
 
 // '2026-08-11' -> '11 Aug 2026'
-function formatDate(iso) {
+export function formatDate(iso) {
   const normalized = dateToIso(iso);
   if (!normalized) return String(iso ?? '');
   const [year, month, day] = normalized.split('-').map(Number);
@@ -78,14 +81,20 @@ function formatDate(iso) {
 const DOC_WORD = Object.freeze({ INVOICE: 'invoice', DEBIT_NOTE: 'debit note', CREDIT_NOTE: 'credit note' });
 const docWord = (docType) => DOC_WORD[docType] ?? 'invoice';
 
-// "Hello Rakesh ji," from "Rakesh Jain"; "Hello," with no usable name. A name
-// with digits in it is a placeholder, not a person, and an initial ("K. Balaji")
-// is not a first name, so that one is used whole.
-export function greeting(person) {
+// The name a message addresses: "Rakesh" from "Rakesh Jain", or null with no
+// usable name. A name with digits in it is a placeholder, not a person, and an
+// initial ("K. Balaji") is not a first name, so that one is used whole.
+export function addressName(person) {
   const name = String(person ?? '').trim();
-  if (!name || /\d/.test(name)) return 'Hello,';
+  if (!name || /\d/.test(name)) return null;
   const first = name.split(/\s+/)[0];
-  return `Hello ${/^[A-Za-z]{2,}$/.test(first) ? first : name} ji,`;
+  return /^[A-Za-z]{2,}$/.test(first) ? first : name;
+}
+
+// "Hello Rakesh ji," from "Rakesh Jain"; "Hello," with no usable name.
+export function greeting(person) {
+  const name = addressName(person);
+  return name ? `Hello ${name} ji,` : 'Hello,';
 }
 
 const signOff = (traderName) => (traderName ? `Thank you, ${traderName}` : 'Thank you');
@@ -220,9 +229,70 @@ function reminderSentence(facts) {
   return `${opening} It is still not on the GST portal. Please file it${by}.`;
 }
 
+// --- the ask: the request in one sentence ---------------------------------------------
+
+// One value for a WhatsApp template: no newline or tab, no run of spaces (Meta
+// refuses more than four), at most max characters.
+export function whatsappParam(text, max = 200) {
+  const line = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
+}
+
+const taxAgainst = (facts) =>
+  `${messageRupees(facts.portal.totalTax)} tax against ${messageRupees(facts.books.totalTax)} in our books`;
+
+// The template already names the document and its date, so the ask is only what
+// is wrong and what to do: "X, so please Y."
+function askFor(kind, facts) {
+  const cutOff = formatDate(facts.cutOffDate);
+  const rejected = facts.decided === 'REJECT' ? ' and we have rejected it in IMS' : '';
+  switch (kind) {
+    case K.NOT_FILED_BEFORE_CUTOFF:
+      return `It is not on the GST portal yet, so please include it in your ${returnName(facts.scheme)} by ${cutOff}.`;
+    case K.NOT_FILED_AFTER_CUTOFF:
+      return facts.scheme === FILING_SCHEMES.QRMP
+        ? 'It is not on the GST portal yet, so please include it in your quarterly GSTR-1.'
+        : 'It is not on the GST portal yet, so please add it through GSTR-1A.';
+    case K.SAVED_NOT_FILED_BEFORE_CUTOFF:
+      return `It is saved on the GST portal but not filed yet, so please file it with your ${returnName(facts.scheme)} by ${cutOff}.`;
+    case K.SAVED_NOT_FILED_AFTER_CUTOFF:
+      return `It was saved on the GST portal but not filed by ${cutOff}, so please file it with your next GSTR-1.`;
+    case K.SAVED_DIFFERENT_BEFORE_CUTOFF:
+      return `It is saved on the GST portal with ${taxAgainst(facts)}, so please correct it before you file by ${cutOff}.`;
+    case K.SAVED_DIFFERENT_AFTER_CUTOFF:
+      return `It is saved on the GST portal with ${taxAgainst(facts)} and was not filed by ${cutOff}, so please correct it and file it with your next GSTR-1.`;
+    case K.PORTAL_HIGHER:
+      return `The GST portal shows ${taxAgainst(facts)}${rejected}, so please correct it through GSTR-1A.`;
+    case K.PORTAL_LOWER: {
+      const tax = Math.abs(facts.books.totalTax - facts.portal.totalTax);
+      return `The GST portal shows ${taxAgainst(facts)}, so please report the remaining ${messageRupees(tax)} tax through GSTR-1A.`;
+    }
+    case K.INVOICE_NO_DIFFERS:
+      return `It appears on the GST portal as ${facts.portal.invoiceNo}, so please confirm it is the same bill and correct the number through GSTR-1A.`;
+    case K.NOT_IN_BOOKS:
+      return `It is on the GST portal under our GSTIN but we have no purchase against it${rejected}, so please check and remove it.`;
+    case K.CORRECTION_REMINDER: {
+      const by = facts.nextChance?.date
+        ? ` by ${formatDate(facts.nextChance.date)} so it reaches our ${monthName(facts.nextChance.reachesPeriod)} GSTR-2B`
+        : '';
+      if (facts.needed === 'VALUE_MISMATCH') {
+        return `The GST portal still shows ${messageRupees(facts.portal.totalTax)} tax, so please correct it through GSTR-1A${by}.`;
+      }
+      if (facts.needed === 'SAVED_NOT_FILED') return `It is saved on the GST portal but still not filed, so please file it${by}.`;
+      return `It is still not on the GST portal, so please file it${by}.`;
+    }
+    default:
+      throw new Error(`unknown message kind ${kind}`);
+  }
+}
+
+// The ask, ready to be the WhatsApp template's last value.
+export const supplierAsk = (kind, facts) => whatsappParam(askFor(kind, facts), 200);
+
 const capitalise = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-// supplierMessage(kind, facts) -> { kind, subject, text, whatsappUrl }
+// supplierMessage(kind, facts) -> { kind, subject, text, whatsappUrl, ask, invoiceDate }
 //
 // The greeting ends in a comma, so the sentence after it starts in lower case.
 //
@@ -238,7 +308,9 @@ export function supplierMessage(kind, facts) {
     kind,
     subject: `${capitalise(docWord(facts.docType))} ${facts.invoiceNo} dated ${formatDate(facts.invoiceDate)}`,
     text,
-    whatsappUrl: whatsappLink(facts.contact?.phone, text)
+    whatsappUrl: whatsappLink(facts.contact?.phone, text),
+    ask: supplierAsk(kind, facts),
+    invoiceDate: dateToIso(facts.invoiceDate)
   };
 }
 

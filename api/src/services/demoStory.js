@@ -101,6 +101,7 @@ export function storyFixturesReady() {
 export async function wipeOrgData(orgId) {
   const statements = [
     'DELETE FROM message_replies WHERE org_id = ?',
+    'DELETE FROM message_sends WHERE org_id = ?',
     'DELETE FROM message_threads WHERE org_id = ?',
     'DELETE FROM match_results WHERE org_id = ?',
     'DELETE FROM runs WHERE org_id = ?',

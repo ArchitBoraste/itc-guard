@@ -267,8 +267,10 @@ history is deferred work and is what the Suppliers screen needs to show its full
 
 **Also not built, deliberately:** no login (every request is one stubbed trader), no
 multi-user or roles, no GSP/portal API integration (files move by hand, which is what
-the offline utility is for), no OCR, no email or WhatsApp sending (the app writes the
-message text; the trader sends it), no rate limiting, no audit log, no GSTR-2A parsing.
+the offline utility is for), no OCR, no rate limiting, no audit log, no GSTR-2A parsing.
+Supplier email and WhatsApp go out from the app only when the server is set up for them
+(SMTP, Meta's WhatsApp Cloud API), and only to allowlisted addresses and numbers;
+otherwise the app writes the message text and the trader sends it.
 
 ---
 
@@ -670,6 +672,13 @@ Stub auth: every request is org 1. No login yet.
 | `GET` | `/api/suppliers/:gstin` | period history |
 | `PUT` | `/api/suppliers/:gstin/filing-scheme` | `{ scheme: MONTHLY \| QRMP \| null }` |
 | `PUT` | `/api/suppliers/:gstin/contact` | `{ contactPerson, phone, email }` |
+| `GET` | `/api/messages` | `{ mail, whatsapp, threads }`: whether each channel can send, and every thread with its messages (WhatsApp delivery status) and replies |
+| `POST` | `/api/messages` | `{ channel: email\|whatsapp, supplierGstin, documentRefs[], body, subject? (email), ask?, invoiceDate? (WhatsApp), taxPeriod?, context? }` -> the thread |
+| `POST` | `/api/messages/preview` | the same WhatsApp request, checked but not sent: number, template or text, and the text the supplier will read |
+| `GET` | `/api/messages/unread` | `{ count, version, latest }` for the bells |
+| `POST` | `/api/messages/read` | `{ supplierGstin }` marks that supplier's replies read |
+| `GET` | `/api/webhooks/whatsapp` | Meta's subscription check (`hub.verify_token` = `WHATSAPP_VERIFY_TOKEN`) |
+| `POST` | `/api/webhooks/whatsapp` | Meta's events, signed with `WHATSAPP_APP_SECRET` (`X-Hub-Signature-256` over the raw body): supplier replies and delivery statuses |
 
 A `VALUE_MISMATCH` explanation and its portal remark are built from the fields
 that actually differ — the same two `classify()` tests, measured with the same
@@ -719,7 +728,9 @@ clean filed match, an earlier month's late arrival marked "From August".
 **IMS decisions** — Ready to accept / Needs a decision / Decided / Overridden. Accept,
 Reject or Pending per record (Pending never offered where the portal blocks it), "Accept
 all" for the clean matches, and each row opens to books against portal, one line of why,
-and a message to the supplier with Copy, WhatsApp and Email. The IMS file downloads from
+and a message to the supplier with Copy, WhatsApp and Email (sent from the app when the
+server is set up for them, with the replies and WhatsApp's delivery ticks under the
+message; otherwise wa.me and mailto links). The IMS file downloads from
 the footer; while records are not decided the API answers 409 and the screen says how
 many, by kind, before handing it over.
 
