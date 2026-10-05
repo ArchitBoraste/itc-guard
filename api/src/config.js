@@ -103,6 +103,10 @@ const env = (name) => (process.env[name] ?? '').trim();
 // Google's fast, low-cost stable model at the time of writing; GEMINI_MODEL overrides.
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
+// Messages one workspace may send a day, email and WhatsApp together.
+// EMAIL_DAILY_LIMIT is the name it had before WhatsApp.
+const messageDailyLimit = () => Number(env('MESSAGE_DAILY_LIMIT') || env('EMAIL_DAILY_LIMIT') || 30);
+
 function mailConfig() {
   const port = Number(env('SMTP_PORT') || 465);
   const smtp = { host: env('SMTP_HOST'), port, secure: port === 465, user: env('SMTP_USER'), pass: env('SMTP_PASS') };
@@ -113,7 +117,7 @@ function mailConfig() {
     imap: { host: env('IMAP_HOST'), port: 993, user: smtp.user, pass: smtp.pass },
     // Lower-cased addresses the app may send to. Empty sends to nobody.
     allowlist: env('EMAIL_ALLOWLIST').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean),
-    dailyLimit: Number(env('EMAIL_DAILY_LIMIT') || 30),
+    dailyLimit: messageDailyLimit(),
     pollSeconds: Number(env('IMAP_POLL_SECONDS') || 30),
     gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL }
   };

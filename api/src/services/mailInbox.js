@@ -15,6 +15,7 @@ import { pool } from '../db/pool.js';
 import { newReplyText } from './replyText.js';
 import { SUBJECT_TAG } from './supplierEmail.js';
 import { checkReply } from './replyCheck.js';
+import { CHANNELS, storeReply } from './messageThreads.js';
 
 const LOOKBACK_DAYS = 3;
 const MAX_BACKOFF_MS = 10 * 60 * 1000;
@@ -36,19 +37,16 @@ export async function findThread(parsed) {
   const ids = referencedIds(parsed);
   if (ids.length) {
     const [rows] = await pool.query(
-      'SELECT * FROM message_threads WHERE message_id IN (?) ORDER BY id DESC LIMIT 1',
-      [ids]
+      'SELECT * FROM message_threads WHERE channel = ? AND message_id IN (?) ORDER BY id DESC LIMIT 1',
+      [CHANNELS.EMAIL, ids]
     );
     if (rows.length) return rows[0];
   }
   const tag = SUBJECT_TAG.exec(String(parsed.subject ?? ''));
   if (!tag) return null;
-  const [rows] = await pool.query('SELECT * FROM message_threads WHERE ref = ?', [tag[1]]);
+  const [rows] = await pool.query('SELECT * FROM message_threads WHERE channel = ? AND ref = ?', [CHANNELS.EMAIL, tag[1]]);
   return rows[0] ?? null;
 }
-
-const documentRefsOf = (thread) =>
-  Array.isArray(thread.document_refs) ? thread.document_refs : JSON.parse(thread.document_refs ?? '[]');
 
 // handleIncoming(parsed mail) -> 'stored' | 'duplicate' | 'own' | 'unmatched'.
 // 'stored' and 'duplicate' are ours to mark seen; the rest are left alone.
@@ -57,39 +55,17 @@ export async function handleIncoming(parsed, { check = checkReply } = {}) {
   const thread = await findThread(parsed);
   if (!thread) return 'unmatched';
 
-  if (parsed.messageId) {
-    const [seen] = await pool.query('SELECT id FROM message_replies WHERE message_id = ?', [parsed.messageId]);
-    if (seen.length) return 'duplicate';
-  }
-
-  const text = newReplyText(parsed.text ?? '') || '(no text)';
   const receivedAt = parsed.date instanceof Date && !Number.isNaN(parsed.date.getTime()) ? parsed.date : new Date();
-  const result = await check({
-    ourMessage: thread.body,
-    reply: text,
-    documentRefs: documentRefsOf(thread),
-    receivedAt
-  });
-
-  const [inserted] = await pool.query(
-    `INSERT IGNORE INTO message_replies
-       (org_id, thread_id, message_id, from_address, received_at, body,
-        intent, summary, promised_date, mentions_our_invoice)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      thread.org_id,
-      thread.id,
-      parsed.messageId ? String(parsed.messageId).slice(0, 255) : null,
-      parsed.from?.value?.[0]?.address?.slice(0, 255) ?? null,
+  return storeReply(
+    thread,
+    {
+      externalId: parsed.messageId ?? null,
+      from: parsed.from?.value?.[0]?.address ?? null,
       receivedAt,
-      text,
-      result.intent,
-      result.summary,
-      result.promisedDate,
-      result.mentionsOurInvoice === null ? null : Number(result.mentionsOurInvoice)
-    ]
+      text: newReplyText(parsed.text ?? '') || '(no text)'
+    },
+    { check }
   );
-  return inserted.affectedRows ? 'stored' : 'duplicate';
 }
 
 // --- the poller ------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatSentTime } from '../lib/calendar.js';
 import { ComposeDialog } from './ComposeDialog.jsx';
-import { EmailThreads } from './EmailThreads.jsx';
+import { MessageThreads } from './MessageThreads.jsx';
 import { useMail } from './MailProvider.jsx';
 
 // The message to a supplier, built by the server (services/supplierMessages.js),
@@ -147,7 +147,7 @@ export function MessagePanel({
           {copied ? 'Message copied' : copyError ?? (sentAt ? `Emailed ${formatSentTime(sentAt)}` : '')}
         </span>
       </div>
-      <EmailThreads supplierGstin={supplierGstin} invoiceNo={refs[0] ?? null} />
+      <MessageThreads supplierGstin={supplierGstin} invoiceNo={refs[0] ?? null} />
       {inApp ? (
         <ComposeDialog
           open={composing}

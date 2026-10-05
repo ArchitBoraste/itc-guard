@@ -37,13 +37,8 @@ import { filedOnByGstin, getSupplierHistory, listSuppliers } from '../services/s
 import { rebuildSupplierStats, supplierRiskMap, supplierView } from '../services/supplierRisk.js';
 import { changeSupplierScheme } from '../services/supplierScheme.js';
 import { setSupplierContact } from '../services/supplierContacts.js';
-import {
-  listThreads,
-  mailStatus,
-  markSupplierRead,
-  sendSupplierEmail,
-  unreadSummary
-} from '../services/supplierEmail.js';
+import { mailStatus, sendSupplierEmail } from '../services/supplierEmail.js';
+import { listThreads, markSupplierRead, unreadSummary } from '../services/messageThreads.js';
 import { modelProvenance } from '../risk/score.js';
 import { buildRunImsActions } from '../services/imsActions.js';
 import { BUCKETS } from '../matching/buckets.js';
