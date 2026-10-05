@@ -199,3 +199,27 @@ describe('sending on WhatsApp from the app', () => {
     expect(screen.queryByTestId('whatsapp-button')).toBeNull();
   });
 });
+
+describe('delivery state', () => {
+  it('ticks each message as WhatsApp reports it, with the reason a message failed', async () => {
+    const messages = [
+      { ...THREAD.messages[0], status: 'read' },
+      { ...THREAD.messages[1], status: 'delivered' },
+      { ...THREAD.messages[1], id: 3, sentAt: '2026-10-06T14:00:00Z', status: 'failed', statusDetail: 'more than 24 hours since they last wrote' }
+    ];
+    api.listMessages.mockResolvedValue({ mail: MAIL, whatsapp: ON, threads: [{ ...THREAD, messages, replies: [] }] });
+    panel();
+    const states = await screen.findAllByTestId('whatsapp-status');
+    expect(states.map((node) => node.textContent)).toEqual([
+      '✓✓ Read',
+      '✓✓ Delivered',
+      'Failed: more than 24 hours since they last wrote'
+    ]);
+  });
+
+  it('reads a message Meta accepted but has not reported yet as sent', async () => {
+    api.listMessages.mockResolvedValue({ mail: MAIL, whatsapp: ON, threads: [{ ...THREAD, messages: [THREAD.messages[0]], replies: [] }] });
+    panel();
+    expect(await screen.findByTestId('whatsapp-status')).toHaveTextContent('✓ Sent');
+  });
+});

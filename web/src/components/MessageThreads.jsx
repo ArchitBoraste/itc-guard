@@ -75,6 +75,23 @@ function EmailThread({ thread }) {
   );
 }
 
+// WhatsApp's latest word on a message we sent, from the webhook. Accepted by
+// Meta but not yet reported reads as sent.
+export function DeliveryState({ message }) {
+  const status = message.status ?? 'sent';
+  const label = {
+    sent: '✓ Sent',
+    delivered: '✓✓ Delivered',
+    read: '✓✓ Read',
+    failed: `Failed: ${message.statusDetail ?? 'no reason given'}`
+  }[status] ?? '✓ Sent';
+  return (
+    <span className={`wa-status is-${status}`} data-testid="whatsapp-status" data-status={status}>
+      {label}
+    </span>
+  );
+}
+
 // A WhatsApp thread is a conversation: every message sent on it and every reply,
 // in the order they happened.
 function WhatsappThread({ thread }) {
@@ -91,7 +108,8 @@ function WhatsappThread({ thread }) {
             Sent on WhatsApp {formatSentTime(entry.message.sentAt)}{' '}
             <span className="muted">
               to {formatWhatsappNumber(entry.message.to ?? thread.to)} · #{thread.ref}
-            </span>
+            </span>{' '}
+            <DeliveryState message={entry.message} />
           </div>
         ) : (
           <ReplyCard key={entry.key} reply={entry.reply} />

@@ -2051,6 +2051,23 @@ button {
   overflow: auto;
 }
 
+.wa-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.wa-status.is-read {
+  color: var(--info-text);
+}
+
+.wa-status.is-failed {
+  color: var(--bad-text);
+  font-weight: 600;
+  white-space: normal;
+}
+
 .whatsapp-preview {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
